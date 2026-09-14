@@ -143,3 +143,17 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 /* ---- headings ---- */
 .h-caps{font-size:10px;letter-spacing:.18em;color:var(--dim2);font-family:var(--mono)}
 .h1{font-size:20px;font-weight:600;letter-spacing:.01em;color:var(--cream)}
+
+/* ---- context menu (right-click configurator) ---- */
+.ctxmenu{min-width:200px;max-width:none;padding:6px}
+.ctxsep{height:1px;background:var(--line);margin:5px 4px}
+.ctxitem{display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;border-radius:var(--r-l);
+  font-size:10px;letter-spacing:.12em;color:var(--dim);text-align:left;font-family:var(--mono)}
+.ctxitem:hover{background:var(--accent-12);color:var(--cream)}
+.ctxitem.on{color:var(--accent)}
+.ctxdot{width:5px;height:5px;border-radius:50%;background:transparent;flex:none}
+.ctxitem.on .ctxdot{background:var(--accent)}
+
+/* repeat-one badge on transport tbtns */
+.tbtn .r1{position:absolute;top:0;right:2px;font-size:7px;font-family:var(--mono);color:var(--accent);display:none}
+.tbtn.rep-one .r1{display:block}

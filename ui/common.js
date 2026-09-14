@@ -14,7 +14,7 @@ function loadStore(){
 }
 function saveStore(){
   const s={root:S.root,liked:[...S.liked],playlists:S.playlists.map(p=>({name:p.name,paths:[...p.paths]})),
-           vol:S.vol,lastTrack:S.i,lyricsOpen:S.lyricsOpen,
+           vol:S.vol,lastTrack:S.i,lyricsOpen:S.lyricsOpen,pinned:S.pinned,
            shuffle:S.shuffle,repeat:S.repeat,cfg:S.cfg};
   localStorage.setItem("halftone.store",JSON.stringify(s));
 }
@@ -22,7 +22,7 @@ const S={lib:[],i:-1,playing:false,vol:.8,pinned:false,drag:null,lidx:-1,
          lyricsOpen:false,lyrics:[],meta:null,root:null,
          liked:new Set(),playlists:[],view:"tracks",
          shuffle:false,repeat:"off",
-         cfg:{cover:"small",grid:32,queueSide:false,tech:true},
+         cfg:{cover:"small",grid:32,queueSide:true,tech:true},
          _managed:true,_prog:false,_img:null};
 window.S=S;
 
@@ -31,6 +31,7 @@ window.S=S;
   if(st.liked)S.liked=new Set(st.liked);
   if(st.playlists)S.playlists=st.playlists.map(p=>({name:p.name,paths:new Set(p.paths)}));
   if(st.lyricsOpen)S.lyricsOpen=true;
+  if(st.pinned)S.pinned=true;
   if(st.root)S.root=st.root;
   if(st.lastTrack!=null)S._lastTrack=st.lastTrack;
   if(st.shuffle)S.shuffle=true;
@@ -80,16 +81,18 @@ function tickAccent(now){if(!ACC.anim)return false;
   if(k>=1)ACC.anim=false;return true}
 
 /* ============ art: Bayer dither LED grid ============
-   grid = cells per side (32 standard / 48 fine / 64 ultra).
-   Cell size scales with the canvas CSS size — resizing the
-   window makes the dither chunkier/finer accordingly.       */
+   cfg.grid = cells per 96px of canvas (32 standard / 48 fine /
+   64 ultra) so the CELL SIZE is the design constant. gridFor()
+   maps that cell size onto any canvas — widget art, album cards,
+   hero art, now-playing thumbnail all share one halftone scale. */
 const BAYER=[[0,32,8,40,2,34,10,42],[48,16,56,24,50,18,58,26],[12,44,4,36,14,46,6,38],
   [60,28,52,20,62,30,54,22],[3,35,11,43,1,33,9,41],[51,19,59,27,49,17,57,25],
   [15,47,7,39,13,45,5,37],[63,31,55,23,61,29,53,21]].map(r=>r.map(v=>v/64));
+function gridFor(size){const cellPx=96/(S.cfg.grid||32);return Math.max(10,Math.round(size/cellPx))}
 function drawDither(cv,img,grid){
-  grid=grid||S.cfg.grid||32;
   const dpr=Math.min(2,devicePixelRatio||1);
   const W=cv.clientWidth||cv.width/dpr,H=cv.clientHeight||cv.height/dpr;
+  if(!grid)grid=gridFor(Math.min(W,H));
   cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
   const g=cv.getContext("2d");
   g.fillStyle="#12171A";g.fillRect(0,0,cv.width,cv.height);
@@ -105,6 +108,43 @@ function drawDither(cv,img,grid){
     else if(v>.38)g.fillStyle=`rgba(${ar},${ag},${ab},.45)`;
     else continue;
     g.fillRect(x*cell,y*cell,cell-.75,cell-.75)}}
+
+/* ============ album-themed edge: perimeter dither band ============
+   The widget frame samples the album art's own edges and redraws
+   them as an accent Bayer dither hugging the inside of the 1px
+   accent border — the frame is the album's silhouette.       */
+function edgePixels(img){
+  if(S._edgeImg===img&&S._edgePx)return S._edgePx;
+  const c=document.createElement("canvas");c.width=c.height=64;
+  const g=c.getContext("2d",{willReadFrequently:true});
+  if(img)g.drawImage(img,0,0,64,64);
+  S._edgeImg=img;S._edgePx=g.getImageData(0,0,64,64).data;
+  return S._edgePx;
+}
+function drawEdge(cv,img){
+  const dpr=Math.min(2,devicePixelRatio||1);
+  const W=cv.clientWidth,H=cv.clientHeight;if(!W||!H)return;
+  const dw=Math.round(W*dpr),dh=Math.round(H*dpr);
+  if(cv.width!==dw||cv.height!==dh){cv.width=dw;cv.height=dh}
+  const g=cv.getContext("2d");g.clearRect(0,0,dw,dh);
+  if(!img)return;                    /* no art -> plain accent border only */
+  const px=edgePixels(img),N=64,[ar,ag,ab]=ACC.hex;
+  const C=Math.max(3,Math.round(4*dpr)),in1=Math.round(dpr);
+  const nx=Math.max(1,Math.floor((dw-2*in1)/C)),ny=Math.max(1,Math.floor((dh-2*in1)/C));
+  const lumAt=(ix,iy)=>{const i=(iy*N+ix)*4;return (px[i]*.2126+px[i+1]*.7152+px[i+2]*.0722)/255};
+  const cell=(x,y,bx,by,v0)=>{
+    const v=v0+(BAYER[by%8][bx%8]-.5)*.5;
+    if(v>.58)g.fillStyle=`rgba(${ar},${ag},${ab},.5)`;
+    else if(v>.38)g.fillStyle=`rgba(${ar},${ag},${ab},.26)`;
+    else return;
+    g.fillRect(x,y,C-.75,C-.75)};
+  for(let i=0;i<nx;i++){const u=Math.min(63,Math.round(i/nx*(N-1))),x=in1+i*C;
+    cell(x,in1,i,0,lumAt(u,0));
+    cell(x,dh-in1-C,i,0,lumAt(u,N-1))}
+  for(let j=0;j<ny;j++){const v=Math.min(63,Math.round(j/ny*(N-1))),y=in1+j*C;
+    cell(in1,y,0,j,lumAt(0,v));
+    cell(dw-in1-C,y,0,j,lumAt(N-1,v))}
+}
 
 /* ============ analyser ============ */
 let AC=null,analyser=null,DATA=null,BINS=null,gainNode=null;
@@ -279,7 +319,7 @@ function wireSeek(seek){
   };
   seek.addEventListener("pointerup",end);
   seek.addEventListener("pointercancel",end);
-  /* wheel-seek QoL: scroll over the meter = ±5s */
+  /* wheel-seek QoL: scroll over the meter = +/-5s */
   seek.addEventListener("wheel",e=>{
     e.preventDefault();
     if(el.aud.duration)el.aud.currentTime=Math.max(0,Math.min(el.aud.duration,el.aud.currentTime+(e.deltaY<0?5:-5)));
@@ -289,6 +329,29 @@ function seekTip(){
   const seek=el.seek;const dur=el.aud.duration||0;
   if(el.tip){el.tip.textContent=fmt(S.drag.p*dur)+" / "+fmt(dur);
     el.tip.style.left=(S.drag.p*seek.clientWidth)+"px"}
+}
+
+/* ============ JS window dragging ============
+   data-tauri-drag-region proved unreliable inside WebView2; call
+   startDragging() explicitly, with a 4px threshold so plain clicks
+   and double-clicks (pin toggle) stay clean.                  */
+function wireDrag(zone){
+  let sx=0,sy=0,armed=false;
+  zone.addEventListener("pointerdown",e=>{
+    if(e.button!==0||!curWin)return;
+    if(e.target.closest("button,input,a,.seek,.leds,.lyr-view,.pop,.tbtn,.cbtn"))return;
+    sx=e.clientX;sy=e.clientY;armed=true;
+  });
+  zone.addEventListener("pointermove",e=>{
+    if(!armed)return;
+    if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>4){
+      armed=false;
+      curWin.startDragging().catch(()=>{});
+    }
+  });
+  const done=()=>armed=false;
+  zone.addEventListener("pointerup",done);
+  zone.addEventListener("pointercancel",done);
 }
 
 /* ============ collections ============ */

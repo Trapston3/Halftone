@@ -9,6 +9,7 @@
 .app{display:grid;grid-template-columns:200px 1fr;height:100vh}
 .side{border-right:1px solid var(--line);display:flex;flex-direction:column;background:var(--bg2)}
 .side .logo{display:flex;align-items:center;gap:var(--sp2);padding:var(--sp3);cursor:grab}
+.side .logo:active{cursor:grabbing}
 .side .logo .dotgrid{width:20px;height:20px}
 .side .logo .nm{font-size:11px;font-weight:700;letter-spacing:.3em;color:var(--cream)}
 .side .logo .nm em{color:var(--accent);font-style:normal}
@@ -20,6 +21,7 @@
   display:flex;align-items:center;gap:var(--sp3);padding:var(--sp2) var(--sp4);
   border-bottom:1px solid var(--line);cursor:grab;
 }
+.topbar:active{cursor:grabbing}
 .topbar .h-caps{min-width:120px}
 .search{
   flex:0 1 380px;display:flex;align-items:center;gap:var(--sp2);
@@ -43,6 +45,8 @@
 .npbar .np-sub{font-size:10px;color:var(--dim2);letter-spacing:.08em;font-family:var(--mono)}
 .npbar .seekwrap{flex:1;max-width:560px}
 .npbar .np-ctl{display:flex;align-items:center;gap:var(--sp2);margin-left:auto}
+.npbar .vol{display:flex;align-items:center;gap:var(--sp2)}
+.npbar .vol svg{width:14px;height:14px;color:var(--dim)}
 
 /* track list header row */
 .thead{display:grid;grid-template-columns:28px 1fr 1fr 120px 52px 64px 34px 34px;
@@ -74,6 +78,7 @@
 .librow input:focus{outline:none;border-color:var(--accent)}
 .librow button{padding:6px 12px;border:1px solid var(--line2);border-radius:var(--r-l);font-size:10px;letter-spacing:.14em;color:var(--cream)}
 .librow button:hover{border-color:var(--accent);color:var(--accent)}
+.libstat{margin-top:var(--sp2);font-size:10px;letter-spacing:.1em;color:var(--dim2);font-family:var(--mono)}
 
 .pl-item{display:flex;align-items:center;gap:var(--sp2);width:100%;padding:var(--sp2);border-radius:var(--r-m);text-align:left;color:var(--dim);border:1px solid transparent}
 .pl-item:hover{border-color:var(--line2);color:var(--cream)}
@@ -84,7 +89,7 @@
 <body class="scanlines">
 <div class="app">
   <aside class="side">
-    <div class="logo" data-tauri-drag-region>
+    <div class="logo" id="dragLogo">
       <canvas class="dotgrid" id="logoCv" width="20" height="20"></canvas>
       <div class="nm">HALF<em>TONE</em></div>
     </div>
@@ -106,21 +111,21 @@
       <button class="tbtn" id="btnMin" data-tip="MINIMIZE" aria-label="Minimize">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 12h14"/></svg>
       </button>
-      <button class="tbtn" id="btnClose" data-tip="CLOSE" aria-label="Close">
+      <button class="tbtn" id="btnClose" data-tip="HIDE MAIN" aria-label="Hide main window">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
   </aside>
 
   <div class="main">
-    <div class="topbar" data-tauri-drag-region>
+    <div class="topbar" id="dragTop">
       <div class="h-caps mono" id="viewCap">TRACKS</div>
       <div class="search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
         <input id="search" type="text" placeholder="search" spellcheck="false">
       </div>
-      <button class="tbtn back2widget" id="btnWidget" data-tip="WIDGET · ALWAYS ON TOP" aria-label="Show widget">
-        <svg viewBox="0 0 24 24" fill="none" stroke="window.__TAURI__?1:1" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.7 2 6 4.7 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.3-2.7-6-6-6z"/><circle cx="12" cy="8" r="2.2"/></svg>
+      <button class="tbtn back2widget" id="btnWidget" data-tip="WIDGET &#183; ALWAYS ON TOP" aria-label="Show widget">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.7 2 6 4.7 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.3-2.7-6-6-6z"/><circle cx="12" cy="8" r="2.2"/></svg>
       </button>
     </div>
 
@@ -129,8 +134,8 @@
     <div class="npbar">
       <canvas class="np-art" id="npArt" width="40" height="40"></canvas>
       <div class="np-meta">
-        <div class="np-title" id="npTitle">—</div>
-        <div class="np-sub" id="npSub">—</div>
+        <div class="np-title" id="npTitle">&#8212;</div>
+        <div class="np-sub" id="npSub">&#8212;</div>
       </div>
       <div class="seekwrap">
         <div class="seek" id="seek">
@@ -140,6 +145,13 @@
         <div class="times mono"><span id="tCur">00:00</span><span id="tTot">00:00</span></div>
       </div>
       <div class="np-ctl">
+        <button class="tbtn" id="btnShuf" data-tip="SHUFFLE" aria-label="Shuffle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M21 3l-7.5 7.5"/><path d="M3 21l7.5-7.5"/><path d="M16 21h5v-5"/><path d="M15 15l6 6"/><path d="M3 3l6 6"/></svg>
+        </button>
+        <button class="tbtn" id="btnRep" data-tip="REPEAT" aria-label="Repeat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+          <span class="r1">1</span>
+        </button>
         <button class="cbtn" id="btnPrev" title="Previous">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2.2v14H6z"/><path d="M20 5.4v13.2c0 .8-.9 1.3-1.6.9L9.5 12.7a1 1 0 0 1 0-1.7l8.9-5.9c.7-.4 1.6.1 1.6.9z"/></svg>
         </button>
@@ -164,9 +176,11 @@
 <script>
 /* ============ main player wiring ============ */
 ["seek","seekCv","tip","tCur","tTot","npTitle","npSub","npArt","content","viewCap",
- "search","icoPlay","icoPause","btnPlay","btnPrev","btnNext","leds",
- "btnMin","btnClose","btnWidget","logoCv","aud"].forEach(k=>el[k]=document.getElementById(k));
+ "search","icoPlay","icoPause","btnPlay","btnPrev","btnNext","btnShuf","btnRep","leds",
+ "btnMin","btnClose","btnWidget","logoCv","dragLogo","dragTop","aud"].forEach(k=>el[k]=document.getElementById(k));
 wireSeek(el.seek);
+wireDrag(el.dragTop);
+wireDrag(el.dragLogo);
 
 const Q=new URLSearchParams(location.search);
 if(Q.get("view"))S.view=Q.get("view");
@@ -189,7 +203,7 @@ function render(){
     c.innerHTML=`<div class="empty">
       <div class="h-caps mono">LIBRARY</div>
       Scan your music folder to populate Halftone.<br>
-      FLAC files are read directly — no import, no copies, no transcode.
+      FLAC files are read directly \u2014 no import, no copies, no transcode.
       <div class="librow" style="max-width:420px;margin-top:8px">
         <input id="mLib" type="text" placeholder="C:\\Users\\you\\Music" spellcheck="false">
         <button id="mScan" class="mono">SCAN</button>
@@ -253,14 +267,14 @@ function renderAlbums(){
     card.className="acard";
     card.innerHTML=`<canvas width="150" height="150"></canvas>
       <span class="a-name">${album}</span>
-      <span class="a-sub">${tracks.length} TRACKS · ${first.artist.toUpperCase()}</span>`;
+      <span class="a-sub">${tracks.length} TRACKS \u00B7 ${first.artist.toUpperCase()}</span>`;
     card.onclick=()=>{
       S.view="album:"+album;render();
     };
     grid.appendChild(card);
     if(first.cover){
       const img=new Image();
-      img.onload=()=>{const cv=card.querySelector("canvas");drawDither(cv,img,150)};
+      img.onload=()=>{const cv=card.querySelector("canvas");drawDither(cv,img)};
       img.src="data:"+first.cover.mime+";base64,"+first.cover.data_b64;
     }
   });
@@ -274,9 +288,9 @@ function renderAlbumDetail(album){
       <div class="info">
         <div class="h-caps mono">ALBUM</div>
         <div class="h1">${album}</div>
-        <div class="meta">${first.artist.toUpperCase()} · ${tracks.length} TRACKS</div>
+        <div class="meta">${first.artist.toUpperCase()} \u00B7 ${tracks.length} TRACKS</div>
         <div class="actions">
-          <button class="big" id="playAlbum">▶ PLAY ALBUM</button>
+          <button class="big" id="playAlbum">\u25B8 PLAY ALBUM</button>
         </div>
       </div>
     </div>
@@ -284,7 +298,7 @@ function renderAlbumDetail(album){
     <div class="tlist" id="list"></div>`;
   if(first.cover){
     const img=new Image();
-    img.onload=()=>{const cv=document.getElementById("heroArt");drawDither(cv,img,180);tweenAccent(clampAccent(extractAccent(img)))};
+    img.onload=()=>{const cv=document.getElementById("heroArt");drawDither(cv,img);tweenAccent(clampAccent(extractAccent(img)))};
     img.src="data:"+first.cover.mime+";base64,"+first.cover.data_b64;
   }
   document.getElementById("playAlbum").onclick=()=>loadTrack(tracks[0].i);
@@ -298,7 +312,7 @@ function renderLiked(){
     <div class="tlist" id="list"></div>`;
   const list=document.getElementById("list");
   const flt=S.lib.map((t,i)=>({t,i})).filter(x=>S.liked.has(x.t.path));
-  if(!flt.length){list.innerHTML=`<div class="empty"><div class="h-caps mono">EMPTY</div>Like tracks with the heart icon — they collect here.</div>`;return}
+  if(!flt.length){list.innerHTML=`<div class="empty"><div class="h-caps mono">EMPTY</div>Like tracks with the heart icon \u2014 they collect here.</div>`;return}
   flt.forEach(x=>list.appendChild(trackRow(x.t,x.i,"row")));
 }
 
@@ -349,16 +363,27 @@ document.addEventListener("halftone:track",()=>{
   el.tTot.textContent=fmt(m.duration_s);
   if(m.cover){
     const img=new Image();
-    img.onload=()=>drawDither(el.npArt,img,40);
+    img.onload=()=>drawDither(el.npArt,img);
     img.src="data:"+m.cover.mime+";base64,"+m.cover.data_b64;
   }
 });
 el.aud.addEventListener("timeupdate",()=>{el.tCur.textContent=fmt(el.aud.currentTime)});
-el.aud.addEventListener("ended",()=>loadTrack(S.i+1));
+el.aud.addEventListener("ended",()=>nextTrack(true));
 
 el.btnPlay.onclick=()=>setPlaying(!S.playing);
-el.btnNext.onclick=()=>{if(S.lib.length)loadTrack(S.i+1)};
+el.btnNext.onclick=()=>nextTrack();
 el.btnPrev.onclick=()=>{if(!S.lib.length)return;if(el.aud.currentTime>3)el.aud.currentTime=0;else loadTrack(S.i-1)};
+
+/* transport state (shuffle / repeat) */
+function updTransport(){
+  el.btnShuf.classList.toggle("on",S.shuffle);
+  el.btnRep.classList.toggle("on",S.repeat!=="off");
+  el.btnRep.classList.toggle("rep-one",S.repeat==="one");
+}
+el.btnShuf.onclick=()=>{S.shuffle=!S.shuffle;saveStore();updTransport()};
+el.btnRep.onclick=()=>{cycleRepeat();updTransport()};
+document.addEventListener("halftone:state",updTransport);
+updTransport();
 
 /* volume (LED) */
 const LEDN=5,leds=[];
@@ -369,12 +394,34 @@ for(let i=0;i<LEDN;i++){
 function paintLeds(){leds.forEach((l,i)=>l.classList.toggle("on",S.vol>=(i+1)/LEDN-.01))}
 paintLeds();el.aud.volume=S.vol;
 
-/* window controls */
+/* window controls — main HIDES (stays alive so the widget can
+   re-show it instantly); only the widget's close ends the app. */
 el.btnMin.onclick=async()=>{try{await curWin.minimize()}catch(e){console.warn(e)}};
-el.btnClose.onclick=async()=>{try{await curWin.close()}catch(e){console.warn(e)}};
+el.btnClose.onclick=async()=>{try{await curWin.hide()}catch(e){console.warn(e)}};
+try{
+  curWin.onCloseRequested(async e=>{e.preventDefault();try{await curWin.hide()}catch(_){}});
+}catch(_){/* older runtime */}
 el.btnWidget.onclick=async()=>{
-  try{const w=T.window.Window.getByLabel("widget");if(w){await w.show();await w.setFocus()}}catch(e){console.warn(e)}
+  try{const all=await T.window.getAllWindows();const w=all.find(x=>x.label==="widget");if(w){await w.show();await w.setFocus()}}catch(e){console.warn(e)}
 };
+
+/* right-click configurator (parity with widget) */
+function setGrid(v){S.cfg.grid=v;saveStore();
+  if(S._img)drawDither(el.npArt,S._img);
+  render();}
+document.body.addEventListener("contextmenu",e=>{
+  if(e.target.closest("input"))return;
+  e.preventDefault();
+  openCtx(e.clientX,e.clientY,[
+    {label:"DITHER \u00B7 STANDARD",checked:S.cfg.grid===32,onClick:()=>setGrid(32)},
+    {label:"DITHER \u00B7 FINE",checked:S.cfg.grid===48,onClick:()=>setGrid(48)},
+    {label:"DITHER \u00B7 ULTRA",checked:S.cfg.grid===64,onClick:()=>setGrid(64)},
+    {sep:1},
+    {label:"SHOW WIDGET",onClick:()=>el.btnWidget.click()},
+    {label:"MINIMIZE",onClick:()=>{curWin.minimize().catch(()=>{})}},
+    {label:"HIDE MAIN",onClick:()=>{curWin.hide().catch(()=>{})}},
+  ]);
+});
 
 /* logo dither */
 function drawLogo(){const g=el.logoCv.getContext("2d");g.clearRect(0,0,20,20);const [ar,ag,ab]=ACC.hex;
@@ -416,6 +463,13 @@ window.__qa={
   sweepState:()=>({t:+SWEEP.t.toFixed(2),dir:SWEEP.dir,v:+SWEEP.v.toFixed(3),drag:S.drag!=null}),
   albums:()=>{const set=new Set(S.lib.map(t=>t.album));return set.size},
   nav:v=>{S.view=v;render();return {view:S.view,albums:new Set(S.lib.map(t=>t.album)).size}},
+  cfg:()=>({...S.cfg}),
+  gridSet:v=>{setGrid(v);return S.cfg.grid},
+  transport:()=>({shuffle:S.shuffle,repeat:S.repeat}),
+  transportSet(kind){kind==="shuffle"?el.btnShuf.click():el.btnRep.click();return this.transport()},
+  dragAPI:()=>({startDragging:typeof (curWin&&curWin.startDragging)}),
+  ctx(x,y){document.body.dispatchEvent(new MouseEvent("contextmenu",{clientX:x||300,clientY:200,bubbles:true,cancelable:true}));
+    return document.querySelectorAll(".ctxmenu .ctxitem").length},
   async play(){await setPlaying(true);return this.state()},
   async load(i){await loadTrack(i);return this.state()},
   async scan(dir){const r=await scanLibrary(dir);render();return {tracks:r?r.tracks.length:0,skipped:r?r.skipped.length:0}},
@@ -428,6 +482,8 @@ window.__qa={
     seek.dispatchEvent(ev('pointerup',x1));
     return this.sweepState();
   },
+  async win(){try{const sf=await curWin.scaleFactor(),s=await curWin.innerSize();
+    return {w:+(s.width/sf).toFixed(0),h:+(s.height/sf).toFixed(0)}}catch(e){return {err:""+e}}},
 };
 
 /* boot */
