@@ -33,10 +33,11 @@ body{background:transparent}
 .winctl{display:flex;gap:var(--sp1);position:absolute;top:var(--sp3);right:var(--sp3);z-index:30;pointer-events:auto}
 .winctl .tbtn{border-radius:var(--r-m)}
 
-/* cover sizes — cfg.cover small/large */
-canvas.art{width:96px;height:96px;border-radius:var(--r-b);border:1px solid var(--line);display:block;background:#12171A}
-canvas.art.large{width:128px;height:128px}
+/* cover sizes — cfg.cover small/large; realart = un-dithered photo */
+canvas.art,.art{width:96px;height:96px;border-radius:var(--r-b);border:1px solid var(--line);display:block;background:#12171A}
+.artwrap img.art{object-fit:cover}
 .artwrap{flex:none}
+.art.large{width:128px;height:128px}
 
 /* lyrics zone */
 .lyrics{overflow:hidden;max-height:0;transition:max-height .45s cubic-bezier(.2,.9,.2,1)}
@@ -118,7 +119,10 @@ canvas.art.large{width:128px;height:128px}
     <canvas id="edgeCv"></canvas>
 
     <div class="head" id="head">
-      <div class="artwrap"><canvas class="art" id="art"></canvas></div>
+      <div class="artwrap">
+        <img class="art" id="artImg" alt="cover art" style="display:none">
+        <canvas class="art" id="artCv"></canvas>
+      </div>
       <div class="hmeta">
         <div class="trk-no mono" id="trkNo">HALFTONE / NO LIBRARY</div>
         <div class="title" id="tTitle">scan a folder to begin</div>
@@ -196,7 +200,7 @@ canvas.art.large{width:128px;height:128px}
 <script src="common.js"></script>
 <script>
 /* ============ widget page wiring ============ */
-["widget","wbody","head","edgeCv","art","trkNo","tTitle","tTech","seek","seekCv","tip","tCur","tTot",
+["widget","wbody","head","edgeCv","artCv","artImg","trkNo","tTitle","tTech","seek","seekCv","tip","tCur","tTot",
  "lyrics","lyrWrap","lrcHint","lrcGet","qrows","queue","libpath","libscan","libstat","leds",
  "icoPlay","icoPause","btnPlay","btnLyrics","btnQueue","btnShuf","btnRep","btnPrev","btnNext",
  "btnMax","btnClose","aud"].forEach(k=>el[k]=document.getElementById(k));
@@ -217,11 +221,19 @@ async function shiftH(d){
 
 /* ============ layout config (right-click configurator target) ============ */
 function applyCfg(){
-  el.art.classList.toggle("large",S.cfg.cover==="large");
+  el.artCv.classList.toggle("large",S.cfg.cover==="large");
+  el.artImg.classList.toggle("large",S.cfg.cover==="large");
   el.tTech.style.display=S.cfg.tech?"":"none";
   el.queue.classList.toggle("qdrawer",!!S.cfg.queueSide);
-  drawDither(el.art,S._img);
-  drawEdge(el.edgeCv,S._img);
+  drawCover();drawEdge(el.edgeCv,S._img);
+}
+function drawCover(){
+  if(S.cfg.art==="real"&&S._img){
+    el.artImg.src=artSrc();el.artImg.style.display="";el.artCv.style.display="none";
+  }else{
+    el.artImg.style.display="none";el.artCv.style.display="";
+    drawDither(el.artCv,S._img);
+  }
 }
 function setCfg(k,v){
   const before=S.cfg[k];
@@ -268,24 +280,30 @@ document.addEventListener("click",e=>{
 el.libscan.onclick=()=>scanLibrary(el.libpath.value.trim()).then(()=>{buildQueue();el.tTitle.textContent=S.lib.length?S.lib[0].title:"no tracks"});
 el.libpath.addEventListener("keydown",e=>{if(e.key==="Enter")el.libscan.click()});
 
-/* ============ right-click configurator ============ */
+/* ============ right-click configurator (submenu structure) ============ */
 el.widget.addEventListener("contextmenu",e=>{
   if(e.target.closest("input"))return;
   e.preventDefault();
   openCtx(e.clientX,e.clientY,[
-    {label:"COVER &#183; SMALL",checked:S.cfg.cover!=="large",onClick:()=>setCfg("cover","small")},
-    {label:"COVER &#183; LARGE",checked:S.cfg.cover==="large",onClick:()=>setCfg("cover","large")},
-    {sep:1},
-    {label:"DITHER &#183; STANDARD",checked:S.cfg.grid===32,onClick:()=>setCfg("grid",32)},
-    {label:"DITHER &#183; FINE",checked:S.cfg.grid===48,onClick:()=>setCfg("grid",48)},
-    {label:"DITHER &#183; ULTRA",checked:S.cfg.grid===64,onClick:()=>setCfg("grid",64)},
-    {sep:1},
-    {label:"QUEUE &#183; SIDE DRAWER",checked:!!S.cfg.queueSide,onClick:()=>setCfg("queueSide",true)},
-    {label:"QUEUE &#183; POPOVER",checked:!S.cfg.queueSide,onClick:()=>setCfg("queueSide",false)},
-    {label:"TECH ROW",checked:S.cfg.tech,onClick:()=>setCfg("tech",!S.cfg.tech)},
-    {sep:1},
     {label:S.pinned?"UNPIN":"PIN ALWAYS-ON-TOP",checked:S.pinned,onClick:togglePin},
-    {label:"EXPAND &#183; FULL PLAYER",onClick:()=>el.btnMax.click()},
+    {label:"EXPAND \u00B7 FULL PLAYER",onClick:()=>el.btnMax.click()},
+    {label:"QUEUE AS SIDE DRAWER",checked:!!S.cfg.queueSide,onClick:()=>setCfg("queueSide",true)},
+    {label:"QUEUE AS POPOVER",checked:!S.cfg.queueSide,onClick:()=>setCfg("queueSide",false)},
+    {sep:1},
+    {label:"LAYOUT",children:[
+      {label:"COVER \u00B7 SMALL",checked:S.cfg.cover!=="large",onClick:()=>setCfg("cover","small")},
+      {label:"COVER \u00B7 LARGE",checked:S.cfg.cover==="large",onClick:()=>setCfg("cover","large")},
+      {sep:1},
+      {label:"TECH ROW",checked:S.cfg.tech,onClick:()=>setCfg("tech",!S.cfg.tech)},
+    ]},
+    {label:"DITHER",children:[
+      {label:"DENSITY \u00B7 STANDARD",checked:S.cfg.grid===32,onClick:()=>setCfg("grid",32)},
+      {label:"DENSITY \u00B7 FINE",checked:S.cfg.grid===48,onClick:()=>setCfg("grid",48)},
+      {label:"DENSITY \u00B7 ULTRA",checked:S.cfg.grid===64,onClick:()=>setCfg("grid",64)},
+      {sep:1},
+      {label:"ALBUM ART \u00B7 DITHER",checked:S.cfg.art!=="real",onClick:()=>setCfg("art","dither")},
+      {label:"ALBUM ART \u00B7 REAL PHOTO",checked:S.cfg.art==="real",onClick:()=>setCfg("art","real")},
+    ]},
   ]);
 });
 
@@ -306,16 +324,18 @@ el.btnMax.onclick=async()=>{
   try{
     let main=await winByLabel("main");
     if(!main){
-      /* config-created main normally always exists; safety net */
       try{
         await invoke("plugin:webview|create_webview_window",{label:"main",options:{
-          url:"main.html",title:"Halftone",center:true,
-          width:1100,height:720,minWidth:880,minHeight:580,
-          decorations:false,resizable:true,shadow:true}});
+          url:"main.html?view=nowplaying&track="+S.i,title:"Halftone",center:true,
+          width:1200,height:760,minWidth:960,minHeight:620,
+          decorations:false,resizable:true,shadow:false,transparent:true}});
         main=await winByLabel("main");
       }catch(e2){console.warn("create main",e2)}
     }
-    if(main){await main.show();await main.setFocus()}
+    if(main){
+      try{await main.emit("halftone:open-np",{track:S.i})}catch(_){}  /* no-op if not listening yet */
+      await main.show();await main.setFocus();
+    }
   }catch(e){console.warn("open main",e)}
 };
 
@@ -379,7 +399,7 @@ addEventListener("keydown",e=>{
 /* render loop */
 function loop(now){
   const tinted=tickAccent(now);
-  if(tinted){drawDither(el.art,S._img);drawEdge(el.edgeCv,S._img)}
+  if(tinted){drawCover();drawEdge(el.edgeCv,S._img)}
   sweepTick();
   drawMeter(el.seekCv,el.seek.clientHeight);
   updateLyrics();
@@ -398,6 +418,7 @@ document.addEventListener("halftone:track",()=>{
   el.tTot.textContent=fmt(m?m.duration_s:0);
   el.btnLyrics.classList.toggle("lrc-available",S.lyrics.length>0);
   if(S.lyricsOpen){S.lyrics.length?el.lrcHint.classList.remove("show"):el.lrcHint.classList.add("show")}
+  drawCover();
   buildQueue();
 });
 
@@ -413,7 +434,8 @@ window.__qa={
   sweepState:()=>({t:+SWEEP.t.toFixed(2),dir:SWEEP.dir,v:+SWEEP.v.toFixed(3),drag:S.drag!=null}),
   accent:()=>({rgb:"rgb("+ACC.hex.join(",")+")",animating:ACC.anim,
                ratioVsBg:+ratio(lum(...ACC.hex),BG_LUM).toFixed(2)}),
-  artLit:()=>{const g=el.art.getContext("2d");const d=g.getImageData(0,0,el.art.width,el.art.height).data;
+  artLit:()=>{if(S.cfg.art==="real")return +(el.artImg.style.display!=="none"&&el.artImg.complete&&el.artImg.naturalWidth>0);
+    const g=el.artCv.getContext("2d");const d=g.getImageData(0,0,el.artCv.width,el.artCv.height).data;
     let lit=0,n=0;for(let i=0;i<d.length;i+=64){n++;if(d[i]>32||d[i+1]>32||d[i+2]>32)lit++}
     return +(lit/n).toFixed(3)},
   edgeLit:()=>{const g=el.edgeCv.getContext("2d");const d=g.getImageData(0,0,el.edgeCv.width,el.edgeCv.height).data;
@@ -421,6 +443,8 @@ window.__qa={
     return +(lit/n).toFixed(3)},
   cfg:()=>({...S.cfg}),
   setCfg:(k,v)=>{setCfg(k,v);return {...S.cfg}},
+  artSet(mode){setCfg("art",mode);return {art:S.cfg.art,
+    realShown:el.artImg.style.display!=="none",cvShown:el.artCv.style.display!=="none"}},
   transport:()=>({shuffle:S.shuffle,repeat:S.repeat}),
   transportSet(kind){kind==="shuffle"?el.btnShuf.click():el.btnRep.click();return this.transport()},
   drawer(open){el.queue.classList.toggle("open",open===undefined?!el.queue.classList.contains("open"):open);
@@ -435,6 +459,7 @@ window.__qa={
   dragAPI:()=>({startDragging:typeof (curWin&&curWin.startDragging)}),
   async lyrics(open){await setLyricsOpen(open);return {open:S.lyricsOpen,hasLrc:S.lyrics.length>0}},
   async play(){await setPlaying(true);return this.state()},
+  async pause(){await setPlaying(false);return this.state()},
   async load(i){await loadTrack(i);return this.state()},
   async scan(dir){const r=await scanLibrary(dir);return {tracks:r.tracks.length,skipped:r.skipped.length}},
   async dragSim(x0,x1){ /* synthetic drag sweep for QA */

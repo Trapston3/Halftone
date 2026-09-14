@@ -34,16 +34,16 @@
         "title": "Halftone",
         "visible": false,
         "decorations": false,
-        "transparent": false,
+        "transparent": true,
         "alwaysOnTop": false,
         "resizable": true,
-        "shadow": true,
+        "shadow": false,
         "dragDropEnabled": false,
         "center": true,
-        "width": 1100,
-        "height": 720,
-        "minWidth": 880,
-        "minHeight": 580
+        "width": 1200,
+        "height": 760,
+        "minWidth": 960,
+        "minHeight": 620
       }
     ],
     "security": {

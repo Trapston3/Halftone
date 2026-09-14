@@ -21,8 +21,8 @@ function saveStore(){
 const S={lib:[],i:-1,playing:false,vol:.8,pinned:false,drag:null,lidx:-1,
          lyricsOpen:false,lyrics:[],meta:null,root:null,
          liked:new Set(),playlists:[],view:"tracks",
-         shuffle:false,repeat:"off",
-         cfg:{cover:"small",grid:32,queueSide:true,tech:true},
+         shuffle:false,repeat:"off",_npLyrics:false,
+         cfg:{cover:"small",grid:32,queueSide:true,tech:true,art:"real",ambient:true},
          _managed:true,_prog:false,_img:null};
 window.S=S;
 
@@ -41,6 +41,12 @@ window.S=S;
 
 const trk=()=>S.lib[S.i];
 const fmt=s=>{s=Math.max(0,Math.round(s));return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0")};
+
+/* ============ window lookup (withGlobalTauri has no WebviewWindow) ============ */
+async function winByLabel(label){
+  try{const all=await T.window.getAllWindows();return all.find(w=>w.label===label)||null}
+  catch(e){console.warn(e);return null}
+}
 
 /* ============ accent system ============ */
 function rgb2hsl(r,g,b){const mx=Math.max(r,g,b),mn=Math.min(r,g,b);let h=0,s=0;const l=(mx+mn)/2;
@@ -108,11 +114,9 @@ function drawDither(cv,img,grid){
     else if(v>.38)g.fillStyle=`rgba(${ar},${ag},${ab},.45)`;
     else continue;
     g.fillRect(x*cell,y*cell,cell-.75,cell-.75)}}
+function artSrc(){const m=S.meta;return m&&m.cover?("data:"+m.cover.mime+";base64,"+m.cover.data_b64):null}
 
-/* ============ album-themed edge: perimeter dither band ============
-   The widget frame samples the album art's own edges and redraws
-   them as an accent Bayer dither hugging the inside of the 1px
-   accent border — the frame is the album's silhouette.       */
+/* ============ album-themed edge: perimeter dither band ============ */
 function edgePixels(img){
   if(S._edgeImg===img&&S._edgePx)return S._edgePx;
   const c=document.createElement("canvas");c.width=c.height=64;
@@ -144,6 +148,28 @@ function drawEdge(cv,img){
   for(let j=0;j<ny;j++){const v=Math.min(63,Math.round(j/ny*(N-1))),y=in1+j*C;
     cell(in1,y,0,j,lumAt(0,v));
     cell(dw-in1-C,y,0,j,lumAt(N-1,v))}
+}
+
+/* ============ ambient background: music-reactive accent dither field ============
+   Big Bayer cells in the album accent, drifting slowly; each
+   column's brightness rides the analyser bar for that frequency —
+   the whole background breathes with the track.           */
+function drawAmbient(cv,t){
+  const dpr=Math.min(2,devicePixelRatio||1);
+  const W=cv.clientWidth,H=cv.clientHeight;if(!W||!H)return;
+  const dw=Math.round(W*dpr),dh=Math.round(H*dpr);
+  if(cv.width!==dw||cv.height!==dh){cv.width=dw;cv.height=dh}
+  const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
+  const [ar,ag,ab]=ACC.hex,cell=46;
+  const dx=(t*9)%cell,dy=(t*5)%cell,off=Math.floor(t*.7);
+  const spec=bars();
+  const cols=Math.ceil(W/cell)+1,rows=Math.ceil(H/cell)+1;
+  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+    const b=BAYER[(y+off)%8][(x+off*2)%8];if(b<.28)continue;
+    const bi=(x*7)%NBARS,energy=.35+spec[bi]*1.5;
+    const a=(b-.25)*.3*energy;if(a<=.012)continue;
+    g.fillStyle=`rgba(${ar},${ag},${ab},${Math.min(.22,a).toFixed(3)})`;
+    g.fillRect(x*cell-dx,y*cell-dy,cell*.92,cell*.92)}
 }
 
 /* ============ analyser ============ */
@@ -223,12 +249,16 @@ function buildLyrics(){el.lyrWrap.innerHTML="";
     d.onclick=()=>{el.aud.currentTime=L.t;S.lidx=-1};  /* click a line to seek */
     el.lyrWrap.appendChild(d)});
   S.lidx=-1}
-function updateLyrics(){if(!S.lyricsOpen)return;
+function updateLyrics(){
+  if(!(S.lyricsOpen||S._npLyrics))return;
   const t=el.aud.currentTime;const lines=[...el.lyrWrap.children];
   let idx=-1;for(let i=0;i<lines.length;i++){if(t>=+lines[i].dataset.t)idx=i}
   if(idx===S.lidx)return;S.lidx=idx;
   lines.forEach((l,i)=>l.classList.toggle("active",i===idx));
-  if(idx>=0){const ln=lines[idx];el.lyrWrap.style.transform=`translateY(${64-(ln.offsetTop+ln.offsetHeight/2)}px)`}}
+  if(idx>=0){const ln=lines[idx];
+    const view=el.lyrWrap.parentElement;
+    const mid=view&&view.clientHeight?view.clientHeight/2:84;
+    el.lyrWrap.style.transform=`translateY(${mid-(ln.offsetTop+ln.offsetHeight/2)}px)`}}
 
 /* ============ library ============ */
 async function scanLibrary(dir){
@@ -255,7 +285,9 @@ async function loadTrack(i,autoplay=true){
     img.src="data:"+meta.cover.mime+";base64,"+meta.cover.data_b64;
   }else{S._img=null;tweenAccent({h:.44,s:.62,l:.56})}
   saveStore();
-  if(autoplay&&S.playing)el.aud.play().catch(()=>{});
+  /* Apple-style: explicitly loading a track always plays it; only
+     boot/restore passes autoplay=false to stay where the user was. */
+  if(autoplay)await setPlaying(true);
   document.dispatchEvent(new CustomEvent("halftone:track"));
 }
 async function setPlaying(p){
@@ -267,6 +299,10 @@ async function setPlaying(p){
   if(ipa)ipa.style.display=p?"block":"none";
   if(p){AC.resume();el.aud.play().catch(e=>console.warn("play",e))}
   else el.aud.pause();
+  /* single-audio protocol: the window that starts playing pauses the other */
+  if(p&&T&&T.event&&T.event.emit&&curWin){
+    try{await T.event.emit("halftone:play-takeover",{src:curWin.label})}catch(_){}
+  }
   document.dispatchEvent(new CustomEvent("halftone:state"));
 }
 
@@ -319,7 +355,6 @@ function wireSeek(seek){
   };
   seek.addEventListener("pointerup",end);
   seek.addEventListener("pointercancel",end);
-  /* wheel-seek QoL: scroll over the meter = +/-5s */
   seek.addEventListener("wheel",e=>{
     e.preventDefault();
     if(el.aud.duration)el.aud.currentTime=Math.max(0,Math.min(el.aud.duration,el.aud.currentTime+(e.deltaY<0?5:-5)));
@@ -331,10 +366,7 @@ function seekTip(){
     el.tip.style.left=(S.drag.p*seek.clientWidth)+"px"}
 }
 
-/* ============ JS window dragging ============
-   data-tauri-drag-region proved unreliable inside WebView2; call
-   startDragging() explicitly, with a 4px threshold so plain clicks
-   and double-clicks (pin toggle) stay clean.                  */
+/* ============ JS window dragging ============ */
 function wireDrag(zone){
   let sx=0,sy=0,armed=false;
   zone.addEventListener("pointerdown",e=>{
@@ -360,7 +392,9 @@ function toggleLike(path){S.liked.has(path)?S.liked.delete(path):S.liked.add(pat
 function makePlaylist(name,paths){S.playlists.push({name,paths:new Set(paths)});saveStore();
   document.dispatchEvent(new CustomEvent("halftone:collect"))}
 
-/* ============ context menu (right-click configurator) ============ */
+/* ============ context menu with submenus ============
+   items: {label, checked, onClick} | {label, children:[...]} |
+   {sep:1}. children render as a hover-open submenu.          */
 function buildCtxMenu(items){
   const m=document.createElement("div");
   m.className="pop ctxmenu";
@@ -368,9 +402,18 @@ function buildCtxMenu(items){
     if(it.sep){const s=document.createElement("div");s.className="ctxsep";m.appendChild(s);return}
     const b=document.createElement("button");
     b.className="mitem ctxitem"+(it.checked?" on":"");
-    b.innerHTML=`<span class="ctxdot"></span>${it.label}`;
-    b.onclick=()=>{closeCtx();it.onClick&&it.onClick()};
-    m.appendChild(b);
+    if(it.children&&it.children.length){
+      const wrap=document.createElement("div");wrap.className="ctxwrap";
+      b.innerHTML=`<span class="ctxdot"></span>${it.label}<span class="ctxarrow">\u25B8</span>`;
+      wrap.appendChild(b);
+      const sub=buildCtxMenu(it.children);sub.classList.add("ctxsub");
+      wrap.appendChild(sub);
+      m.appendChild(wrap);
+    }else{
+      b.innerHTML=`<span class="ctxdot"></span>${it.label}`;
+      b.onclick=()=>{closeCtx();it.onClick&&it.onClick()};
+      m.appendChild(b);
+    }
   });
   return m;
 }
@@ -387,6 +430,29 @@ function openCtx(x,y,items){
     if(!m.contains(ev.target)){closeCtx();removeEventListener("pointerdown",h)}},0),0);
 }
 addEventListener("keydown",e=>{if(e.key==="Escape")closeCtx()});
+
+/* ============ single-audio protocol (cross-window) ============
+   Only one window's <audio> may sound at a time: the window that
+   starts playing emits play-takeover; every OTHER playing window
+   pauses itself on receipt.                             */
+(()=>{
+  if(!(T&&curWin))return;
+  const listen=T.event&&T.event.listen?T.event.listen.bind(T.event)
+            :curWin.listen?curWin.listen.bind(curWin):null;
+  if(!listen)return;
+  listen("halftone:play-takeover",e=>{
+    const src=e&&e.payload&&e.payload.src;
+    if(!src||src===curWin.label)return;
+    if(!S.playing)return;
+    S.playing=false;
+    try{el.aud&&el.aud.pause()}catch(_){}
+    const ip=document.getElementById("icoPlay"),ipa=document.getElementById("icoPause");
+    if(ip)ip.style.display="block";
+    if(ipa)ipa.style.display="none";
+    document.dispatchEvent(new CustomEvent("halftone:state"));
+    document.dispatchEvent(new CustomEvent("halftone:takeover",{detail:{by:src}}));
+  }).catch?.(()=>{});
+})();
 
 /* ============ shared element refs (page fills el) ============ */
 var el={};

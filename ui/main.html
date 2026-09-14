@@ -5,58 +5,86 @@
 <title>Halftone</title>
 <link rel="stylesheet" href="style.css">
 <style>
-/* ============ full player layout ============ */
-.app{display:grid;grid-template-columns:200px 1fr;height:100vh}
+/* ============ TUI shell — same frame language as the widget ============ */
+body{background:transparent}
+.tui{
+  position:fixed;inset:0;border-radius:var(--r-w);
+  background:var(--bg);border:1px solid var(--accent);
+  display:flex;flex-direction:column;overflow:visible;
+}
+.tui-body{position:relative;border-radius:calc(var(--r-w) - 1px);overflow:hidden;flex:1;display:flex;flex-direction:column;background:var(--bg)}
+#edgeCv{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:40}
+
+.app{display:grid;grid-template-columns:212px 1fr;flex:1;min-height:0}
 .side{border-right:1px solid var(--line);display:flex;flex-direction:column;background:var(--bg2)}
 .side .logo{display:flex;align-items:center;gap:var(--sp2);padding:var(--sp3);cursor:grab}
 .side .logo:active{cursor:grabbing}
 .side .logo .dotgrid{width:20px;height:20px}
 .side .logo .nm{font-size:11px;font-weight:700;letter-spacing:.3em;color:var(--cream)}
 .side .logo .nm em{color:var(--accent);font-style:normal}
-.side nav{flex:1}
-.winctl{display:flex;gap:var(--sp1);padding:var(--sp2);border-top:1px solid var(--line)}
+.side nav{flex:1;padding:var(--sp1)}
+.side .libzone{border-top:1px solid var(--line);padding:var(--sp2);display:flex;flex-direction:column;gap:var(--sp1)}
+.side .libzone .libstat{font-size:9px;letter-spacing:.1em;color:var(--dim2);font-family:var(--mono);padding:0 2px}
 
-.main{display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+.nav{display:flex;align-items:center;gap:var(--sp2);width:100%;padding:var(--sp2);border-radius:var(--r-m);
+  font-size:10px;font-weight:600;letter-spacing:.16em;color:var(--dim);border:1px solid transparent;text-align:left}
+.nav svg{width:14px;height:14px}
+.nav:hover{color:var(--cream);border-color:var(--line)}
+.nav.on{color:var(--accent);border-color:var(--accent);background:var(--accent-12)}
+
+.main{display:flex;flex-direction:column;min-width:0}
 .topbar{
   display:flex;align-items:center;gap:var(--sp3);padding:var(--sp2) var(--sp4);
   border-bottom:1px solid var(--line);cursor:grab;
 }
 .topbar:active{cursor:grabbing}
-.topbar .h-caps{min-width:120px}
+.topbar .h-caps{min-width:150px}
 .search{
   flex:0 1 380px;display:flex;align-items:center;gap:var(--sp2);
   border:1px solid var(--line);border-radius:var(--r-m);padding:6px 10px;background:var(--bg2);
 }
 .search svg{width:13px;height:13px;color:var(--dim2)}
 .search input{flex:1;min-width:0;background:none;border:0;color:var(--cream);font:12px var(--sans);outline:none}
-.topbar .back2widget{margin-left:auto}
+.topbar .spacer{flex:1}
+.back2widget{margin-left:auto}
 
-.content{flex:1;overflow-y:auto;padding:var(--sp4);display:flex;flex-direction:column;gap:var(--sp3)}
+.content{flex:1;overflow-y:auto;padding:var(--sp4);display:flex;flex-direction:column;gap:var(--sp3);position:relative;z-index:1}
 .content .h1{margin-bottom:var(--sp1)}
 
-/* now-playing bar along the bottom */
-.npbar{
-  display:flex;align-items:center;gap:var(--sp3);padding:var(--sp2) var(--sp4);
-  border-top:1px solid var(--line);background:var(--bg2);
-}
-.npbar .np-art{width:40px;height:40px;border-radius:var(--r-l);border:1px solid var(--line);background:#12171A;flex:none}
-.npbar .np-meta{width:200px;min-width:120px}
-.npbar .np-title{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.npbar .np-sub{font-size:10px;color:var(--dim2);letter-spacing:.08em;font-family:var(--mono)}
-.npbar .seekwrap{flex:1;max-width:560px}
-.npbar .np-ctl{display:flex;align-items:center;gap:var(--sp2);margin-left:auto}
-.npbar .vol{display:flex;align-items:center;gap:var(--sp2)}
-.npbar .vol svg{width:14px;height:14px;color:var(--dim)}
-
-/* track list header row */
-.thead{display:grid;grid-template-columns:28px 1fr 1fr 120px 52px 64px 34px 34px;
+/* ============ library table ============ */
+.thead{display:grid;grid-template-columns:34px 1fr 1fr 130px 56px 70px 34px 34px;
   gap:var(--sp2);padding:var(--sp1) var(--sp2);color:var(--dim2);
   font-size:9px;letter-spacing:.16em;font-family:var(--mono);border-bottom:1px solid var(--line)}
 .thead span:nth-child(4),.thead span:nth-child(5){text-align:right}
+.tlist{display:flex;flex-direction:column;gap:2px;overflow-y:auto;padding-right:var(--sp1)}
+.trow{
+  display:grid;grid-template-columns:34px 1fr 1fr 130px 56px 70px 34px 34px;
+  align-items:center;gap:var(--sp2);padding:var(--sp1) var(--sp2);
+  border-radius:var(--r-l);color:var(--dim);
+}
+.trow:hover{background:var(--bg2)}
+.trow.cur .t-title{color:var(--accent)}
+.trow.cur .idx{color:var(--accent)}
+.trow .idx{font-size:10px;color:var(--dim2);font-family:var(--mono);text-align:right;padding-right:2px}
+.trow .t-title{font-size:12.5px;color:var(--cream);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+.trow .t-sub{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+.trow .t-dur{font-size:10.5px;font-family:var(--mono);color:var(--dim2);text-align:right}
+.trow .ibtn{width:24px;height:24px;display:grid;place-items:center;border:1px solid transparent;border-radius:var(--r-l);color:var(--dim2)}
+.trow .ibtn:hover{border-color:var(--line2);color:var(--cream)}
+.trow .ibtn.on{color:var(--accent)}
+.trow .ibtn svg{width:13px;height:13px}
 
-/* album detail hero */
-.ahero{display:flex;gap:var(--sp4);align-items:flex-end;margin-bottom:var(--sp4)}
-.ahero canvas{width:180px;height:180px;border-radius:var(--r-b);border:1px solid var(--line);background:#12171A}
+/* ============ album grid + hero ============ */
+.agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:var(--sp3);overflow-y:auto;padding:var(--sp1)}
+.acard{display:flex;flex-direction:column;gap:var(--sp2);padding:var(--sp2);border:1px solid transparent;border-radius:var(--r-b);text-align:left}
+.acard:hover{border-color:var(--line2);background:var(--bg2)}
+.acard .cover{width:100%;aspect-ratio:1;border-radius:var(--r-m);border:1px solid var(--line);background:#12171A;display:block;object-fit:cover}
+.acard .a-name{font-size:12px;font-weight:600;color:var(--cream);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acard .a-sub{font-size:10px;color:var(--dim2);letter-spacing:.08em;font-family:var(--mono)}
+
+.ahero{display:flex;gap:var(--sp6);align-items:flex-end;margin-bottom:var(--sp4)}
+.ahero .cover{width:220px;height:220px;border-radius:var(--r-b);border:1px solid var(--line);background:#12171A;display:block;object-fit:cover}
+.ahero canvas.cover{object-fit:initial}
 .ahero .info{display:flex;flex-direction:column;gap:var(--sp2)}
 .ahero .h1{font-size:26px}
 .ahero .meta{font-size:10px;color:var(--dim2);letter-spacing:.14em;font-family:var(--mono)}
@@ -68,6 +96,72 @@
 }
 .ahero .big:hover{background:var(--accent-12)}
 
+/* ============ now playing (Apple-Music-style maximize) ============ */
+.np{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;z-index:1}
+#ambient{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.np.hidden #ambient{display:none}
+.np.noambient #ambient{display:none}
+.np-grid{position:relative;z-index:1;flex:1;min-height:0;display:grid;grid-template-columns:400px 1fr;gap:var(--sp8);padding:var(--sp8) var(--sp8) var(--sp4)}
+.np-left{display:flex;flex-direction:column;gap:var(--sp4);min-width:0}
+.np-coverwrap{position:relative;width:min(340px,100%);aspect-ratio:1;flex:none}
+.np-coverwrap .np-cover{width:100%;height:100%;border-radius:var(--r-w);border:1px solid var(--line2);display:block;background:#12171A;object-fit:cover;
+  transition:transform .5s cubic-bezier(.2,.9,.2,1),box-shadow .5s}
+.np.playing .np-cover{transform:scale(1.045);box-shadow:0 24px 64px rgba(0,0,0,.5)}
+.np-info{display:flex;flex-direction:column;gap:var(--sp1);min-width:0}
+.np-kicker{font-size:10px;letter-spacing:.22em;color:var(--accent);font-family:var(--mono)}
+.np-title{font-size:26px;font-weight:600;color:var(--cream);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.np-artist{font-size:15px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.np-tech{font-size:10px;letter-spacing:.14em;color:var(--dim2);font-family:var(--mono)}
+.np-seek{display:flex;flex-direction:column;gap:var(--sp2)}
+.np-seek .seek{height:22px}
+.np-seek .seek.open{height:56px}
+.np-times{display:flex;justify-content:space-between;font-size:11px;font-variant-numeric:tabular-nums;color:var(--dim2);font-family:var(--mono)}
+.np-ctl{display:flex;align-items:center;gap:var(--sp2);padding-top:var(--sp2)}
+.np-ctl .vol{margin-left:auto;display:flex;align-items:center;gap:var(--sp2)}
+.np-ctl .vol svg{width:14px;height:14px;color:var(--dim)}
+
+/* right column: big lyrics */
+.np-lyr{
+  position:relative;min-height:0;display:flex;flex-direction:column;gap:var(--sp3);
+  padding-right:var(--sp2);
+}
+.np-lyr .h-caps{padding-left:4px}
+.np-lyrview{
+  flex:1;min-height:0;overflow:hidden;padding:0 var(--sp2);
+  -webkit-mask-image:linear-gradient(transparent,#000 12%,#000 88%,transparent);
+          mask-image:linear-gradient(transparent,#000 12%,#000 88%,transparent);
+}
+.np-lyrwrap{transform:translateY(40%);transition:transform .5s cubic-bezier(.25,.9,.2,1);will-change:transform}
+.np-lyrwrap .line{padding:13px 0;font-size:21px;line-height:1.45;color:rgba(242,232,207,.30);transition:color .3s ease,transform .3s ease;cursor:pointer;border-radius:var(--r-m)}
+.np-lyrwrap .line:hover{color:rgba(242,232,207,.55)}
+.np-lyrwrap .line.active{color:var(--cream);transform:translateX(10px)}
+.np-lyrwrap .line.active::before{content:"\25B8  ";color:var(--accent)}
+.np-nolrc{
+  flex:1;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:var(--sp2);
+  padding:0 var(--sp2);color:var(--dim);font-size:13px;line-height:1.7;
+}
+.np-nolrc a{
+  font-size:10px;letter-spacing:.14em;color:var(--accent);text-decoration:none;
+  border:1px solid var(--accent);border-radius:var(--r-l);padding:6px 12px;font-family:var(--mono);margin-top:var(--sp2);
+}
+.np-nolrc a:hover{background:var(--accent-12)}
+
+/* ============ bottom mini-bar (library views) ============ */
+.npbar{
+  display:flex;align-items:center;gap:var(--sp3);padding:var(--sp2) var(--sp4);
+  border-top:1px solid var(--line);background:var(--bg2);z-index:2;
+}
+.npbar:hover{cursor:pointer}
+.npbar .np-art{width:44px;height:44px;border-radius:var(--r-b);border:1px solid var(--line);background:#12171A;flex:none;object-fit:cover;display:block}
+.npbar .np-meta{width:210px;min-width:110px;display:flex;flex-direction:column;gap:2px}
+.npbar .np-title{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--cream)}
+.npbar .np-sub{font-size:9.5px;color:var(--dim2);letter-spacing:.08em;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.npbar .seekwrap{flex:1;max-width:520px}
+.npbar .np-ctl{display:flex;align-items:center;gap:var(--sp2);margin-left:auto}
+.npbar .vol{display:flex;align-items:center;gap:var(--sp2)}
+.npbar .vol svg{width:14px;height:14px;color:var(--dim)}
+
+/* misc */
 .empty{
   display:flex;flex-direction:column;gap:var(--sp2);align-items:flex-start;
   padding:var(--sp6);color:var(--dim);font-size:12px;line-height:1.7;
@@ -78,7 +172,6 @@
 .librow input:focus{outline:none;border-color:var(--accent)}
 .librow button{padding:6px 12px;border:1px solid var(--line2);border-radius:var(--r-l);font-size:10px;letter-spacing:.14em;color:var(--cream)}
 .librow button:hover{border-color:var(--accent);color:var(--accent)}
-.libstat{margin-top:var(--sp2);font-size:10px;letter-spacing:.1em;color:var(--dim2);font-family:var(--mono)}
 
 .pl-item{display:flex;align-items:center;gap:var(--sp2);width:100%;padding:var(--sp2);border-radius:var(--r-m);text-align:left;color:var(--dim);border:1px solid transparent}
 .pl-item:hover{border-color:var(--line2);color:var(--cream)}
@@ -87,84 +180,144 @@
 </style>
 </head>
 <body class="scanlines">
-<div class="app">
-  <aside class="side">
-    <div class="logo" id="dragLogo">
-      <canvas class="dotgrid" id="logoCv" width="20" height="20"></canvas>
-      <div class="nm">HALF<em>TONE</em></div>
-    </div>
-    <nav class="sidebar" id="nav">
-      <button class="nav on" data-view="tracks">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.3"/><circle cx="16.5" cy="15" r="2.3"/></svg>
-        TRACKS</button>
-      <button class="nav" data-view="albums">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-        ALBUMS</button>
-      <button class="nav" data-view="liked">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 20s-7-4.3-9.3-8.6C.9 8 3 4.5 6.4 4.5c2 0 3.6 1.1 4.4 2.7l1.2 2 1.2-2c.8-1.6 2.4-2.7 4.4-2.7 3.4 0 5.5 3.5 3.7 6.9C19 15.7 12 20 12 20z"/></svg>
-        LIKED</button>
-      <button class="nav" data-view="playlists">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 6h16M4 11h10"/><circle cx="18" cy="16" r="2.5"/><path d="M4 16h9"/></svg>
-        PLAYLISTS</button>
-    </nav>
-    <div class="winctl">
-      <button class="tbtn" id="btnMin" data-tip="MINIMIZE" aria-label="Minimize">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 12h14"/></svg>
-      </button>
-      <button class="tbtn" id="btnClose" data-tip="HIDE MAIN" aria-label="Hide main window">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
-    </div>
-  </aside>
+<div class="tui" id="tui">
+  <div class="tui-body">
+    <canvas id="edgeCv"></canvas>
 
-  <div class="main">
-    <div class="topbar" id="dragTop">
-      <div class="h-caps mono" id="viewCap">TRACKS</div>
-      <div class="search">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
-        <input id="search" type="text" placeholder="search" spellcheck="false">
-      </div>
-      <button class="tbtn back2widget" id="btnWidget" data-tip="WIDGET &#183; ALWAYS ON TOP" aria-label="Show widget">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.7 2 6 4.7 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.3-2.7-6-6-6z"/><circle cx="12" cy="8" r="2.2"/></svg>
-      </button>
-    </div>
-
-    <div class="content" id="content"></div>
-
-    <div class="npbar">
-      <canvas class="np-art" id="npArt" width="40" height="40"></canvas>
-      <div class="np-meta">
-        <div class="np-title" id="npTitle">&#8212;</div>
-        <div class="np-sub" id="npSub">&#8212;</div>
-      </div>
-      <div class="seekwrap">
-        <div class="seek" id="seek">
-          <canvas id="seekCv"></canvas>
-          <div class="tip mono" id="tip">00:00 / 00:00</div>
+    <div class="app">
+      <aside class="side">
+        <div class="logo" id="dragLogo">
+          <canvas class="dotgrid" id="logoCv" width="20" height="20"></canvas>
+          <div class="nm">HALF<em>TONE</em></div>
         </div>
-        <div class="times mono"><span id="tCur">00:00</span><span id="tTot">00:00</span></div>
-      </div>
-      <div class="np-ctl">
-        <button class="tbtn" id="btnShuf" data-tip="SHUFFLE" aria-label="Shuffle">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M21 3l-7.5 7.5"/><path d="M3 21l7.5-7.5"/><path d="M16 21h5v-5"/><path d="M15 15l6 6"/><path d="M3 3l6 6"/></svg>
-        </button>
-        <button class="tbtn" id="btnRep" data-tip="REPEAT" aria-label="Repeat">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
-          <span class="r1">1</span>
-        </button>
-        <button class="cbtn" id="btnPrev" title="Previous">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2.2v14H6z"/><path d="M20 5.4v13.2c0 .8-.9 1.3-1.6.9L9.5 12.7a1 1 0 0 1 0-1.7l8.9-5.9c.7-.4 1.6.1 1.6.9z"/></svg>
-        </button>
-        <button class="cbtn play" id="btnPlay" title="Play / pause">
-          <svg id="icoPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.2v13.6c0 .8.9 1.3 1.6.9l10.4-6.8a1 1 0 0 0 0-1.7L9.8 4.3c-.7-.4-1.6.1-1.6.9z"/></svg>
-          <svg id="icoPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z"/></svg>
-        </button>
-        <button class="cbtn" id="btnNext" title="Next">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.8 5H18v14h-2.2z"/><path d="M4 5.4v13.2c0 .8.9 1.3 1.6.9l8.9-5.8a1 1 0 0 0 0-1.7L5.6 4.5c-.7-.4-1.6.1-1.6.9z"/></svg>
-        </button>
-        <div class="vol">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6"/></svg>
-          <div class="leds" id="leds" role="slider" aria-label="Volume" tabindex="0"></div>
+        <nav class="sidebar" id="nav">
+          <button class="nav on" data-view="nowplaying">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2"/></svg>
+            NOW PLAYING</button>
+          <button class="nav" data-view="tracks">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.3"/><circle cx="16.5" cy="15" r="2.3"/></svg>
+            TRACKS</button>
+          <button class="nav" data-view="albums">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            ALBUMS</button>
+          <button class="nav" data-view="liked">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 20s-7-4.3-9.3-8.6C.9 8 3 4.5 6.4 4.5c2 0 3.6 1.1 4.4 2.7l1.2 2 1.2-2c.8-1.6 2.4-2.7 4.4-2.7 3.4 0 5.5 3.5 3.7 6.9C19 15.7 12 20 12 20z"/></svg>
+            LIKED</button>
+          <button class="nav" data-view="playlists">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 6h16M4 11h10"/><circle cx="18" cy="16" r="2.5"/><path d="M4 16h9"/></svg>
+            PLAYLISTS</button>
+        </nav>
+        <div class="libzone">
+          <div class="librow">
+            <input id="libpath" type="text" spellcheck="false" placeholder="C:\Users\you\Music">
+            <button id="libscan" class="mono">SCAN</button>
+          </div>
+          <div class="libstat" id="libstat">no scan yet</div>
+        </div>
+      </aside>
+
+      <div class="main">
+        <div class="topbar" id="dragTop">
+          <div class="h-caps mono" id="viewCap">NOW PLAYING</div>
+          <div class="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
+            <input id="search" type="text" placeholder="search" spellcheck="false">
+          </div>
+          <div class="spacer"></div>
+          <button class="tbtn back2widget" id="btnWidget" data-tip="WIDGET &#183; MINIPLAYER" aria-label="Show widget">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.7 2 6 4.7 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.3-2.7-6-6-6z"/><circle cx="12" cy="8" r="2.2"/></svg>
+          </button>
+          <button class="tbtn" id="btnMin" data-tip="MINIMIZE" aria-label="Minimize">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 12h14"/></svg>
+          </button>
+          <button class="tbtn danger" id="btnClose" data-tip="HIDE MAIN" aria-label="Hide main window">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+
+        <!-- NOW PLAYING view -->
+        <div class="np" id="np">
+          <canvas id="ambient"></canvas>
+          <div class="np-grid">
+            <div class="np-left">
+              <div class="np-coverwrap"><img class="np-cover" id="npCover" alt="album art"></div>
+              <div class="np-info">
+                <div class="np-kicker" id="npKick">HALFTONE / 01 / 95</div>
+                <div class="np-title" id="npTitle">&#8212;</div>
+                <div class="np-artist" id="npArtist">&#8212;</div>
+                <div class="np-tech" id="npTech">&#8212;</div>
+              </div>
+              <div class="np-seek">
+                <div class="seek" id="seek">
+                  <canvas id="seekCv"></canvas>
+                  <div class="tip mono" id="tip">00:00 / 00:00</div>
+                </div>
+                <div class="np-times"><span id="tCur">00:00</span><span id="tTot">00:00</span></div>
+              </div>
+              <div class="np-ctl">
+                <button class="tbtn" id="btnShuf" data-tip="SHUFFLE" aria-label="Shuffle">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M21 3l-7.5 7.5"/><path d="M3 21l7.5-7.5"/><path d="M16 21h5v-5"/><path d="M15 15l6 6"/><path d="M3 3l6 6"/></svg>
+                </button>
+                <button class="tbtn" id="btnRep" data-tip="REPEAT" aria-label="Repeat">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+                  <span class="r1">1</span>
+                </button>
+                <button class="cbtn" id="btnPrev" title="Previous">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2.2v14H6z"/><path d="M20 5.4v13.2c0 .8-.9 1.3-1.6.9L9.5 12.7a1 1 0 0 1 0-1.7l8.9-5.9c.7-.4 1.6.1 1.6.9z"/></svg>
+                </button>
+                <button class="cbtn play" id="btnPlay" title="Play / pause">
+                  <svg id="icoPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.2v13.6c0 .8.9 1.3 1.6.9l10.4-6.8a1 1 0 0 0 0-1.7L9.8 4.3c-.7-.4-1.6.1-1.6.9z"/></svg>
+                  <svg id="icoPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z"/></svg>
+                </button>
+                <button class="cbtn" id="btnNext" title="Next">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.8 5H18v14h-2.2z"/><path d="M4 5.4v13.2c0 .8.9 1.3 1.6.9l8.9-5.8a1 1 0 0 0 0-1.7L5.6 4.5c-.7-.4-1.6.1-1.6.9z"/></svg>
+                </button>
+                <div class="vol">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6"/></svg>
+                  <div class="leds" id="leds" role="slider" aria-label="Volume" tabindex="0"></div>
+                </div>
+              </div>
+            </div>
+            <div class="np-lyr" id="npLyr">
+              <div class="h-caps mono">LYRICS &#183; SYNCED</div>
+              <div class="np-lyrview" id="npLyrView"><div class="np-lyrwrap mono" id="lyrWrap"></div></div>
+              <div class="np-nolrc" id="npNoLrc" style="display:none">
+                <div class="h-caps mono">LYRICS</div>
+                <div>No .lrc file found for this track.<br>
+                  Halftone reads a synced .lrc sidecar next to the FLAC.</div>
+                <a href="#" id="lrcGet">GET SYNCED LYRICS &#183; LRCLIB.NET</a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- library views -->
+        <div class="content" id="content" style="display:none"></div>
+
+        <div class="npbar" id="npbar" title="Open Now Playing">
+          <img class="np-art" id="npArt" alt="cover">
+          <div class="np-meta">
+            <div class="np-title" id="nbTitle">&#8212;</div>
+            <div class="np-sub" id="nbSub">&#8212;</div>
+          </div>
+          <div class="seekwrap">
+            <div class="seek" id="seek2">
+              <canvas id="seekCv2"></canvas>
+            </div>
+            <div class="times mono"><span id="nbCur">00:00</span><span id="nbTot">00:00</span></div>
+          </div>
+          <div class="np-ctl">
+            <button class="cbtn" id="nbPrev" title="Previous">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2.2v14H6z"/><path d="M20 5.4v13.2c0 .8-.9 1.3-1.6.9L9.5 12.7a1 1 0 0 1 0-1.7l8.9-5.9c.7-.4 1.6.1 1.6.9z"/></svg>
+            </button>
+            <button class="cbtn play" id="nbPlay" title="Play / pause">
+              <svg id="nbIcoPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.2v13.6c0 .8.9 1.3 1.6.9l10.4-6.8a1 1 0 0 0 0-1.7L9.8 4.3c-.7-.4-1.6.1-1.6.9z"/></svg>
+              <svg id="nbIcoPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z"/></svg>
+            </button>
+            <button class="cbtn" id="nbNext" title="Next">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.8 5H18v14h-2.2z"/><path d="M4 5.4v13.2c0 .8.9 1.3 1.6.9l8.9-5.8a1 1 0 0 0 0-1.7L5.6 4.5c-.7-.4-1.6.1-1.6.9z"/></svg>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -175,29 +328,50 @@
 <script src="common.js"></script>
 <script>
 /* ============ main player wiring ============ */
-["seek","seekCv","tip","tCur","tTot","npTitle","npSub","npArt","content","viewCap",
- "search","icoPlay","icoPause","btnPlay","btnPrev","btnNext","btnShuf","btnRep","leds",
- "btnMin","btnClose","btnWidget","logoCv","dragLogo","dragTop","aud"].forEach(k=>el[k]=document.getElementById(k));
-wireSeek(el.seek);
-wireDrag(el.dragTop);
-wireDrag(el.dragLogo);
+["tui","edgeCv","np","ambient","npCover","npKick","npTitle","npArtist","npTech",
+ "seek","seekCv","tip","tCur","tTot","lyrWrap","npLyrView","npNoLrc","lrcGet",
+ "content","viewCap","search","npbar","npArt","nbTitle","nbSub","nbCur","nbTot",
+ "seek2","seekCv2","nbPrev","nbPlay","nbNext","nbIcoPlay","nbIcoPause",
+ "icoPlay","icoPause","btnPlay","btnPrev","btnNext","btnShuf","btnRep","leds",
+ "btnMin","btnClose","btnWidget","logoCv","dragLogo","dragTop","libpath","libscan",
+ "libstat","aud"].forEach(k=>el[k]=document.getElementById(k));
 
 const Q=new URLSearchParams(location.search);
 if(Q.get("view"))S.view=Q.get("view");
+const qTrack=Q.get("track");
+if(qTrack!=null&&qTrack!=="")S._npReq={track:+qTrack};
+
+/* which surface is visible */
+function showView(v){
+  const np=v==="nowplaying";
+  el.np.style.display=np?"flex":"none";
+  el.content.style.display=np?"none":"flex";
+  el.npbar.style.display=np?"none":"flex";
+  document.querySelectorAll(".nav").forEach(n=>n.classList.toggle("on",n.dataset.view===v));
+  const caps={nowplaying:"NOW PLAYING",tracks:"TRACKS",albums:"ALBUMS",liked:"LIKED",playlists:"PLAYLISTS",search:"SEARCH"};
+  el.viewCap.textContent=caps[v]||(v.startsWith("album:")?"ALBUM":v.startsWith("playlist:")?"PLAYLIST":"LIBRARY");
+}
 
 /* nav */
 document.querySelectorAll(".nav").forEach(n=>{
   n.onclick=()=>{S.view=n.dataset.view;render();};
 });
+el.npbar.onclick=e=>{
+  if(e.target.closest("button"))return;
+  S.view="nowplaying";render();
+};
 
 /* search */
 let searchStr="";
-el.search.addEventListener("input",()=>{searchStr=el.search.value.toLowerCase();render()});
+el.search.addEventListener("input",()=>{searchStr=el.search.value.toLowerCase();
+  if(!searchStr&&S.view==="search"){S.view="tracks";render();return}
+  if(searchStr&&S.view==="nowplaying")S.view="search";
+  if(["tracks","albums","liked","search"].includes(S.view)||searchStr)render()});
 
 /* ============ views ============ */
 function render(){
-  document.querySelectorAll(".nav").forEach(n=>n.classList.toggle("on",n.dataset.view===S.view));
-  el.viewCap.textContent=S.view.toUpperCase();
+  showView(S.view);
+  if(S.view==="nowplaying")return;      /* np is static DOM, updated by events */
   const c=el.content;
   if(!S.lib.length){
     c.innerHTML=`<div class="empty">
@@ -208,17 +382,26 @@ function render(){
         <input id="mLib" type="text" placeholder="C:\\Users\\you\\Music" spellcheck="false">
         <button id="mScan" class="mono">SCAN</button>
       </div>
-      <div class="libstat mono" id="mStat"></div>
     </div>`;
     const inp=document.getElementById("mLib");
     if(S.root)inp.value=S.root;
     document.getElementById("mScan").onclick=async()=>{await scanLibrary(inp.value.trim());render()};
     return;
   }
+  if(searchStr&&!["playlists"].includes(S.view)){
+    c.innerHTML=`<div class="h1">Search</div>
+      <div class="thead"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>
+      <div class="tlist" id="list"></div>`;
+    const list=document.getElementById("list");
+    S.lib.map((t,i)=>({t,i})).filter(x=>(x.t.title+" "+x.t.artist+" "+x.t.album).toLowerCase().includes(searchStr))
+      .forEach(x=>list.appendChild(trackRow(x.t,x.i,"row")));
+    return;
+  }
   if(S.view==="tracks")renderTracks();
   else if(S.view==="albums")renderAlbums();
   else if(S.view==="liked")renderLiked();
   else if(S.view==="playlists")renderPlaylists();
+  else renderTracks();
 }
 
 function trackRow(t,i,ctx){
@@ -252,8 +435,23 @@ function renderTracks(){
     <div class="thead"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>
     <div class="tlist" id="list"></div>`;
   const list=document.getElementById("list");
-  const flt=S.lib.map((t,i)=>({t,i})).filter(x=>!searchStr||(x.t.title+" "+x.t.artist+" "+x.t.album).toLowerCase().includes(searchStr));
-  flt.forEach(x=>list.appendChild(trackRow(x.t,x.i,"row")));
+  S.lib.forEach((t,i)=>list.appendChild(trackRow(t,i,"row")));
+}
+
+/* real-art card / dither canvas per cfg */
+function mkCover(imgEl,track){
+  if(S.cfg.art==="real"&&track.cover){
+    imgEl.src="data:"+track.cover.mime+";base64,"+track.cover.data_b64;
+    return imgEl;
+  }
+  const cv=document.createElement("canvas");cv.className=imgEl.className;
+  cv.width=cv.height=340;
+  if(track.cover){
+    const im=new Image();
+    im.onload=()=>drawDither(cv,im);
+    im.src="data:"+track.cover.mime+";base64,"+track.cover.data_b64;
+  }
+  return cv;
 }
 
 function renderAlbums(){
@@ -265,26 +463,22 @@ function renderAlbums(){
     const first=tracks[0].t;
     const card=document.createElement("button");
     card.className="acard";
-    card.innerHTML=`<canvas width="150" height="150"></canvas>
+    card.innerHTML=`<img class="cover" alt="">
       <span class="a-name">${album}</span>
       <span class="a-sub">${tracks.length} TRACKS \u00B7 ${first.artist.toUpperCase()}</span>`;
-    card.onclick=()=>{
-      S.view="album:"+album;render();
-    };
+    card.onclick=()=>{S.view="album:"+album;render()};
     grid.appendChild(card);
-    if(first.cover){
-      const img=new Image();
-      img.onload=()=>{const cv=card.querySelector("canvas");drawDither(cv,img)};
-      img.src="data:"+first.cover.mime+";base64,"+first.cover.data_b64;
-    }
+    const holder=card.querySelector("img.cover");
+    holder.replaceWith(mkCover(holder,first));
   });
 }
 
 function renderAlbumDetail(album){
   const tracks=S.lib.map((t,i)=>({t,i})).filter(x=>x.t.album===album);
+  if(!tracks.length){S.view="albums";render();return}
   const first=tracks[0].t;
   el.content.innerHTML=`<div class="ahero">
-      <canvas id="heroArt" width="180" height="180"></canvas>
+      <img class="cover" id="heroArt" alt="">
       <div class="info">
         <div class="h-caps mono">ALBUM</div>
         <div class="h1">${album}</div>
@@ -296,10 +490,13 @@ function renderAlbumDetail(album){
     </div>
     <div class="thead"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>
     <div class="tlist" id="list"></div>`;
-  if(first.cover){
-    const img=new Image();
-    img.onload=()=>{const cv=document.getElementById("heroArt");drawDither(cv,img);tweenAccent(clampAccent(extractAccent(img)))};
-    img.src="data:"+first.cover.mime+";base64,"+first.cover.data_b64;
+  const hero=el.content.querySelector("#heroArt");
+  const repl=mkCover(hero,first);
+  hero.replaceWith(repl);
+  if(S.cfg.art!=="real"&&first.cover){
+    const im=new Image();
+    im.onload=()=>{tweenAccent(clampAccent(extractAccent(im)))};
+    im.src="data:"+first.cover.mime+";base64,"+first.cover.data_b64;
   }
   document.getElementById("playAlbum").onclick=()=>loadTrack(tracks[0].i);
   const list=document.getElementById("list");
@@ -321,9 +518,9 @@ function renderPlaylists(){
   const box=document.getElementById("pls");
   if(!S.playlists.length){
     box.innerHTML=`<div class="empty"><div class="h-caps mono">EMPTY</div>
-      Create playlists with the + icon on any track, or play an album.</div>`;
+      Create playlists with the + icon on any track.</div>`;
   }
-  S.playlists.forEach((p,pi)=>{
+  S.playlists.forEach(p=>{
     const b=document.createElement("button");
     b.className="pl-item";
     b.innerHTML=`<span class="pl-name">${p.name}</span><span class="pl-n">${p.paths.size}</span>`;
@@ -347,34 +544,87 @@ function renderPlaylistDetail(name){
   flt.forEach(x=>list.appendChild(trackRow(x.t,x.i,"row")));
 }
 
-/* view dispatch (handles album:/playlist: deep views) */
+/* view dispatch */
 const _render=render;
 render=function(){
-  if(S.view.startsWith("album:")){document.querySelectorAll(".nav").forEach(n=>n.classList.remove("on"));el.viewCap.textContent="ALBUM";renderAlbumDetail(S.view.slice(6));return}
-  if(S.view.startsWith("playlist:")){document.querySelectorAll(".nav").forEach(n=>n.classList.remove("on"));el.viewCap.textContent="PLAYLIST";renderPlaylistDetail(S.view.slice(9));return}
+  if(S.view.startsWith("album:")){showView(S.view);renderAlbumDetail(S.view.slice(6));return}
+  if(S.view.startsWith("playlist:")){showView(S.view);renderPlaylistDetail(S.view.slice(9));return}
   _render();
 };
 
-/* ============ now-playing bar ============ */
+/* ============ now-playing surface updates ============ */
+function paintNP(){
+  const m=S.meta;
+  el.npTitle.textContent=m?m.title:"\u2014";
+  el.npArtist.textContent=m?m.artist+"\u2002/\u2002"+m.album:"\u2014";
+  el.npTech.textContent=m?`${m.streaminfo.sample_rate/1000} kHz / ${m.streaminfo.bits}-BIT / ${m.streaminfo.channels===2?"STEREO":m.streaminfo.channels+"CH"} / DIRECT FLAC`:"\u2014";
+  el.npKick.textContent="HALFTONE / "+String(S.i+1).padStart(2,"0")+" / "+String(S.lib.length).padStart(2,"0");
+  el.tTot.textContent=fmt(m?m.duration_s:0);
+  el.nbTot.textContent=fmt(m?m.duration_s:0);
+  el.nbTitle.textContent=m?m.title:"\u2014";
+  el.nbSub.textContent=m?(m.artist+" / "+m.album).toUpperCase():"\u2014";
+  /* big cover: real photo or dither */
+  if(S.cfg.art==="real"&&m&&m.cover){
+    el.npCover.src="data:"+m.cover.mime+";base64,"+m.cover.data_b64;
+    el.npCover.style.display="";el.npCover.classList.remove("dithered");
+  }else if(m&&m.cover){
+    el.npCover.classList.add("dithered");el.npCover.style.display="none";
+    /* draw onto a hidden canvas swapped in behind */
+    drawDither(el.npDither,m&&S._img);
+    el.npDither.style.display="";
+  }else{el.npCover.style.display="none";if(el.npDither)el.npDither.style.display="none"}
+  /* lyrics visibility */
+  const has=S.lyrics.length>0;
+  el.npNoLrc.style.display=has?"none":"flex";
+  el.npLyrView.style.display=has?"":"none";
+}
 document.addEventListener("halftone:track",()=>{
-  const m=S.meta;if(!m)return;
-  el.npTitle.textContent=m.title;
-  el.npSub.textContent=(m.artist+" / "+m.album).toUpperCase();
-  el.tTot.textContent=fmt(m.duration_s);
-  if(m.cover){
-    const img=new Image();
-    img.onload=()=>drawDither(el.npArt,img);
-    img.src="data:"+m.cover.mime+";base64,"+m.cover.data_b64;
-  }
+  paintNP();
+  S._npLyrics=(S.view==="nowplaying");
 });
-el.aud.addEventListener("timeupdate",()=>{el.tCur.textContent=fmt(el.aud.currentTime)});
+document.addEventListener("halftone:state",()=>updTransport());
+document.addEventListener("halftone:state",()=>{
+  el.np.classList.toggle("playing",S.playing);
+  const p=S.playing&&!el.aud.paused;
+  el.npIcoP.style.display=p?"none":"block";
+  el.npIcoPa.style.display=p?"block":"none";
+  el.nbIcoPlay.style.display=p?"none":"block";
+  el.nbIcoPause.style.display=p?"block":"none";
+});
+
+el.aud.addEventListener("timeupdate",()=>{el.tCur.textContent=fmt(el.aud.currentTime);el.nbCur.textContent=fmt(el.aud.currentTime)});
+
+/* seeks: main + minibar meters share wiring */
+wireSeek(el.seek);
+(function(){ /* minibar meter (no tip element) */
+  const seek=el.seek2;
+  seek.addEventListener("pointerdown",e=>{
+    try{seek.setPointerCapture(e.pointerId)}catch(_){}
+    const r=seek.getBoundingClientRect();
+    S.drag={p:Math.min(1,Math.max(0,(e.clientX-r.left)/r.width))};
+    seek.classList.add("open","dragging");
+  });
+  seek.addEventListener("pointermove",e=>{
+    if(S.drag==null)return;
+    const r=seek.getBoundingClientRect();
+    S.drag.p=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width));
+  });
+  const end=()=>{if(S.drag==null)return;
+    el.aud.currentTime=S.drag.p*(el.aud.duration||0);S.drag=null;S.lidx=-1;
+    seek.classList.remove("dragging")};
+  seek.addEventListener("pointerup",end);seek.addEventListener("pointercancel",end);
+  seek.addEventListener("wheel",e=>{e.preventDefault();
+    if(el.aud.duration)el.aud.currentTime=Math.max(0,Math.min(el.aud.duration,el.aud.currentTime+(e.deltaY<0?5:-5)))},{passive:false});
+})();
+
+/* transport (both surfaces) */
+el.btnPlay.onclick=()=>setPlaying(!S.playing);
+el.nbPlay.onclick=()=>setPlaying(!S.playing);
+el.btnNext.onclick=el.nbNext.onclick=()=>nextTrack();
+el.btnPrev.onclick=el.nbPrev.onclick=()=>{if(!S.lib.length)return;
+  if(el.aud.currentTime>3)el.aud.currentTime=0;else loadTrack(S.i-1)};
 el.aud.addEventListener("ended",()=>nextTrack(true));
 
-el.btnPlay.onclick=()=>setPlaying(!S.playing);
-el.btnNext.onclick=()=>nextTrack();
-el.btnPrev.onclick=()=>{if(!S.lib.length)return;if(el.aud.currentTime>3)el.aud.currentTime=0;else loadTrack(S.i-1)};
-
-/* transport state (shuffle / repeat) */
 function updTransport(){
   el.btnShuf.classList.toggle("on",S.shuffle);
   el.btnRep.classList.toggle("on",S.repeat!=="off");
@@ -382,10 +632,9 @@ function updTransport(){
 }
 el.btnShuf.onclick=()=>{S.shuffle=!S.shuffle;saveStore();updTransport()};
 el.btnRep.onclick=()=>{cycleRepeat();updTransport()};
-document.addEventListener("halftone:state",updTransport);
 updTransport();
 
-/* volume (LED) */
+/* volume */
 const LEDN=5,leds=[];
 for(let i=0;i<LEDN;i++){
   const d=document.createElement("div");d.className="led";
@@ -393,35 +642,82 @@ for(let i=0;i<LEDN;i++){
   el.leds.appendChild(d);leds.push(d)}
 function paintLeds(){leds.forEach((l,i)=>l.classList.toggle("on",S.vol>=(i+1)/LEDN-.01))}
 paintLeds();el.aud.volume=S.vol;
+el.leds.addEventListener("keydown",e=>{
+  if(e.key==="ArrowRight"){S.vol=Math.min(1,S.vol+1/LEDN)}
+  if(e.key==="ArrowLeft"){S.vol=Math.max(0,S.vol-1/LEDN)}
+  paintLeds();el.aud.volume=S.vol;if(gainNode)gainNode.gain.value=S.vol;saveStore()});
 
-/* window controls — main HIDES (stays alive so the widget can
-   re-show it instantly); only the widget's close ends the app. */
-el.btnMin.onclick=async()=>{try{await curWin.minimize()}catch(e){console.warn(e)}};
-el.btnClose.onclick=async()=>{try{await curWin.hide()}catch(e){console.warn(e)}};
-try{
-  curWin.onCloseRequested(async e=>{e.preventDefault();try{await curWin.hide()}catch(_){}});
-}catch(_){/* older runtime */}
-el.btnWidget.onclick=async()=>{
-  try{const all=await T.window.getAllWindows();const w=all.find(x=>x.label==="widget");if(w){await w.show();await w.setFocus()}}catch(e){console.warn(e)}
+/* lrc fetch */
+el.lrcGet.onclick=async e=>{
+  e.preventDefault();
+  const t=trk()||{title:"",artist:""};
+  const url="https://lrclib.net/search?q="+encodeURIComponent(t.artist+" "+t.title);
+  try{await invoke("plugin:openExternal|open",{url})}catch(err){
+    try{await invoke("opener:open_url",{url})}catch(e2){console.warn(e2)}}
 };
 
-/* right-click configurator (parity with widget) */
-function setGrid(v){S.cfg.grid=v;saveStore();
-  if(S._img)drawDither(el.npArt,S._img);
-  render();}
+/* window controls — main hides; only the widget's close ends the app */
+el.btnMin.onclick=async()=>{try{await curWin.minimize()}catch(e){console.warn(e)}};
+el.btnClose.onclick=async()=>{try{await curWin.hide()}catch(e){console.warn(e)}};
+try{curWin.onCloseRequested(async e=>{e.preventDefault();try{await curWin.hide()}catch(_){}})}catch(_){}
+el.btnWidget.onclick=async()=>{
+  try{const w=await winByLabel("widget");if(w){await w.show();await w.setFocus()}}catch(e){console.warn(e)}
+};
+wireDrag(el.dragTop);wireDrag(el.dragLogo);
+
+/* widget -> open on now playing */
+function takeNP(req){
+  S._npReq=req;
+  maybeNP();
+}
+function maybeNP(){
+  if(!S._npReq)return;
+  const t=S._npReq.track;
+  S._npReq=null;
+  S.view="nowplaying";
+  if(t!=null&&t>=0&&t<S.lib.length&&t!==S.i)loadTrack(t);
+  else render();
+}
+if(T){
+  try{
+    const L=(T.event&&T.event.listen)?T.event.listen.bind(T.event)
+          :(curWin&&curWin.listen)?curWin.listen.bind(curWin):null;
+    if(L){
+      L("halftone:open-np",e=>{takeNP(e.payload||{});if(!S.lib.length)scanLibrary(S.root||"").then(maybeNP)});
+      /* play-takeover handled centrally in common.js */
+    }
+  }catch(e){console.warn("listen",e)}
+}
+
+/* right-click configurator (submenu parity with widget) */
+function setGrid(v){S.cfg.grid=v;saveStore();paintNP()}
 document.body.addEventListener("contextmenu",e=>{
   if(e.target.closest("input"))return;
   e.preventDefault();
   openCtx(e.clientX,e.clientY,[
-    {label:"DITHER \u00B7 STANDARD",checked:S.cfg.grid===32,onClick:()=>setGrid(32)},
-    {label:"DITHER \u00B7 FINE",checked:S.cfg.grid===48,onClick:()=>setGrid(48)},
-    {label:"DITHER \u00B7 ULTRA",checked:S.cfg.grid===64,onClick:()=>setGrid(64)},
-    {sep:1},
-    {label:"SHOW WIDGET",onClick:()=>el.btnWidget.click()},
+    {label:"SHOW WIDGET \u00B7 MINIPLAYER",onClick:()=>el.btnWidget.click()},
     {label:"MINIMIZE",onClick:()=>{curWin.minimize().catch(()=>{})}},
     {label:"HIDE MAIN",onClick:()=>{curWin.hide().catch(()=>{})}},
+    {sep:1},
+    {label:"LAYOUT",children:[
+      {label:"ALBUM ART \u00B7 REAL PHOTO",checked:S.cfg.art==="real",onClick:()=>{setCfgM("art","real")}},
+      {label:"ALBUM ART \u00B7 DITHER",checked:S.cfg.art!=="real",onClick:()=>{setCfgM("art","dither")}},
+      {sep:1},
+      {label:"AMBIENT BACKGROUND",checked:!!S.cfg.ambient,onClick:()=>{setCfgM("ambient",!S.cfg.ambient)}},
+    ]},
+    {label:"DITHER",children:[
+      {label:"DENSITY \u00B7 STANDARD",checked:S.cfg.grid===32,onClick:()=>setGrid(32)},
+      {label:"DENSITY \u00B7 FINE",checked:S.cfg.grid===48,onClick:()=>setGrid(48)},
+      {label:"DENSITY \u00B7 ULTRA",checked:S.cfg.grid===64,onClick:()=>setGrid(64)},
+    ]},
   ]);
 });
+function setCfgM(k,v){
+  S.cfg[k]=v;saveStore();
+  if(k==="ambient")el.np.classList.toggle("noambient",!v);
+  paintNP();
+  if(!["nowplaying"].includes(S.view)&&["art"].includes(k))render();
+}
 
 /* logo dither */
 function drawLogo(){const g=el.logoCv.getContext("2d");g.clearRect(0,0,20,20);const [ar,ag,ab]=ACC.hex;
@@ -434,19 +730,37 @@ function drawLogo(){const g=el.logoCv.getContext("2d");g.clearRect(0,0,20,20);co
 /* keyboard */
 addEventListener("keydown",e=>{
   if(e.target.tagName==="INPUT")return;
-  if(e.code==="Space"){e.preventDefault();el.btnPlay.click()}
+  if(e.code==="Space"){e.preventDefault();setPlaying(!S.playing)}
   if(e.code==="ArrowRight"&&el.aud.duration)el.aud.currentTime=Math.min(el.aud.duration,el.aud.currentTime+5);
   if(e.code==="ArrowLeft")el.aud.currentTime=Math.max(0,el.aud.currentTime-5);
 });
 
 /* loop */
 function loop(now){
-  tickAccent(now);
+  const tinted=tickAccent(now);
+  if(tinted){drawEdge(el.edgeCv,S._img);drawLogo()}
   sweepTick();
   drawMeter(el.seekCv,el.seek.clientHeight);
-  drawLogo();
+  if(el.npbar.style.display!=="none")drawMeter(el.seekCv2,el.seek2.clientHeight);
+  if(S.view==="nowplaying"&&S.cfg.ambient&&S._npLyrics!==null)drawAmbient(el.ambient,now/1000);
+  updateLyrics();
   requestAnimationFrame(loop);
 }
+
+/* np cover dither canvas behind the img (created once) */
+(function(){
+  const cv=document.createElement("canvas");
+  cv.id="npDither";
+  cv.style.cssText="position:absolute;inset:0;width:100%;height:100%;border-radius:var(--r-w);border:1px solid var(--line2);display:none;background:#12171A";
+  el.npCover.parentElement.appendChild(cv);
+  el.npDither=cv;
+})();
+el.npIcoP=document.getElementById("icoPlay");el.npIcoPa=document.getElementById("icoPause");
+
+/* resize -> edge refit */
+new ResizeObserver(()=>drawEdge(el.edgeCv,S._img)).observe(el.tui);
+el.np.classList.toggle("noambient",!S.cfg.ambient);
+
 /* tips */
 document.querySelectorAll(".tbtn[data-tip]").forEach(b=>{
   b.addEventListener("pointerenter",()=>b.classList.add("tip-on"));
@@ -458,22 +772,32 @@ document.querySelectorAll(".tbtn[data-tip]").forEach(b=>{
 window.__qa={
   state:()=>({lib:S.lib.length,i:S.i,playing:S.playing&&!el.aud.paused,view:S.view,
               dur:+(el.aud.duration||0).toFixed(2),vol:S.vol,liked:S.liked.size,
-              playlists:S.playlists.length,search:searchStr}),
+              playlists:S.playlists.length,search:searchStr,npLyrics:S._npLyrics}),
   meter:()=>({maxBar:+Math.max(...EMA).toFixed(3),alive:EMA.some(v=>v>.02),ctx:AC?AC.state:"none"}),
   sweepState:()=>({t:+SWEEP.t.toFixed(2),dir:SWEEP.dir,v:+SWEEP.v.toFixed(3),drag:S.drag!=null}),
   albums:()=>{const set=new Set(S.lib.map(t=>t.album));return set.size},
-  nav:v=>{S.view=v;render();return {view:S.view,albums:new Set(S.lib.map(t=>t.album)).size}},
+  nav(v){S.view=v;render();return {view:S.view,npShown:el.np.style.display!== "none",
+    contentShown:el.content.style.display!=="none",barShown:el.npbar.style.display!=="none"}},
   cfg:()=>({...S.cfg}),
-  gridSet:v=>{setGrid(v);return S.cfg.grid},
+  artSet(mode){setCfgM("art",mode);return {art:S.cfg.art,coverVisible:el.npCover.style.display!=="none"&&el.npCover.src.length>10}},
+  ambientSet(v){setCfgM("ambient",v);return {ambient:S.cfg.ambient,canvasShown:getComputedStyle(el.ambient).display!=="none"}},
+  ambientLit(){if(getComputedStyle(el.ambient).display==="none")return -1;
+    const g=el.ambient.getContext("2d");const d=g.getImageData(0,0,el.ambient.width,el.ambient.height).data;
+    let lit=0,n=0;for(let i=0;i<d.length;i+=256){n++;if(d[i]>18||d[i+1]>18||d[i+2]>18)lit++}
+    return +(lit/n).toFixed(4)},
   transport:()=>({shuffle:S.shuffle,repeat:S.repeat}),
   transportSet(kind){kind==="shuffle"?el.btnShuf.click():el.btnRep.click();return this.transport()},
   dragAPI:()=>({startDragging:typeof (curWin&&curWin.startDragging)}),
   ctx(x,y){document.body.dispatchEvent(new MouseEvent("contextmenu",{clientX:x||300,clientY:200,bubbles:true,cancelable:true}));
-    return document.querySelectorAll(".ctxmenu .ctxitem").length},
+    return {root:document.querySelectorAll(".ctxmenu>.ctxitem,.ctxmenu>.ctxwrap").length,
+            subs:document.querySelectorAll(".ctxsub").length}},
   async play(){await setPlaying(true);return this.state()},
+  async pause(){await setPlaying(false);return this.state()},
   async load(i){await loadTrack(i);return this.state()},
   async scan(dir){const r=await scanLibrary(dir);render();return {tracks:r?r.tracks.length:0,skipped:r?r.skipped.length:0}},
   async like(i){const t=S.lib[i];if(t){toggleLike(t.path)};return {liked:S.liked.size,has:S.liked.has(t.path)}},
+  seekBar(){return {npH:el.seek.clientHeight,barShown:el.npbar.style.display!=="none",
+    barH:el.npbar.style.display!=="none"?el.seek2.clientHeight:-1}},
   async dragSim(x0,x1){
     const seek=el.seek;const r=seek.getBoundingClientRect();
     const ev=(t,px)=>new PointerEvent(t,{clientX:r.left+r.width*px,clientY:r.top+r.height/2,bubbles:true,pointerId:9,isPrimary:true,pointerType:'mouse'});
@@ -490,15 +814,22 @@ window.__qa={
 applyAccent();drawLogo();
 requestAnimationFrame(loop);
 render();
+paintNP();
 (async()=>{
   if(S.root){
+    el.libpath.value=S.root;
     const r=await scanLibrary(S.root);
     if(r&&r.tracks.length){
       render();
-      const li=S._lastTrack!=null?S._lastTrack:null;
-      await loadTrack(li!=null&&li>=0&&li<S.lib.length?li:0,false);
+      const req=S._npReq;
+      const li=(req&&req.track!=null&&req.track>=0&&req.track<S.lib.length)?req.track
+              :(S._lastTrack!=null?S._lastTrack:0);
+      await loadTrack(li,false);
+      S._npLyrics=(S.view==="nowplaying");
+      if(req)S.view="nowplaying",render();
     }
   }
+  if(qTrack!=null&&qTrack!==""){S.view="nowplaying";render()}
 })();
 </script>
 </body>

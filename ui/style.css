@@ -157,3 +157,10 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 /* repeat-one badge on transport tbtns */
 .tbtn .r1{position:absolute;top:0;right:2px;font-size:7px;font-family:var(--mono);color:var(--accent);display:none}
 .tbtn.rep-one .r1{display:block}
+
+/* ctx submenus (hover-open) */
+.ctxwrap{position:relative}
+.ctxarrow{margin-left:auto;color:var(--dim2);font-size:9px}
+.ctxsub{position:absolute;left:calc(100% - 6px);top:-7px;display:none;min-width:190px}
+.ctxwrap:hover>.ctxsub{display:block}
+.ctxwrap:hover>.ctxitem{background:var(--accent-12);color:var(--cream)}
