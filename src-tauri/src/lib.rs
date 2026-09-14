@@ -42,7 +42,8 @@ pub struct TrackMeta {
     pub artist: String,
     pub album: String,
     pub streaminfo: StreamInfo,
-    pub duration_s: f64,
+    #[serde(rename = "duration_s")]
+    pub duration: f64,
     pub cover: Option<Picture>,
     pub block_types: Vec<u8>,
 }
@@ -223,7 +224,7 @@ pub fn read_track(path: &Path) -> Result<TrackMeta, String> {
         artist: tags.get("ARTIST").cloned().unwrap_or_else(|| "Unknown artist".into()),
         album: tags.get("ALBUM").cloned().unwrap_or_else(|| "Unknown album".into()),
         streaminfo: si,
-        duration_s,
+        duration: duration_s,
         cover: if pics.is_empty() { None } else { Some(pics.remove(0)) },
         block_types,
     })
@@ -247,9 +248,8 @@ pub fn read_lrc_file(track_path: &Path) -> Vec<LyricLine> {
             let Some(after) = t.strip_prefix('[') else { break };
             let Some(close) = after.find(']') else { break };
             let tag = &after[..close];
-            // [mm:ss.xx] — parse by splitting on ':'
             if let Some((mm, ss)) = tag.split_once(':') {
-                if let (Ok(m), Ok(s)) = (mm.parse::<f64>(), ss.parse::<f64>()) {
+                if let (Ok(m), Ok(s)) = (mm.trim().parse::<f64>(), ss.trim().parse::<f64>()) {
                     stamps.push(m * 60.0 + s);
                     rest = &after[close + 1..];
                     continue;
@@ -361,7 +361,6 @@ fn pct_decode(s: &str) -> String {
 
 fn serve_flac(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
     let uri = request.uri().to_string();
-    // accepted forms: flac://localhost/<enc> | http://flac.localhost/<enc>
     let enc = uri
         .strip_prefix("flac://localhost/")
         .or_else(|| uri.strip_prefix("http://flac.localhost/"))
@@ -369,7 +368,6 @@ fn serve_flac(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
         .unwrap_or("");
     let path = pct_decode(enc);
 
-    // Range support so the media element can seek without re-downloading
     let range: Option<(u64, u64)> = request
         .headers()
         .get("range")
@@ -378,11 +376,7 @@ fn serve_flac(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
         .and_then(|r| {
             let (a, b) = r.split_once('-')?;
             let start: u64 = a.parse().ok()?;
-            let end: u64 = if b.is_empty() {
-                u64::MAX
-            } else {
-                b.parse().ok()?
-            };
+            let end: u64 = if b.is_empty() { u64::MAX } else { b.parse().ok()? };
             Some((start, end))
         });
 
@@ -404,10 +398,7 @@ fn serve_flac(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
                         .header("Content-Length", len.to_string())
                         .header("Accept-Ranges", "bytes")
                         .header("Access-Control-Allow-Origin", "*")
-                        .header(
-                            "Content-Range",
-                            format!("bytes {}-{}/{}", start, end, total),
-                        )
+                        .header("Content-Range", format!("bytes {}-{}/{}", start, end, total))
                         .body(buf)
                         .unwrap()
                 }
@@ -417,8 +408,6 @@ fn serve_flac(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
                     .body(Vec::new())
                     .unwrap(),
                 None => {
-                    // 200: full body. We deliberately do NOT load it into
-                    // memory here — stream from disk.
                     let mut f = fs::File::open(&path).map_err(|e| e.to_string()).unwrap();
                     let mut buf = Vec::with_capacity(total as usize);
                     f.read_to_end(&mut buf).ok();
@@ -441,21 +430,13 @@ fn serve_flac(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
 }
 
 // ---------------------------------------------------------------------------
-// App state + entry
+// App entry
 // ---------------------------------------------------------------------------
-
-#[derive(Default)]
-struct LibState {
-    #[allow(dead_code)]
-    root: Option<String>,
-    #[allow(dead_code)]
-    tracks: Vec<TrackMeta>,
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(LibState::default())
+        .plugin(tauri_plugin_opener::init())
         .register_uri_scheme_protocol("flac", |_ctx, request| serve_flac(request))
         .invoke_handler(tauri::generate_handler![
             scan_library,

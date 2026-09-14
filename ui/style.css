@@ -1,0 +1,145 @@
+/* ============================================================
+   HALFTONE shared design system — one spacing scale, one depth
+   logic, one type hierarchy across widget + full player.
+   ============================================================ */
+:root{
+  --sp1:4px;--sp2:8px;--sp3:12px;--sp4:16px;--sp6:24px;--sp8:32px;
+  --r-w:14px;--r-b:8px;--r-m:6px;--r-l:3px;
+  --bg:#16181A;--bg2:#1B1E21;--bg3:#21252A;
+  --line:#262B30;--line2:#3A4147;
+  --accent:#66E0C2;
+  --accent-22:rgba(102,224,194,.22);
+  --accent-12:rgba(102,224,194,.12);
+  --cream:#F2E8CF;--dim:#8B949C;--dim2:#566066;
+  --ink:#0A0E0C;
+  --e-pop:0 8px 24px rgba(0,0,0,.4);
+  --mono:Consolas,ui-monospace,monospace;
+  --sans:"Segoe UI",-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--sans);-webkit-font-smoothing:antialiased;background:var(--bg);color:var(--cream);user-select:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+:focus-visible{outline:1.5px solid var(--accent);outline-offset:2px}
+.mono{font-family:var(--mono)}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:var(--dim2)}
+
+/* scanline overlay — shared signature surface */
+.scanlines::after{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:60;
+  background:repeating-linear-gradient(0deg,transparent 0 2px,rgba(255,255,255,.012) 2px 3px);
+}
+
+/* ---- tier buttons (tools, window controls) ---- */
+.tbtn{
+  position:relative;width:26px;height:26px;display:grid;place-items:center;
+  border:1px solid var(--line);border-radius:var(--r-m);
+  color:var(--dim);transition:border-color .12s,color .12s;
+}
+.tbtn:hover{border-color:var(--line2);color:var(--cream)}
+.tbtn.on{border-color:var(--accent);color:var(--accent)}
+.tbtn.danger:hover{border-color:#E06666;color:#E06666}
+.tbtn svg{width:14px;height:14px;display:block}
+
+/* explicit tooltips */
+.tbtn[data-tip]::after{
+  content:attr(data-tip);
+  position:absolute;right:calc(100% + 8px);top:50%;transform:translateY(-50%);
+  padding:3px 8px;border:1px solid var(--line2);border-radius:var(--r-l);
+  background:var(--bg2);color:var(--cream);
+  font-size:10px;font-weight:600;letter-spacing:.14em;white-space:nowrap;
+  opacity:0;pointer-events:none;transition:opacity .12s ease;z-index:70;
+}
+.tbtn.tip-on::after,.tbtn:focus-visible::after{opacity:1}
+.tbtn.tip-below::after{right:auto;left:50%;top:auto;bottom:calc(100% + 8px);transform:translateX(50%)}
+
+/* ---- transport ---- */
+.cbtn{
+  width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--line);
+  border-radius:var(--r-b);color:var(--cream);transition:border-color .12s;
+}
+.cbtn:hover{border-color:var(--line2)}
+.cbtn:active{transform:translateY(1px)}
+.cbtn svg{width:15px;height:15px}
+.cbtn.play{border-color:var(--accent);background:var(--accent);color:var(--ink)}
+.cbtn.play:hover{filter:brightness(1.08)}
+
+/* ---- LED volume ---- */
+.leds{display:flex;gap:3px;padding:4px;border:1px solid var(--line);border-radius:var(--r-m)}
+.led{width:5px;height:10px;border-radius:1.5px;background:#232A2E;cursor:pointer}
+.led.on{background:var(--accent)}
+
+/* ---- seek meter strip (signature component) ---- */
+.seekwrap{padding:0 var(--sp3);position:relative}
+.seek{position:relative;height:12px;cursor:pointer;touch-action:none;border-radius:var(--r-l)}
+.seek.open{height:30px}
+.seek canvas{position:absolute;inset:0;width:100%;height:100%}
+.times{
+  display:flex;justify-content:space-between;margin-top:var(--sp1);
+  font-size:11px;font-variant-numeric:tabular-nums;color:var(--dim2);
+  opacity:0;transition:opacity .15s ease;
+}
+.seekwrap:hover .times,.seek.dragging .times{opacity:1}
+.tip{
+  position:absolute;bottom:calc(100% + 2px);left:0;transform:translateX(-50%);
+  padding:2px 6px;border:1px solid var(--accent);border-radius:var(--r-l);
+  color:var(--accent);font-size:10.5px;font-variant-numeric:tabular-nums;
+  background:var(--bg2);display:none;white-space:nowrap;z-index:40;
+}
+.seek.dragging .tip{display:block}
+
+/* ---- popovers ---- */
+.pop{
+  position:fixed;z-index:50;min-width:250px;max-width:380px;background:var(--bg2);
+  border:1px solid var(--line2);border-radius:var(--r-b);box-shadow:var(--e-pop);
+  padding:var(--sp2);display:none;
+}
+.pop.open{display:block}
+.pop .cap{font-size:10px;letter-spacing:.16em;color:var(--dim2);padding:var(--sp1) var(--sp2) var(--sp2);font-family:var(--mono)}
+.prow{display:flex;align-items:center;gap:var(--sp2);width:100%;padding:var(--sp2) var(--sp1);border-radius:var(--r-l);text-align:left}
+.prow:hover{background:var(--accent-12)}
+.prow .n{font-size:10px;color:var(--dim2);width:18px;font-family:var(--mono)}
+.prow .t{font-size:12px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow .d{font-size:10px;color:var(--dim2);font-family:var(--mono)}
+.prow.cur .t,.prow.cur .n{color:var(--accent)}
+
+/* ---- track list (full player) ---- */
+.tlist{display:flex;flex-direction:column;gap:2px;overflow-y:auto;padding-right:var(--sp1)}
+.trow{
+  display:grid;grid-template-columns:28px 1fr 1fr 120px 52px 64px 34px 34px;
+  align-items:center;gap:var(--sp2);padding:var(--sp1) var(--sp2);
+  border-radius:var(--r-l);color:var(--dim);
+}
+.trow:hover{background:var(--bg2)}
+.trow.cur .t-title{color:var(--accent)}
+.trow .idx{font-size:10px;color:var(--dim2);font-family:var(--mono);text-align:right;padding-right:2px}
+.trow .t-title{font-size:12.5px;color:var(--cream);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+.trow .t-sub{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+.trow .t-dur{font-size:10.5px;font-family:var(--mono);color:var(--dim2);text-align:right}
+.trow .ibtn{width:24px;height:24px;display:grid;place-items:center;border:1px solid transparent;border-radius:var(--r-l);color:var(--dim2)}
+.trow .ibtn:hover{border-color:var(--line2);color:var(--cream)}
+.trow .ibtn.on{color:var(--accent)}
+.trow .ibtn svg{width:13px;height:13px}
+
+/* ---- album grid ---- */
+.agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--sp3);overflow-y:auto;padding:var(--sp1)}
+.acard{display:flex;flex-direction:column;gap:var(--sp2);padding:var(--sp2);border:1px solid transparent;border-radius:var(--r-b);text-align:left}
+.acard:hover{border-color:var(--line2);background:var(--bg2)}
+.acard canvas{width:100%;aspect-ratio:1;border-radius:var(--r-m);border:1px solid var(--line);background:#12171A;display:block}
+.acard .a-name{font-size:12px;font-weight:600;color:var(--cream);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acard .a-sub{font-size:10px;color:var(--dim2);letter-spacing:.08em;font-family:var(--mono)}
+
+/* ---- sidebar ---- */
+.sidebar{display:flex;flex-direction:column;gap:var(--sp1);padding:var(--sp2)}
+.nav{display:flex;align-items:center;gap:var(--sp2);width:100%;padding:var(--sp2);border-radius:var(--r-m);
+  font-size:10px;font-weight:600;letter-spacing:.16em;color:var(--dim);border:1px solid transparent;text-align:left}
+.nav svg{width:14px;height:14px}
+.nav:hover{color:var(--cream);border-color:var(--line)}
+.nav.on{color:var(--accent);border-color:var(--accent);background:var(--accent-12)}
+
+/* ---- headings ---- */
+.h-caps{font-size:10px;letter-spacing:.18em;color:var(--dim2);font-family:var(--mono)}
+.h1{font-size:20px;font-weight:600;letter-spacing:.01em;color:var(--cream)}

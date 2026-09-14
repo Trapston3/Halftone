@@ -47,7 +47,7 @@ fn main() {
                     "PASS {} | sr={} bits={} ch={} | dur {:.5}s | cover {} | blocks {:?} | lrc {} lines | {} - {}",
                     p.file_name().and_then(|s| s.to_str()).unwrap_or("?"),
                     t.streaminfo.sample_rate, t.streaminfo.bits, t.streaminfo.channels,
-                    t.duration_s, cover, t.block_types, lrc.len(), t.artist, t.title
+                    t.duration, cover, t.block_types, lrc.len(), t.artist, t.title
                 );
                 pass += 1;
             }

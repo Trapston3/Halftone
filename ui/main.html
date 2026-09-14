@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Halftone</title>
+<link rel="stylesheet" href="style.css">
+<style>
+/* ============ full player layout ============ */
+.app{display:grid;grid-template-columns:200px 1fr;height:100vh}
+.side{border-right:1px solid var(--line);display:flex;flex-direction:column;background:var(--bg2)}
+.side .logo{display:flex;align-items:center;gap:var(--sp2);padding:var(--sp3);cursor:grab}
+.side .logo .dotgrid{width:20px;height:20px}
+.side .logo .nm{font-size:11px;font-weight:700;letter-spacing:.3em;color:var(--cream)}
+.side .logo .nm em{color:var(--accent);font-style:normal}
+.side nav{flex:1}
+.winctl{display:flex;gap:var(--sp1);padding:var(--sp2);border-top:1px solid var(--line)}
+
+.main{display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+.topbar{
+  display:flex;align-items:center;gap:var(--sp3);padding:var(--sp2) var(--sp4);
+  border-bottom:1px solid var(--line);cursor:grab;
+}
+.topbar .h-caps{min-width:120px}
+.search{
+  flex:0 1 380px;display:flex;align-items:center;gap:var(--sp2);
+  border:1px solid var(--line);border-radius:var(--r-m);padding:6px 10px;background:var(--bg2);
+}
+.search svg{width:13px;height:13px;color:var(--dim2)}
+.search input{flex:1;min-width:0;background:none;border:0;color:var(--cream);font:12px var(--sans);outline:none}
+.topbar .back2widget{margin-left:auto}
+
+.content{flex:1;overflow-y:auto;padding:var(--sp4);display:flex;flex-direction:column;gap:var(--sp3)}
+.content .h1{margin-bottom:var(--sp1)}
+
+/* now-playing bar along the bottom */
+.npbar{
+  display:flex;align-items:center;gap:var(--sp3);padding:var(--sp2) var(--sp4);
+  border-top:1px solid var(--line);background:var(--bg2);
+}
+.npbar .np-art{width:40px;height:40px;border-radius:var(--r-l);border:1px solid var(--line);background:#12171A;flex:none}
+.npbar .np-meta{width:200px;min-width:120px}
+.npbar .np-title{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.npbar .np-sub{font-size:10px;color:var(--dim2);letter-spacing:.08em;font-family:var(--mono)}
+.npbar .seekwrap{flex:1;max-width:560px}
+.npbar .np-ctl{display:flex;align-items:center;gap:var(--sp2);margin-left:auto}
+
+/* track list header row */
+.thead{display:grid;grid-template-columns:28px 1fr 1fr 120px 52px 64px 34px 34px;
+  gap:var(--sp2);padding:var(--sp1) var(--sp2);color:var(--dim2);
+  font-size:9px;letter-spacing:.16em;font-family:var(--mono);border-bottom:1px solid var(--line)}
+.thead span:nth-child(4),.thead span:nth-child(5){text-align:right}
+
+/* album detail hero */
+.ahero{display:flex;gap:var(--sp4);align-items:flex-end;margin-bottom:var(--sp4)}
+.ahero canvas{width:180px;height:180px;border-radius:var(--r-b);border:1px solid var(--line);background:#12171A}
+.ahero .info{display:flex;flex-direction:column;gap:var(--sp2)}
+.ahero .h1{font-size:26px}
+.ahero .meta{font-size:10px;color:var(--dim2);letter-spacing:.14em;font-family:var(--mono)}
+.ahero .actions{display:flex;gap:var(--sp2);margin-top:var(--sp2)}
+.ahero .big{
+  display:inline-flex;align-items:center;gap:var(--sp2);padding:8px 16px;
+  border:1px solid var(--accent);border-radius:var(--r-m);color:var(--accent);
+  font-size:10px;letter-spacing:.16em;font-family:var(--mono);
+}
+.ahero .big:hover{background:var(--accent-12)}
+
+.empty{
+  display:flex;flex-direction:column;gap:var(--sp2);align-items:flex-start;
+  padding:var(--sp6);color:var(--dim);font-size:12px;line-height:1.7;
+}
+.empty .h-caps{margin-bottom:var(--sp1)}
+.librow{display:flex;gap:var(--sp1)}
+.librow input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-l);color:var(--cream);font:11px var(--mono);padding:6px 8px}
+.librow input:focus{outline:none;border-color:var(--accent)}
+.librow button{padding:6px 12px;border:1px solid var(--line2);border-radius:var(--r-l);font-size:10px;letter-spacing:.14em;color:var(--cream)}
+.librow button:hover{border-color:var(--accent);color:var(--accent)}
+
+.pl-item{display:flex;align-items:center;gap:var(--sp2);width:100%;padding:var(--sp2);border-radius:var(--r-m);text-align:left;color:var(--dim);border:1px solid transparent}
+.pl-item:hover{border-color:var(--line2);color:var(--cream)}
+.pl-item .pl-name{font-size:12px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-item .pl-n{font-size:10px;color:var(--dim2);font-family:var(--mono)}
+</style>
+</head>
+<body class="scanlines">
+<div class="app">
+  <aside class="side">
+    <div class="logo" data-tauri-drag-region>
+      <canvas class="dotgrid" id="logoCv" width="20" height="20"></canvas>
+      <div class="nm">HALF<em>TONE</em></div>
+    </div>
+    <nav class="sidebar" id="nav">
+      <button class="nav on" data-view="tracks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.3"/><circle cx="16.5" cy="15" r="2.3"/></svg>
+        TRACKS</button>
+      <button class="nav" data-view="albums">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        ALBUMS</button>
+      <button class="nav" data-view="liked">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 20s-7-4.3-9.3-8.6C.9 8 3 4.5 6.4 4.5c2 0 3.6 1.1 4.4 2.7l1.2 2 1.2-2c.8-1.6 2.4-2.7 4.4-2.7 3.4 0 5.5 3.5 3.7 6.9C19 15.7 12 20 12 20z"/></svg>
+        LIKED</button>
+      <button class="nav" data-view="playlists">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 6h16M4 11h10"/><circle cx="18" cy="16" r="2.5"/><path d="M4 16h9"/></svg>
+        PLAYLISTS</button>
+    </nav>
+    <div class="winctl">
+      <button class="tbtn" id="btnMin" data-tip="MINIMIZE" aria-label="Minimize">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 12h14"/></svg>
+      </button>
+      <button class="tbtn" id="btnClose" data-tip="CLOSE" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar" data-tauri-drag-region>
+      <div class="h-caps mono" id="viewCap">TRACKS</div>
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
+        <input id="search" type="text" placeholder="search" spellcheck="false">
+      </div>
+      <button class="tbtn back2widget" id="btnWidget" data-tip="WIDGET · ALWAYS ON TOP" aria-label="Show widget">
+        <svg viewBox="0 0 24 24" fill="none" stroke="window.__TAURI__?1:1" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.7 2 6 4.7 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.3-2.7-6-6-6z"/><circle cx="12" cy="8" r="2.2"/></svg>
+      </button>
+    </div>
+
+    <div class="content" id="content"></div>
+
+    <div class="npbar">
+      <canvas class="np-art" id="npArt" width="40" height="40"></canvas>
+      <div class="np-meta">
+        <div class="np-title" id="npTitle">—</div>
+        <div class="np-sub" id="npSub">—</div>
+      </div>
+      <div class="seekwrap">
+        <div class="seek" id="seek">
+          <canvas id="seekCv"></canvas>
+          <div class="tip mono" id="tip">00:00 / 00:00</div>
+        </div>
+        <div class="times mono"><span id="tCur">00:00</span><span id="tTot">00:00</span></div>
+      </div>
+      <div class="np-ctl">
+        <button class="cbtn" id="btnPrev" title="Previous">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2.2v14H6z"/><path d="M20 5.4v13.2c0 .8-.9 1.3-1.6.9L9.5 12.7a1 1 0 0 1 0-1.7l8.9-5.9c.7-.4 1.6.1 1.6.9z"/></svg>
+        </button>
+        <button class="cbtn play" id="btnPlay" title="Play / pause">
+          <svg id="icoPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.2v13.6c0 .8.9 1.3 1.6.9l10.4-6.8a1 1 0 0 0 0-1.7L9.8 4.3c-.7-.4-1.6.1-1.6.9z"/></svg>
+          <svg id="icoPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z"/></svg>
+        </button>
+        <button class="cbtn" id="btnNext" title="Next">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.8 5H18v14h-2.2z"/><path d="M4 5.4v13.2c0 .8.9 1.3 1.6.9l8.9-5.8a1 1 0 0 0 0-1.7L5.6 4.5c-.7-.4-1.6.1-1.6.9z"/></svg>
+        </button>
+        <div class="vol">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6"/></svg>
+          <div class="leds" id="leds" role="slider" aria-label="Volume" tabindex="0"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<audio id="aud" preload="metadata" crossorigin="anonymous"></audio>
+<script src="common.js"></script>
+<script>
+/* ============ main player wiring ============ */
+["seek","seekCv","tip","tCur","tTot","npTitle","npSub","npArt","content","viewCap",
+ "search","icoPlay","icoPause","btnPlay","btnPrev","btnNext","leds",
+ "btnMin","btnClose","btnWidget","logoCv","aud"].forEach(k=>el[k]=document.getElementById(k));
+wireSeek(el.seek);
+
+const Q=new URLSearchParams(location.search);
+if(Q.get("view"))S.view=Q.get("view");
+
+/* nav */
+document.querySelectorAll(".nav").forEach(n=>{
+  n.onclick=()=>{S.view=n.dataset.view;render();};
+});
+
+/* search */
+let searchStr="";
+el.search.addEventListener("input",()=>{searchStr=el.search.value.toLowerCase();render()});
+
+/* ============ views ============ */
+function render(){
+  document.querySelectorAll(".nav").forEach(n=>n.classList.toggle("on",n.dataset.view===S.view));
+  el.viewCap.textContent=S.view.toUpperCase();
+  const c=el.content;
+  if(!S.lib.length){
+    c.innerHTML=`<div class="empty">
+      <div class="h-caps mono">LIBRARY</div>
+      Scan your music folder to populate Halftone.<br>
+      FLAC files are read directly — no import, no copies, no transcode.
+      <div class="librow" style="max-width:420px;margin-top:8px">
+        <input id="mLib" type="text" placeholder="C:\\Users\\you\\Music" spellcheck="false">
+        <button id="mScan" class="mono">SCAN</button>
+      </div>
+      <div class="libstat mono" id="mStat"></div>
+    </div>`;
+    const inp=document.getElementById("mLib");
+    if(S.root)inp.value=S.root;
+    document.getElementById("mScan").onclick=async()=>{await scanLibrary(inp.value.trim());render()};
+    return;
+  }
+  if(S.view==="tracks")renderTracks();
+  else if(S.view==="albums")renderAlbums();
+  else if(S.view==="liked")renderLiked();
+  else if(S.view==="playlists")renderPlaylists();
+}
+
+function trackRow(t,i,ctx){
+  const liked=S.liked.has(t.path);
+  const b=document.createElement("button");
+  b.className="trow"+(ctx==="row"&&i===S.i?" cur":"");
+  b.innerHTML=`
+    <span class="idx">${String(i+1).padStart(2,"0")}</span>
+    <span class="t-title">${t.title}</span>
+    <span class="t-sub">${t.artist}</span>
+    <span class="t-sub" style="text-align:right">${t.album}</span>
+    <span class="t-dur">${fmt(t.duration_s)}</span>
+    <span class="t-dur mono" style="letter-spacing:.05em">${t.streaminfo.sample_rate/1000}k/${t.streaminfo.bits}</span>
+    <button class="ibtn ${liked?"on":""}" data-like title="Like">
+      <svg viewBox="0 0 24 24" fill="${liked?"currentColor":"none"}" stroke="currentColor" stroke-width="1.7"><path d="M12 20s-7-4.3-9.3-8.6C.9 8 3 4.5 6.4 4.5c2 0 3.6 1.1 4.4 2.7l1.2 2 1.2-2c.8-1.6 2.4-2.7 4.4-2.7 3.4 0 5.5 3.5 3.7 6.9C19 15.7 12 20 12 20z"/></svg>
+    </button>
+    <button class="ibtn" data-pl title="Add to playlist">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 6h16M4 11h10"/><path d="M18 11v6M15 14h6"/></svg>
+    </button>`;
+  b.onclick=e=>{
+    const lb=e.target.closest("[data-like]");const pb=e.target.closest("[data-pl]");
+    if(lb){toggleLike(t.path);render();return}
+    if(pb){makePlaylistFrom([t.path]);return}
+    loadTrack(i);
+  };
+  return b;
+}
+
+function renderTracks(){
+  el.content.innerHTML=`<div class="h1">Tracks</div>
+    <div class="thead"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>
+    <div class="tlist" id="list"></div>`;
+  const list=document.getElementById("list");
+  const flt=S.lib.map((t,i)=>({t,i})).filter(x=>!searchStr||(x.t.title+" "+x.t.artist+" "+x.t.album).toLowerCase().includes(searchStr));
+  flt.forEach(x=>list.appendChild(trackRow(x.t,x.i,"row")));
+}
+
+function renderAlbums(){
+  el.content.innerHTML=`<div class="h1">Albums</div><div class="agrid" id="grid"></div>`;
+  const grid=document.getElementById("grid");
+  const byAlbum=new Map();
+  S.lib.forEach((t,i)=>{if(!byAlbum.has(t.album))byAlbum.set(t.album,[]);byAlbum.get(t.album).push({t,i})});
+  byAlbum.forEach((tracks,album)=>{
+    const first=tracks[0].t;
+    const card=document.createElement("button");
+    card.className="acard";
+    card.innerHTML=`<canvas width="150" height="150"></canvas>
+      <span class="a-name">${album}</span>
+      <span class="a-sub">${tracks.length} TRACKS · ${first.artist.toUpperCase()}</span>`;
+    card.onclick=()=>{
+      S.view="album:"+album;render();
+    };
+    grid.appendChild(card);
+    if(first.cover){
+      const img=new Image();
+      img.onload=()=>{const cv=card.querySelector("canvas");drawDither(cv,img,150)};
+      img.src="data:"+first.cover.mime+";base64,"+first.cover.data_b64;
+    }
+  });
+}
+
+function renderAlbumDetail(album){
+  const tracks=S.lib.map((t,i)=>({t,i})).filter(x=>x.t.album===album);
+  const first=tracks[0].t;
+  el.content.innerHTML=`<div class="ahero">
+      <canvas id="heroArt" width="180" height="180"></canvas>
+      <div class="info">
+        <div class="h-caps mono">ALBUM</div>
+        <div class="h1">${album}</div>
+        <div class="meta">${first.artist.toUpperCase()} · ${tracks.length} TRACKS</div>
+        <div class="actions">
+          <button class="big" id="playAlbum">▶ PLAY ALBUM</button>
+        </div>
+      </div>
+    </div>
+    <div class="thead"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>
+    <div class="tlist" id="list"></div>`;
+  if(first.cover){
+    const img=new Image();
+    img.onload=()=>{const cv=document.getElementById("heroArt");drawDither(cv,img,180);tweenAccent(clampAccent(extractAccent(img)))};
+    img.src="data:"+first.cover.mime+";base64,"+first.cover.data_b64;
+  }
+  document.getElementById("playAlbum").onclick=()=>loadTrack(tracks[0].i);
+  const list=document.getElementById("list");
+  tracks.forEach(x=>list.appendChild(trackRow(x.t,x.i,"row")));
+}
+
+function renderLiked(){
+  el.content.innerHTML=`<div class="h1">Liked</div>
+    <div class="thead"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>
+    <div class="tlist" id="list"></div>`;
+  const list=document.getElementById("list");
+  const flt=S.lib.map((t,i)=>({t,i})).filter(x=>S.liked.has(x.t.path));
+  if(!flt.length){list.innerHTML=`<div class="empty"><div class="h-caps mono">EMPTY</div>Like tracks with the heart icon — they collect here.</div>`;return}
+  flt.forEach(x=>list.appendChild(trackRow(x.t,x.i,"row")));
+}
+
+function renderPlaylists(){
+  el.content.innerHTML=`<div class="h1">Playlists</div><div id="pls" style="display:flex;flex-direction:column;gap:8px;max-width:420px"></div>`;
+  const box=document.getElementById("pls");
+  if(!S.playlists.length){
+    box.innerHTML=`<div class="empty"><div class="h-caps mono">EMPTY</div>
+      Create playlists with the + icon on any track, or play an album.</div>`;
+  }
+  S.playlists.forEach((p,pi)=>{
+    const b=document.createElement("button");
+    b.className="pl-item";
+    b.innerHTML=`<span class="pl-name">${p.name}</span><span class="pl-n">${p.paths.size}</span>`;
+    b.onclick=()=>{S.view="playlist:"+p.name;render()};
+    box.appendChild(b);
+  });
+}
+function makePlaylistFrom(paths){
+  const name="PL-"+String(S.playlists.length+1).padStart(2,"0");
+  makePlaylist(name,paths);
+  S.view="playlist:"+name;render();
+}
+function renderPlaylistDetail(name){
+  const p=S.playlists.find(x=>x.name===name);
+  if(!p){S.view="playlists";render();return}
+  el.content.innerHTML=`<div class="h1">${name}</div>
+    <div class="thead"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>
+    <div class="tlist" id="list"></div>`;
+  const list=document.getElementById("list");
+  const flt=S.lib.map((t,i)=>({t,i})).filter(x=>p.paths.has(x.t.path));
+  flt.forEach(x=>list.appendChild(trackRow(x.t,x.i,"row")));
+}
+
+/* view dispatch (handles album:/playlist: deep views) */
+const _render=render;
+render=function(){
+  if(S.view.startsWith("album:")){document.querySelectorAll(".nav").forEach(n=>n.classList.remove("on"));el.viewCap.textContent="ALBUM";renderAlbumDetail(S.view.slice(6));return}
+  if(S.view.startsWith("playlist:")){document.querySelectorAll(".nav").forEach(n=>n.classList.remove("on"));el.viewCap.textContent="PLAYLIST";renderPlaylistDetail(S.view.slice(9));return}
+  _render();
+};
+
+/* ============ now-playing bar ============ */
+document.addEventListener("halftone:track",()=>{
+  const m=S.meta;if(!m)return;
+  el.npTitle.textContent=m.title;
+  el.npSub.textContent=(m.artist+" / "+m.album).toUpperCase();
+  el.tTot.textContent=fmt(m.duration_s);
+  if(m.cover){
+    const img=new Image();
+    img.onload=()=>drawDither(el.npArt,img,40);
+    img.src="data:"+m.cover.mime+";base64,"+m.cover.data_b64;
+  }
+});
+el.aud.addEventListener("timeupdate",()=>{el.tCur.textContent=fmt(el.aud.currentTime)});
+el.aud.addEventListener("ended",()=>loadTrack(S.i+1));
+
+el.btnPlay.onclick=()=>setPlaying(!S.playing);
+el.btnNext.onclick=()=>{if(S.lib.length)loadTrack(S.i+1)};
+el.btnPrev.onclick=()=>{if(!S.lib.length)return;if(el.aud.currentTime>3)el.aud.currentTime=0;else loadTrack(S.i-1)};
+
+/* volume (LED) */
+const LEDN=5,leds=[];
+for(let i=0;i<LEDN;i++){
+  const d=document.createElement("div");d.className="led";
+  d.onclick=()=>{S.vol=(i+1)/LEDN;paintLeds();el.aud.volume=S.vol;if(gainNode)gainNode.gain.value=S.vol;saveStore()};
+  el.leds.appendChild(d);leds.push(d)}
+function paintLeds(){leds.forEach((l,i)=>l.classList.toggle("on",S.vol>=(i+1)/LEDN-.01))}
+paintLeds();el.aud.volume=S.vol;
+
+/* window controls */
+el.btnMin.onclick=async()=>{try{await curWin.minimize()}catch(e){console.warn(e)}};
+el.btnClose.onclick=async()=>{try{await curWin.close()}catch(e){console.warn(e)}};
+el.btnWidget.onclick=async()=>{
+  try{const w=T.window.Window.getByLabel("widget");if(w){await w.show();await w.setFocus()}}catch(e){console.warn(e)}
+};
+
+/* logo dither */
+function drawLogo(){const g=el.logoCv.getContext("2d");g.clearRect(0,0,20,20);const [ar,ag,ab]=ACC.hex;
+  const lit=[[1,2],[2,1],[2,3],[3,2],[0,2],[4,2]];
+  for(let y=0;y<5;y++)for(let x=0;x<5;x++){
+    const on=lit.some(([a,b])=>a===x&&b===y);
+    g.fillStyle=on?`rgb(${ar},${ag},${ab})`:"#232A2E";
+    g.fillRect(x*4,y*4,3,3)}}
+
+/* keyboard */
+addEventListener("keydown",e=>{
+  if(e.target.tagName==="INPUT")return;
+  if(e.code==="Space"){e.preventDefault();el.btnPlay.click()}
+  if(e.code==="ArrowRight"&&el.aud.duration)el.aud.currentTime=Math.min(el.aud.duration,el.aud.currentTime+5);
+  if(e.code==="ArrowLeft")el.aud.currentTime=Math.max(0,el.aud.currentTime-5);
+});
+
+/* loop */
+function loop(now){
+  tickAccent(now);
+  sweepTick();
+  drawMeter(el.seekCv,el.seek.clientHeight);
+  drawLogo();
+  requestAnimationFrame(loop);
+}
+/* tips */
+document.querySelectorAll(".tbtn[data-tip]").forEach(b=>{
+  b.addEventListener("pointerenter",()=>b.classList.add("tip-on"));
+  b.addEventListener("pointerleave",()=>b.classList.remove("tip-on"));
+  b.addEventListener("click",()=>b.classList.remove("tip-on"));
+});
+
+/* QA surface */
+window.__qa={
+  state:()=>({lib:S.lib.length,i:S.i,playing:S.playing&&!el.aud.paused,view:S.view,
+              dur:+(el.aud.duration||0).toFixed(2),vol:S.vol,liked:S.liked.size,
+              playlists:S.playlists.length,search:searchStr}),
+  meter:()=>({maxBar:+Math.max(...EMA).toFixed(3),alive:EMA.some(v=>v>.02),ctx:AC?AC.state:"none"}),
+  sweepState:()=>({t:+SWEEP.t.toFixed(2),dir:SWEEP.dir,v:+SWEEP.v.toFixed(3),drag:S.drag!=null}),
+  albums:()=>{const set=new Set(S.lib.map(t=>t.album));return set.size},
+  nav:v=>{S.view=v;render();return {view:S.view,albums:new Set(S.lib.map(t=>t.album)).size}},
+  async play(){await setPlaying(true);return this.state()},
+  async load(i){await loadTrack(i);return this.state()},
+  async scan(dir){const r=await scanLibrary(dir);render();return {tracks:r?r.tracks.length:0,skipped:r?r.skipped.length:0}},
+  async like(i){const t=S.lib[i];if(t){toggleLike(t.path)};return {liked:S.liked.size,has:S.liked.has(t.path)}},
+  async dragSim(x0,x1){
+    const seek=el.seek;const r=seek.getBoundingClientRect();
+    const ev=(t,px)=>new PointerEvent(t,{clientX:r.left+r.width*px,clientY:r.top+r.height/2,bubbles:true,pointerId:9,isPrimary:true,pointerType:'mouse'});
+    seek.dispatchEvent(ev('pointerdown',x0));
+    for(let k=0;k<=6;k++){seek.dispatchEvent(ev('pointermove',x0+(x1-x0)*k/6))}
+    seek.dispatchEvent(ev('pointerup',x1));
+    return this.sweepState();
+  },
+};
+
+/* boot */
+applyAccent();drawLogo();
+requestAnimationFrame(loop);
+render();
+(async()=>{
+  if(S.root){
+    const r=await scanLibrary(S.root);
+    if(r&&r.tracks.length){
+      render();
+      const li=S._lastTrack!=null?S._lastTrack:null;
+      await loadTrack(li!=null&&li>=0&&li<S.lib.length?li:0,false);
+    }
+  }
+})();
+</script>
+</body>
+</html>
