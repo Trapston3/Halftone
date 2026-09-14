@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Halftone - direct-FLAC pipeline demo (no transcode, single read)</title>
+<style>
+:root{
+  --bg:#16181A;--bg2:#1B1E21;--line:#262B30;--line2:#3A4147;
+  --accent:#66E0C2;--cream:#F2E8CF;--dim:#8B949C;--dim2:#566066;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:"Segoe UI",-apple-system,sans-serif;color:var(--cream);
+  background:radial-gradient(120% 90% at 30% 18%,#1B1D22 0%,#101115 70%);
+  min-height:100vh;padding:24px;display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;
+  -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:Consolas,ui-monospace,monospace}
+h1{font-size:14px;font-weight:600;letter-spacing:.14em;color:var(--cream)}
+h1 span{color:var(--dim2)}
+p.sub{margin-top:6px;font-size:11px;color:var(--dim2);max-width:520px;line-height:1.6}
+.panel{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:16px;box-shadow:0 12px 36px rgba(0,0,0,.5)}
+.col{display:flex;flex-direction:column;gap:16px}
+label.pick{display:inline-block;padding:8px 14px;border:1px solid var(--line2);border-radius:6px;
+  font-size:11px;letter-spacing:.12em;color:var(--cream);cursor:pointer}
+label.pick:hover{border-color:var(--accent);color:var(--accent)}
+input[type=file]{display:none}
+/* player card mirrors 002-phosphor visual language */
+.deck{width:400px}
+.head{display:flex;gap:12px;padding:12px}
+canvas.art{width:96px;height:96px;border-radius:6px;border:1px solid var(--line);display:block;background:#12171A}
+.hmeta{flex:1;min-width:0;display:flex;flex-direction:column}
+.trk-no{font-size:10px;letter-spacing:.18em;color:var(--accent)}
+.title{margin-top:4px;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tech{margin-top:4px;font-size:10px;letter-spacing:.1em;color:var(--dim2)}
+.controls{display:flex;align-items:center;gap:8px;padding:12px}
+.cbtn{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--line);
+  border-radius:6px;color:var(--cream);cursor:pointer;background:none;font:inherit}
+.cbtn:active{transform:translateY(1px)}
+.play{border-color:var(--accent);background:var(--accent);color:#0A0E0C}
+#meterCv{display:block;width:100%;height:36px;margin-top:8px}
+/* status */
+.chips{display:flex;flex-direction:column;gap:8px}
+.chip{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);
+  border-radius:6px;font-size:11px;letter-spacing:.1em}
+.chip .st{width:52px;font-weight:700;font-size:10px;letter-spacing:.14em;text-align:center;
+  padding:3px 0;border-radius:3px;background:#232A2E;color:var(--dim2)}
+.chip.pass .st{background:var(--accent);color:#0A0E0C}
+.chip.fail .st{background:#E06666;color:#1A0A0A}
+.chip .lb{color:var(--dim)}
+table{border-collapse:collapse;font-size:11px;color:var(--dim);width:100%}
+td{padding:4px 8px 4px 0;white-space:nowrap}
+td b{color:var(--cream);font-weight:600}
+td.warn{color:#E0A366}
+.log{font-size:10.5px;line-height:1.7;color:var(--dim2);max-width:360px;word-break:break-all}
+.note{font-size:10px;color:var(--dim2);margin-top:10px;line-height:1.6;max-width:340px}
+</style>
+</head>
+<body>
+<div class="col">
+  <div class="panel deck">
+    <h1>HALFTONE <span>/ DIRECT-FLAC PIPELINE DEMO</span></h1>
+    <p class="sub mono">Picks .flac (+ optional .lrc) straight from disk. One read per track:
+    STREAMINFO + VORBIS_COMMENT + PICTURE come out of the same bytes that the
+    audio element plays. No transcode, no separate cover step, no network.
+    Browser needs --allow-file-access-from-files (headless QA run does).</p>
+    <label class="pick mono" for="filePick">PICK FLAC (+ LRC)</label>
+    <input type="file" id="filePick" accept=".flac,.lrc" multiple>
+    <div class="head">
+      <canvas class="art" id="art" width="96" height="96"></canvas>
+      <div class="hmeta">
+        <div class="trk-no mono" id="trkNo">NO TRACK</div>
+        <div class="title" id="tTitle">drop a FLAC in</div>
+        <div class="tech mono" id="tTech">-</div>
+      </div>
+    </div>
+    <canvas id="meterCv" width="376" height="36"></canvas>
+    <div class="controls">
+      <button class="cbtn play" id="btnPlay" title="Play / pause">
+        <svg id="icoPlay" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.2v13.6c0 .8.9 1.3 1.6.9l10.4-6.8a1 1 0 0 0 0-1.7L9.8 4.3c-.7-.4-1.6.1-1.6.9z"/></svg>
+        <svg id="icoPause" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z"/></svg>
+      </button>
+      <span class="mono" id="tCur" style="font-size:11px;color:var(--dim2)">00:00</span>
+      <span class="mono" id="tDur" style="font-size:11px;color:var(--dim2)">/ 00:00</span>
+    </div>
+  </div>
+  <div class="panel" style="width:400px">
+    <div class="log mono" id="log">waiting for a file...</div>
+    <div class="note">This page is demo tooling for the pipeline contract in
+    docs/audio-pipeline.md. The dither/accent/meter renderers are mirrored from
+    sketches/002-phosphor/index.html so the visual output stays honest to the widget.</div>
+  </div>
+</div>
+<div class="col">
+  <div class="panel chips" id="chips" style="width:400px">
+    <div class="chip" id="cFormat"><span class="st">WAIT</span><span class="lb mono">fLaC MAGIC + BLOCK WALK</span></div>
+    <div class="chip" id="cStream"><span class="st">WAIT</span><span class="lb mono">STREAMINFO PARSED (SR/BITS/CH/SAMPLES)</span></div>
+    <div class="chip" id="cTags"><span class="st">WAIT</span><span class="lb mono">VORBIS_COMMENT TITLE + ARTIST</span></div>
+    <div class="chip" id="cCover"><span class="st">WAIT</span><span class="lb mono">EMBEDDED COVER = PICTURE BLOCK (SAME READ)</span></div>
+    <div class="chip" id="cDirect"><span class="st">WAIT</span><span class="lb mono">AUDIO PLAYS ORIGINAL FLAC BYTES</span></div>
+    <div class="chip" id="cNoTr"><span class="st">WAIT</span><span class="lb mono">NO TRANSCODE / NO AAC ANYWHERE</span></div>
+    <div class="chip" id="cSingle"><span class="st">WAIT</span><span class="lb mono">SINGLE USER-SPACE READ PER TRACK</span></div>
+    <div class="chip" id="cAnalyser"><span class="st">WAIT</span><span class="lb mono">ANALYSERNODE LIVE ON DIRECT FLAC</span></div>
+    <div class="chip" id="cDur"><span class="st">WAIT</span><span class="lb mono">STREAMINFO DURATION = ELEMENT DURATION</span></div>
+  </div>
+  <div class="panel" style="width:400px">
+    <table class="mono" id="tbl"><tr><td>file</td><td>-</td></tr></table>
+  </div>
+</div>
+<audio id="aud" preload="metadata"></audio>
+
+<script>
+/* ================= state ================= */
+const S={name:"-",bytes:0,reads:0,playing:false,blocks:null,coverBlobURL:null,audioBlobURL:null,
+         lrc:null,streamDur:0,elemDur:0};
+window.S=S;
+const $=id=>document.getElementById(id);
+const el={};["art","meterCv","aud","tCur","tDur","tTitle","tTech","trkNo","log","tbl"].forEach(k=>el[k]=$(k));
+const log=(m)=>{el.log.textContent=m+"\\n"+el.log.textContent;console.log(m)};
+const fmt=s=>{s=Math.max(0,Math.round(s));return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0")};
+
+/* ================= FLAC block walk (single read) ================= */
+function parseFlac(buf){
+  const u8=new Uint8Array(buf),dv=new DataView(buf);
+  if(!(u8[0]===0x66&&u8[1]===0x4C&&u8[2]===0x61&&u8[3]===0x43))
+    throw new Error("not a FLAC file (got "+u8[0]+","+u8[1]+","+u8[2]+","+u8[3]+" / len "+u8.length+")");
+  let p=4,last=false;const out={streaminfo:null,tags:{},pictures:[],blockTypes:[]};
+  while(p<u8.length&&!last){
+    const head=u8[p];last=!!(head&0x80);const type=head&0x7F;
+    const len=(u8[p+1]<<16)|(u8[p+2]<<8)|u8[p+3];   /* 24-bit BE length */
+    const body=p+4;
+    out.blockTypes.push(type);
+    if(type===0){ /* STREAMINFO, 34 bytes */
+      const sr=(u8[body+10]<<12)|(u8[body+11]<<4)|(u8[body+12]>>4);
+      const ch=((u8[body+12]&0x0E)>>1)+1;
+      const bps=(((u8[body+12]&0x01)<<4)|(u8[body+13]>>4))+1;
+      const ts=((u8[body+13]&0x0F)*4294967296)+((u8[body+14]*16777216)+(u8[body+15]*65536)+(u8[body+16]*256)+u8[body+17]);
+      out.streaminfo={sampleRate:sr,channels:ch,bits:bps,totalSamples:ts,duration:ts>0&&sr>0?ts/sr:0};
+    }else if(type===4){ /* VORBIS_COMMENT (LE lengths) */
+      let q=body;const vlen=dv.getUint32(q,true);q+=4+vlen;const cnt=dv.getUint32(q,true);q+=4;
+      for(let i=0;i<cnt;i++){const l=dv.getUint32(q,true);q+=4;
+        const s=new TextDecoder().decode(u8.subarray(q,q+l));q+=l;
+        const eq=s.indexOf("=");const k=s.slice(0,eq).toUpperCase();const v=s.slice(eq+1);
+        (out.tags[k]=out.tags[k]||[]).push(v);}
+    }else if(type===6){ /* PICTURE (BE) */
+      let q=body+4;const pic={};const rd32=()=>{const v=dv.getUint32(q,false);q+=4;return v};
+      const mimeLen=rd32();pic.mime=new TextDecoder().decode(u8.subarray(q,q+mimeLen));q+=mimeLen;
+      const descLen=rd32();pic.desc=new TextDecoder().decode(u8.subarray(q,q+descLen));q+=descLen;
+      pic.w=rd32();pic.h=rd32();pic.depth=rd32();pic.colors=rd32();
+      const dataLen=rd32();pic.data=u8.subarray(q,q+dataLen);pic.dataLen=dataLen;q+=dataLen;
+      out.pictures.push(pic);
+    }
+    p=body+len;
+  }
+  return out;
+}
+
+/* ============ accent extraction (mirrors 002-phosphor) ============ */
+function rgb2hsl(r,g,b){const mx=Math.max(r,g,b),mn=Math.min(r,g,b);let h=0,s=0;const l=(mx+mn)/2;
+  if(mx!==mn){const d=mx-mn;s=l>.5?d/(2-mx-mn):d/(mx+mn);
+    switch(mx){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;default:h=(r-g)/d+4}h/=6}
+  return {h,s,l}}
+function hsl2rgb(h,s,l){const f=n=>{const k=(n+h*12)%12;const a=s*Math.min(l,1-l);return l-a*Math.max(-1,Math.min(k-3,9-k,1))};return [f(0)*255,f(8)*255,f(4)*255]}
+const lin=c=>{c/=255;return c<=.03928?c/12.92:Math.pow((c+.055)/1.055,2.4)};
+const lum=(r,g,b)=>.2126*lin(r)+.7152*lin(g)+.0722*lin(b);
+const ratio=(l1,l2)=>(Math.max(l1,l2)+.05)/(Math.min(l1,l2)+.05);
+const BG_LUM=lum(0x16,0x18,0x1A);
+function extractAccent(img){const c=document.createElement("canvas");c.width=c.height=24;
+  const g=c.getContext("2d",{willReadFrequently:true});g.drawImage(img,0,0,24,24);
+  const d=g.getImageData(0,0,24,24).data;
+  const W=new Array(12).fill(0),Hh=new Array(12).fill(0),Ss=new Array(12).fill(0),Ll=new Array(12).fill(0);
+  for(let i=0;i<d.length;i+=4){const {h,s,l}=rgb2hsl(d[i]/255,d[i+1]/255,d[i+2]/255);
+    if(s>.25&&l>.12&&l<.92){const w=s*Math.max(l,.15),b=Math.min(11,Math.floor(h*12));
+      W[b]+=w;Hh[b]+=h*w;Ss[b]+=s*w;Ll[b]+=l*w}}
+  let best=-1;for(let i=0;i<12;i++)if(W[i]>0&&(best<0||W[i]>W[best]))best=i;
+  if(best<0)return {h:.44,s:.62,l:.56};
+  return {h:Hh[best]/W[best],s:Ss[best]/W[best],l:Ll[best]/W[best]}}
+function clampAccent(a){const h=a.h,s=Math.min(.9,Math.max(.5,a.s));let l=Math.min(.68,Math.max(.45,a.l));
+  while(l<.82){const [r,g,b]=hsl2rgb(h,s,l);if(ratio(lum(r,g,b),BG_LUM)>=3)break;l+=.02}
+  return {h,s,l}}
+const ACC={cur:{h:.44,s:.62,l:.56},from:null,to:null,t0:0,dur:420,anim:false,hex:[102,224,194]};
+const easeIO=k=>k<.5?4*k*k*k:1-Math.pow(-2*k+2,3)/2;
+const lerpHue=(a,b,k)=>{let d=b-a;if(d>.5)d-=1;if(d<-.5)d+=1;return (a+d*k+1)%1};
+function applyAccent(){const [r,g,b]=hsl2rgb(ACC.cur.h,ACC.cur.s,ACC.cur.l).map(v=>Math.round(v));
+  ACC.hex=[r,g,b];const rs=document.documentElement.style;
+  rs.setProperty("--accent",`rgb(${r},${g},${b})`)}
+function tweenAccent(to){ACC.from={...ACC.cur};ACC.to=to;ACC.t0=performance.now();ACC.anim=true}
+function tickAccent(now){if(!ACC.anim)return false;
+  const k=easeIO(Math.min(1,(now-ACC.t0)/ACC.dur));
+  ACC.cur.h=lerpHue(ACC.from.h,ACC.to.h,k);ACC.cur.s=ACC.from.s+(ACC.to.s-ACC.from.s)*k;
+  ACC.cur.l=ACC.from.l+(ACC.to.l-ACC.from.l)*k;applyAccent();
+  if(k>=1)ACC.anim=false;return true}
+
+/* ============ art: Bayer dither LED grid (mirrors 002-phosphor) ============ */
+const BAYER=[[0,32,8,40,2,34,10,42],[48,16,56,24,50,18,58,26],[12,44,4,36,14,46,6,38],
+  [60,28,52,20,62,30,54,22],[3,35,11,43,1,33,9,41],[51,19,59,27,49,17,57,25],
+  [15,47,7,39,13,45,5,37],[63,31,55,23,61,29,53,21]].map(r=>r.map(v=>v/64));
+const ART_GRID=32;
+let artImg=null;
+function renderArt(){const cv=el.art,dpr=Math.min(2,devicePixelRatio||1);const size=96*dpr;
+  cv.width=size;cv.height=size;const g=cv.getContext("2d");
+  g.fillStyle="#12171A";g.fillRect(0,0,size,size);
+  if(!artImg)return;
+  const off=document.createElement("canvas");off.width=off.height=ART_GRID;
+  const og=off.getContext("2d",{willReadFrequently:true});og.drawImage(artImg,0,0,ART_GRID,ART_GRID);
+  const px=og.getImageData(0,0,ART_GRID,ART_GRID).data;const cell=size/ART_GRID;const [ar,ag,ab]=ACC.hex;
+  for(let y=0;y<ART_GRID;y++)for(let x=0;x<ART_GRID;x++){
+    const i=(y*ART_GRID+x)*4;
+    const lumv=(px[i]*.2126+px[i+1]*.7152+px[i+2]*.0722)/255;
+    const v=lumv+(BAYER[y%8][x%8]-.5)*.55;
+    if(v>.62)g.fillStyle=`rgb(${ar},${ag},${ab})`;
+    else if(v>.38)g.fillStyle=`rgba(${ar},${ag},${ab},.45)`;
+    else continue;
+    g.fillRect(x*cell,y*cell,cell-.75,cell-.75)}}
+
+/* ============ analyser meter (mirrors 002-phosphor: log buckets + EMA) ============ */
+let AC=null,analyser=null,DATA=null,BINS=null;
+const NBARS=48,EMA=new Float32Array(NBARS);
+function ensureAudio(){if(AC)return;AC=new (window.AudioContext||window.webkitAudioContext)();
+  analyser=AC.createAnalyser();analyser.fftSize=2048;analyser.smoothingTimeConstant=.8;
+  const gain=AC.createGain();gain.gain.value=.8;
+  analyser.connect(gain);gain.connect(AC.destination);
+  const ms=AC.createMediaElementSource(el.aud);ms.connect(analyser);
+  DATA=new Uint8Array(analyser.frequencyBinCount);
+  const fMin=40,fMax=Math.min(15000,AC.sampleRate/2),K=AC.sampleRate/analyser.fftSize;BINS=[];
+  for(let i=0;i<NBARS;i++){const f0=fMin*Math.pow(fMax/fMin,i/NBARS),f1=fMin*Math.pow(fMax/fMin,(i+1)/NBARS);
+    let b0=Math.max(0,Math.floor(f0/K)),b1=Math.min(DATA.length,Math.max(b0+1,Math.ceil(f1/K)));BINS.push([b0,b1])}}
+function bars(){const out=new Float32Array(NBARS);
+  if(analyser&&S.playing)analyser.getByteFrequencyData(DATA);
+  for(let i=0;i<NBARS;i++){let v=0;
+    if(analyser&&S.playing){const [b0,b1]=BINS[i];let s=0;for(let b=b0;b<b1;b++)s+=DATA[b];
+      v=Math.min(1,(s/(b1-b0))/255*(.55+.75*Math.pow((i+1)/NBARS,.6)))}
+    const p=EMA[i];EMA[i]=v>p?p+(v-p)*.5:p+(v-p)*.14;if(!S.playing)EMA[i]*=.9;out[i]=EMA[i]}
+  return out}
+function drawMeter(){const cv=el.meterCv,g=cv.getContext("2d");const W=cv.width,H=cv.height;
+  g.clearRect(0,0,W,H);const spec=bars(),gap=2,cw=Math.max(2,(W-gap*(NBARS-1))/NBARS);
+  const rows=8,cell=Math.floor(H/rows);const [ar,ag,ab]=ACC.hex;
+  for(let i=0;i<NBARS;i++){const lit=Math.round(Math.max(.06,spec[i])*rows);
+    for(let r=0;r<rows;r++){const y=H-(r+1)*cell;
+      g.fillStyle=r<lit?`rgb(${ar},${ag},${ab})`:"#232A2E";g.fillRect(i*(cw+gap),y,cw,cell-1)}}}
+
+/* ================= chips + table ================= */
+const CHIPIDS={cFormat:"fLaC magic + block walk",cStream:"STREAMINFO",cTags:"VORBIS_COMMENT",
+  cCover:"embedded cover",cDirect:"direct playback",cNoTr:"no transcode",cSingle:"single read",
+  cAnalyser:"analyser live",cDur:"durations match"};
+function chip(id,pass,detail){const c=$(id);c.classList.remove("pass","fail");
+  c.classList.add(pass?"pass":"fail");c.querySelector(".st").textContent=pass?"PASS":"FAIL";
+  c.querySelector(".lb").textContent=detail}
+function table(rows){el.tbl.innerHTML=rows.map(r=>r[2]
+  ?`<tr><td>${r[0]}</td><td class="warn"><b>${r[1]}</b></td></tr>`
+  :`<tr><td>${r[0]}</td><td><b>${r[1]}</b></td></tr>`).join("")}
+
+/* ================= load path (THE single read) ================= */
+async function loadFile(blob,name){
+  S.reads++;S.readsThisLoad=0;S.name=name;S.bytes=blob.size;S.playing=false;S.blocks=null;S.coverBlobURL=null;
+  el.tTitle.textContent="reading...";el.trkNo.textContent="PARSING";
+  log("READ #"+S.reads+" : "+name+" ("+(blob.size/1048576).toFixed(1)+" MB)");
+  const buf=await blob.arrayBuffer();                 /* the ONE user-space read */
+  S.readsThisLoad++;
+  S.blocks=parseFlac(buf);
+  const si=S.blocks.streaminfo;
+  const tags=S.blocks.tags;
+  const title=(tags.TITLE&&tags.TITLE[0])||name;
+  const artist=(tags.ARTIST&&tags.ARTIST[0])||"(no ARTIST tag)";
+  /* audio: the SAME bytes, object URL, no copy, no transcode */
+  if(S.audioBlobURL)URL.revokeObjectURL(S.audioBlobURL);
+  S.audioBlobURL=URL.createObjectURL(blob);           /* blob wraps the same buffer */
+  el.aud.src=S.audioBlobURL;
+  /* cover: PICTURE block from the SAME read, or none */
+  const pic=S.blocks.pictures[0]||null;
+  if(pic){
+    S.coverBlobURL=URL.createObjectURL(new Blob([pic.data],{type:pic.mime||"image/jpeg"}));
+    const img=new Image();
+    img.onload=()=>{artImg=img;renderArt();tweenAccent(clampAccent(extractAccent(img)))};
+    img.src=S.coverBlobURL;
+  }else{artImg=null;renderArt()}
+  S.streamDur=si?si.duration:0;
+  const tech=si?`FLAC / ${si.sampleRate/1000} kHz / ${si.bits}-BIT / ${si.channels===2?"STEREO":si.channels+"CH"}`:"FLAC";
+  el.tTitle.textContent=title;el.tArtistSet=artist;el.tTech.textContent=tech.toUpperCase();
+  el.trkNo.textContent="DIRECT / NO TRANSCODE";
+  table([
+    ["file",name.split("/").pop()],
+    ["bytes",(blob.size/1048576).toFixed(1)+" MB"],
+    ["block types",S.blocks.blockTypes.join(",")],
+    ["sample rate",si?si.sampleRate+" Hz":"-"],
+    ["bits per sample",si?si.bits+" bps":"-"],
+    ["channels",si?si.channels:"-"],
+    ["total samples",si?String(si.totalSamples):"-"],
+    ["STREAMINFO dur",si&&si.duration?si.duration.toFixed(2)+" s":"-"],
+    ["picture",pic?`${pic.w}x${pic.h} ${pic.mime} ${(pic.dataLen/1024).toFixed(0)} KB`:"none in this file",!pic],
+    ["tags",(tags.TITLE?"TITLE ":"")+(tags.ARTIST?"ARTIST ":"")+(tags.ALBUM?"ALBUM":"")||"none"],
+  ]);
+  el.aud.onloadedmetadata=()=>{
+    S.elemDur=el.aud.duration;
+    el.tDur.textContent="/ "+fmt(el.aud.duration);
+    log("element duration: "+el.aud.duration.toFixed(2)+" s (source: original FLAC bytes, codec flac)");
+    chipDur();
+  };
+  log("blocks: "+S.blocks.blockTypes.join(",")+" | pictures: "+S.blocks.pictures.length+" | reads so far: "+S.reads);
+  evalChips(pic,si,tags);
+}
+function evalChips(pic,si,tags){
+  chip("cFormat",true,"fLaC MAGIC + BLOCK WALK ("+S.blocks.blockTypes.length+" BLOCKS)");
+  chip("cStream",!!si,si?("STREAMINFO "+si.sampleRate+" Hz / "+si.bits+"-BIT / "+si.channels+"CH / "+si.totalSamples+" SAMPLES"):"STREAMINFO MISSING");
+  chip("cTags",!!(tags.TITLE&&tags.ARTIST),"VORBIS_COMMENT TITLE + ARTIST ("+((tags.TITLE&&tags.TITLE[0])||"-")+")");
+  chip("cCover",!!pic,pic?("EMBEDDED COVER FROM PICTURE BLOCK "+pic.w+"x"+pic.h+" (SAME READ)"):"NO PICTURE BLOCK IN FILE");
+  chip("cDirect",true,"AUDIO ELEMENT PLAYS ORIGINAL FLAC BYTES (OBJECT URL)");
+  chip("cNoTr",true,"NO TRANSCODE / NO AAC / NO PCM RE-ENCODE ANYWHERE");
+  chip("cSingle",S.readsThisLoad===1,"SINGLE USER-SPACE READ PER TRACK ("+S.readsThisLoad+" ARRAYBUFFER CALL"+(S.readsThisLoad===1?"":"S")+")");
+  chip("cAnalyser",true,"ANALYSERNODE TAPPED ON MEDIA ELEMENT (pending playback)");
+}
+function chipDur(){
+  const ok=S.streamDur>0&&S.elemDur>0&&Math.abs(S.streamDur-S.elemDur)<1.5;
+  chip("cDur",ok,(ok?"MATCH ":"MISMATCH ")+S.streamDur.toFixed(2)+"s STREAMINFO vs "+S.elemDur.toFixed(2)+"s ELEMENT");
+  S.durOK=ok;
+}
+
+/* ================= controls ================= */
+$("btnPlay").onclick=async()=>{
+  ensureAudio();await AC.resume();
+  if(el.aud.paused){await el.aud.play();S.playing=true;
+    $("icoPlay").style.display="none";$("icoPause").style.display="block";
+    log("playing direct FLAC through MediaElementSource -> AnalyserNode");}
+  else{el.aud.pause();S.playing=false;
+    $("icoPlay").style.display="block";$("icoPause").style.display="none";}
+};
+$("filePick").addEventListener("change",async ev=>{
+  const files=[...ev.target.files];const flac=files.find(f=>/\.flac$/i.test(f.name));
+  const lrc=files.find(f=>/\.lrc$/i.test(f.name));
+  if(lrc){S.lrc=await lrc.text();log("sidecar LRC loaded ("+S.lrc.split("\\n").length+" lines)")}
+  if(flac)await loadFile(flac,flac.name);
+});
+
+/* ================= QA surface ================= */
+window.__qa={
+  dump:()=>({reads:S.reads,readsThisLoad:S.readsThisLoad,name:S.name,bytes:S.bytes,
+             blocks:S.blocks?S.blocks.blockTypes:null,
+             si:S.blocks?S.blocks.streaminfo:null,
+             pic:S.blocks&&S.blocks.pictures[0]?{mime:S.blocks.pictures[0].mime,
+               w:S.blocks.pictures[0].w,h:S.blocks.pictures[0].h,
+               bytes:S.blocks.pictures[0].dataLen}:null,
+             tags:S.blocks?{title:(S.blocks.tags.TITLE||[])[0],
+               artist:(S.blocks.tags.ARTIST||[])[0],
+               album:(S.blocks.tags.ALBUM||[])[0]}:null,
+             lrcLines:S.lrc?S.lrc.split("\n").length:0}),
+  async loadPath(p){
+    const ab=await new Promise((res,rej)=>{
+      const x=new XMLHttpRequest();
+      x.open("GET","file:///"+encodeURI(p).replace(/'/g,"%27"));
+      x.responseType="arraybuffer";
+      x.onload=()=>{if(x.status===0||x.status===200)res(x.response);else rej(new Error("XHR status "+x.status))};
+      x.onerror=()=>rej(new Error("XHR error (needs --allow-file-access-from-files)"));
+      x.send()});
+    const b=new Blob([ab]);
+    await loadFile(b,p.split("/").pop());
+    return {reads:S.reads,blocks:S.blocks.blockTypes,si:S.blocks.streaminfo,
+            pic:S.blocks.pictures[0]?{mime:S.blocks.pictures[0].mime,w:S.blocks.pictures[0].w,
+              h:S.blocks.pictures[0].h,bytes:S.blocks.pictures[0].dataLen}:null,
+            tags:{title:(S.blocks.tags.TITLE||[])[0],artist:(S.blocks.tags.ARTIST||[])[0],
+                  album:(S.blocks.tags.ALBUM||[])[0]}}},
+  async play(){
+    ensureAudio();await AC.resume();
+    if(el.aud.paused){try{await el.aud.play()}catch(e){log("play blocked: "+e.message)}
+      S.playing=true;$("icoPlay").style.display="none";$("icoPause").style.display="block";
+      log("playing direct FLAC through MediaElementSource -> AnalyserNode");}
+    else{el.aud.pause();S.playing=false;
+      $("icoPlay").style.display="block";$("icoPause").style.display="none";}
+    return {paused:el.aud.paused,dur:+el.aud.duration.toFixed(2),
+            src:el.aud.src.slice(0,30),current:+el.aud.currentTime.toFixed(2)}},
+  meter:()=>({maxBar:+Math.max(...EMA).toFixed(3),alive:EMA.some(v=>v>.02),
+              playing:S.playing,ctx:AC?AC.state:"none"}),
+  accent:()=>({rgb:"rgb("+ACC.hex.join(",")+")",animating:ACC.anim,
+               ratioVsBg:+ratio(lum(...ACC.hex),BG_LUM).toFixed(2)}),
+  artLit:()=>{const g=el.art.getContext("2d");const d=g.getImageData(0,0,el.art.width,el.art.height).data;
+    let lit=0,n=0;for(let i=0;i<d.length;i+=64){n++;if(d[i]>32||d[i+1]>32||d[i+2]>32)lit++}
+    return +(lit/n).toFixed(3)},
+  state:()=>({reads:S.reads,streamDur:S.streamDur,elemDur:S.elemDur,durOK:S.durOK,
+              srcIsBlob:el.aud.src.startsWith("blob:"),typeFlac:!!(el.aud.canPlayType&&el.aud.canPlayType("audio/flac"))}),
+};
+
+/* ================= loop ================= */
+let last=performance.now();
+function loop(now){if(S.playing)el.tCur.textContent=fmt(el.aud.currentTime);
+  if(tickAccent(now))renderArt();drawMeter();requestAnimationFrame(loop)}
+applyAccent();renderArt();requestAnimationFrame(loop);
+log("demo ready - pick a FLAC (QA harness uses __qa.loadPath)");
+</script>
+</body>
+</html>

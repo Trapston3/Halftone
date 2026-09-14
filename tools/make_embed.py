@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Splice real-library assets into a gitignored local build of the Phosphor sketch.
+"""DEMO-ONLY TOOLING — NOT part of the production audio pipeline.
+
+Splices real-library assets into a gitignored local build of the Phosphor
+sketch so the design demo can run against real music without shipping
+copyrighted bytes. This transcodes (45s AAC excerpts) and separates cover art
+by hand — both things the real app MUST NOT do. The production contract is
+docs/audio-pipeline.md: FLAC in, FLAC out, single read, METADATA_BLOCK_PICTURE
+for covers. The reference implementation for that path is
+tools/demo_playlist.html.
 
 Usage:  python tools/make_embed.py
 
@@ -8,12 +16,14 @@ Reads   sketches/002-phosphor/index.html        (committed; runs in synth mode)
 Writes  sketches/002-phosphor/index.local.html  (gitignored)
 
 The committed file never contains third-party audio or artwork bytes — it runs
-the procedural synth mode. The local build exercises the identical code path
-(art dither, accent extraction, AnalyserNode spectrum, LRC sync) against your
-real library, so neither mode can drift untested.
+the procedural synth mode. The local build exercises the identical widget code
+path (art dither, accent extraction, AnalyserNode spectrum, LRC sync) against
+your real library, so neither mode can drift untested.
 
-To regenerate assets/embed.json from a music folder, see the extract step in
-git history / README (ffmpeg: cover frame, 45s AAC clip, .lrc parse).
+Regenerating assets/embed.json from a music folder (demo only!):
+  ffmpeg -i track.flac -an -frames:v 1 -vf scale=288:288 cover.jpg
+  ffmpeg -i track.flac -t 45 -vn -b:a 48k clip.m4a
+  parse matching .lrc sidecar
 """
 import json
 import os
