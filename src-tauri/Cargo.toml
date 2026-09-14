@@ -1,0 +1,23 @@
+[package]
+name = "halftone"
+version = "0.1.0"
+description = "Floating desktop mini-player widget for a local music library"
+license = "MIT"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "halftone-verify"
+path = "src/bin/halftone-verify.rs"
+
+[lib]
+name = "halftone_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
