@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Halftone — variant 002 “Phosphor”</title>
+<style>
+/* ============================================================
+   PHOSPHOR — CRT deck stance (dev-tool register)
+   Design system (the whole file obeys exactly these tokens):
+   - spacing: 4px base scale (4 / 8 / 12 / 16 / 24) — nothing else
+   - radius: 8 (widget) / 6 (controls, popovers) / 3 (LED cells)
+   - elevation: borders, not shadows — tier 1 #262B30, tier 2 (hover)
+     #3A4147, accent #66E0C2. One shadow only: the widget itself.
+   - type: 14px/600 title · 10px mono caps meta · 11px mono tabular time
+   - motion budget: ONE signature moment (meter opens) + press feedback
+   ============================================================ */
+:root{
+  --sp1:4px;--sp2:8px;--sp3:12px;--sp4:16px;--sp6:24px;
+  --r-w:8px;--r-b:6px;--r-l:3px;
+  --bg:#16181A;--bg2:#1B1E21;
+  --line:#262B30;--line2:#3A4147;
+  --cyan:#66E0C2;--cream:#F2E8CF;--dim:#8B949C;--dim2:#566066;
+  --e1:0 12px 36px rgba(0,0,0,.5);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:"Segoe UI",-apple-system,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  background:radial-gradient(120% 90% at 30% 18%,#1B1D22 0%,#101115 70%);
+  color:var(--cream);display:flex;align-items:center;justify-content:center;overflow:hidden;
+}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+:focus-visible{outline:1.5px solid var(--cyan);outline-offset:2px}
+.mocknote{position:fixed;right:var(--sp3);bottom:var(--sp3);font-size:10px;letter-spacing:.08em;color:rgba(244,244,245,.28);text-transform:uppercase}
+.mono{font-family:Consolas,ui-monospace,monospace}
+
+/* ---- widget shell ---- */
+.widget{
+  position:relative;width:400px;background:var(--bg);
+  border:1px solid var(--line);border-radius:var(--r-w);
+  box-shadow:var(--e1);cursor:grab;user-select:none;
+}
+.widget:active{cursor:grabbing}
+.widget::after{ /* scanlines */
+  content:"";position:absolute;inset:0;border-radius:var(--r-w);pointer-events:none;
+  background:repeating-linear-gradient(0deg,transparent 0 2px,rgba(255,255,255,.012) 2px 3px);
+}
+
+/* ---- head: art + meta ---- */
+.head{display:flex;gap:var(--sp3);padding:var(--sp3);cursor:grab}
+canvas.art{width:96px;height:96px;border-radius:var(--r-b);border:1px solid var(--line);display:block}
+.hmeta{flex:1;min-width:0;display:flex;flex-direction:column}
+.trk-no{font-size:10px;letter-spacing:.18em;color:var(--cyan)}
+.title{margin-top:var(--sp1);font-size:14px;font-weight:600;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tech{margin-top:var(--sp1);font-size:10px;letter-spacing:.1em;color:var(--dim2)}
+.tools{margin-top:auto;display:flex;gap:var(--sp1)}
+.tools button{
+  width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--line);
+  border-radius:var(--r-b);color:var(--dim);transition:border-color .12s;
+}
+.tools button:hover{border-color:var(--line2);color:var(--cream)}
+.tools button.on{border-color:var(--cyan);color:var(--cyan)}
+.ico{width:14px;height:14px;display:block}
+
+/* ---- LED meter seek strip: THE signature component ---- */
+.seekwrap{padding:0 var(--sp3);position:relative}
+.seek{position:relative;height:12px;cursor:pointer;touch-action:none;border-radius:var(--r-l)}
+.seek.open{height:30px}
+.seek canvas{position:absolute;inset:0;width:100%;height:100%}
+.times{
+  display:flex;justify-content:space-between;margin-top:var(--sp1);
+  font-size:11px;font-variant-numeric:tabular-nums;color:var(--dim2);
+  opacity:0;transition:opacity .15s ease;
+}
+.seekwrap:hover .times,.seek.dragging .times{opacity:1}
+.tip{
+  position:absolute;bottom:calc(100% + 2px);left:0;transform:translateX(-50%);
+  padding:2px 6px;border:1px solid var(--cyan);border-radius:var(--r-l);
+  color:var(--cyan);font-size:10.5px;font-variant-numeric:tabular-nums;
+  background:var(--bg2);display:none;white-space:nowrap;z-index:3;
+}
+.seek.dragging .tip{display:block}
+
+/* ---- controls ---- */
+.controls{display:flex;align-items:center;gap:var(--sp2);padding:var(--sp3)}
+.cbtn{
+  width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--line);
+  border-radius:var(--r-b);color:var(--cream);transition:border-color .12s;
+}
+.cbtn:hover{border-color:var(--line2)}
+.cbtn:active{transform:translateY(1px)}
+.cbtn svg{width:15px;height:15px}
+.play{border-color:var(--cyan);background:var(--cyan);color:#0A0E0C}
+.play:hover{border-color:#8CF0D8}
+.play:active{transform:translateY(1px)}
+.vol{margin-left:auto;display:flex;align-items:center;gap:var(--sp2)}
+.vol svg{width:14px;height:14px;color:var(--dim)}
+.leds{display:flex;gap:3px;padding:4px;border:1px solid var(--line);border-radius:var(--r-b)}
+.led{width:5px;height:10px;border-radius:1.5px;background:#232A2E;cursor:pointer}
+.led.on{background:var(--cyan)}
+
+/* ---- lyrics ---- */
+.lyrics{overflow:hidden;max-height:0;transition:max-height .45s cubic-bezier(.2,.9,.2,1)}
+.lyrics.open{max-height:168px}
+.lyr-view{
+  height:168px;overflow:hidden;padding:0 var(--sp4);
+  -webkit-mask-image:linear-gradient(transparent,#000 18%,#000 82%,transparent);
+          mask-image:linear-gradient(transparent,#000 18%,#000 82%,transparent);
+}
+.lyr-wrap{transform:translateY(64px);transition:transform .5s cubic-bezier(.25,.9,.2,1)}
+.line{padding:6px 0;font-size:12px;line-height:1.5;color:rgba(242,232,207,.38);transition:color .25s ease}
+.line.active{color:var(--cream)}
+.line.active::before{content:"▸ ";color:var(--cyan)}
+
+/* ---- popovers ---- */
+.pop{
+  position:absolute;z-index:5;min-width:250px;background:var(--bg2);
+  border:1px solid var(--line2);border-radius:var(--r-b);box-shadow:0 8px 24px rgba(0,0,0,.4);
+  padding:var(--sp2);display:none;
+}
+.pop.open{display:block}
+#queue{right:var(--sp3);bottom:56px}
+#plmenu{right:var(--sp3);top:96px}
+.prow{display:flex;align-items:center;gap:var(--sp2);width:100%;padding:var(--sp2) var(--sp1);border-radius:var(--r-l);text-align:left}
+.prow:hover{background:rgba(102,224,194,.07)}
+.prow .n{font-size:10px;color:var(--dim2);width:18px}
+.prow .t{font-size:12px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow .d{font-size:10px;color:var(--dim2)}
+.prow.cur .t{color:var(--cyan)}
+.prow.cur .n{color:var(--cyan)}
+.mitem{display:block;width:100%;padding:var(--sp2);border-radius:var(--r-l);font-size:12px;text-align:left}
+.mitem:hover{background:rgba(102,224,194,.07)}
+.pop .cap{font-size:10px;letter-spacing:.16em;color:var(--dim2);padding:var(--sp1) var(--sp2) var(--sp2)}
+</style>
+</head>
+<body>
+<div class="mocknote">desktop mock — not part of UI</div>
+
+<div class="widget" id="widget">
+  <div class="head" id="dragzone">
+    <canvas class="art" id="art" width="96" height="96"></canvas>
+    <div class="hmeta">
+      <div class="trk-no mono" id="trkNo">TRK 01 / 04</div>
+      <div class="title" id="tTitle">Hollow Signal</div>
+      <div class="tech mono">FLAC · 44.1 kHz · STEREO</div>
+      <div class="tools">
+        <button id="btnPin" title="Pin (always on top)" aria-pressed="false">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.7 2 6 4.7 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.3-2.7-6-6-6z"/><circle cx="12" cy="8" r="2.2"/></svg>
+        </button>
+        <button id="btnLyrics" title="Lyrics">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.3"/><circle cx="16.5" cy="15" r="2.3"/></svg>
+        </button>
+        <button id="btnQueue" title="Queue">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 11h16M4 16h7"/><path d="M14 14.5l6 2.5-6 2.5z" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button id="btnAdd" title="Add to playlist">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 11h10"/><path d="M18 11v6M15 14h6"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="seekwrap">
+    <div class="seek" id="seek">
+      <canvas id="seekCv"></canvas>
+      <div class="tip mono" id="tip">02:14 / 03:34</div>
+    </div>
+    <div class="times mono"><span id="tCur">0:00</span><span id="tTot">3:34</span></div>
+  </div>
+
+  <div class="controls">
+    <button class="cbtn" id="btnPrev" title="Previous">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2.2v14H6z"/><path d="M20 5.4v13.2c0 .8-.9 1.3-1.6.9L9.5 12.7a1 1 0 0 1 0-1.7l8.9-5.9c.7-.4 1.6.1 1.6.9z"/></svg>
+    </button>
+    <button class="cbtn play" id="btnPlay" title="Play / pause">
+      <svg id="icoPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.2v13.6c0 .8.9 1.3 1.6.9l10.4-6.8a1 1 0 0 0 0-1.7L9.8 4.3c-.7-.4-1.6.1-1.6.9z"/></svg>
+      <svg id="icoPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z"/></svg>
+    </button>
+    <button class="cbtn" id="btnNext" title="Next">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.8 5H18v14h-2.2z"/><path d="M4 5.4v13.2c0 .8.9 1.3 1.6.9l8.9-5.8a1 1 0 0 0 0-1.7L5.6 4.5c-.7-.4-1.6.1-1.6.9z"/></svg>
+    </button>
+    <div class="vol">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6"/></svg>
+      <div class="leds" id="leds" role="slider" aria-label="Volume" tabindex="0"></div>
+    </div>
+  </div>
+
+  <div class="lyrics" id="lyrics">
+    <div class="lyr-view"><div class="lyr-wrap mono" id="lyrWrap"></div></div>
+  </div>
+
+  <div class="pop" id="queue">
+    <div class="cap mono">QUEUE</div>
+    <div id="qrows"></div>
+  </div>
+  <div class="pop" id="plmenu">
+    <div class="cap mono">ADD TO</div>
+    <button class="mitem">Night Drive</button>
+    <button class="mitem">Focus Loop</button>
+    <button class="mitem">On Repeat</button>
+  </div>
+</div>
+
+<script>
+/* ---------- data ---------- */
+const TRACKS=[
+ {title:"Hollow Signal",artist:"Night Circuitry",dur:214,seed:3,lyrics:[
+  [0,"Static on the wire tonight"],[14,"I keep the frequency alive"],[29,"Every ghost in the grid"],
+  [44,"Knows my name by now"],[62,"Hollow signal, carry me home"],[81,"Past the towers and the drones"],
+  [100,"I can hear the city breathe"],[120,"Through the noise, a single tone"],
+  [142,"Hollow signal, carry me home"],[163,"Take me somewhere I'm unknown"]]},
+ {title:"Midnight Vending",artist:"Soft Static",dur:178,seed:7,lyrics:[
+  [0,"Fluorescent hum at 2 a.m."],[16,"Coins for a memory"],[33,"The machine knows what I need"],
+  [52,"Better than I do"],[70,"Midnight vending, keep the change"],[90,"I'll take the warm one"],
+  [108,"Sugar coating every ache"],[128,"Till the morning comes again"],[150,"Midnight vending, keep the change"]]},
+ {title:"Paper Lanterns",artist:"Yumegawa",dur:192,seed:11,lyrics:[
+  [0,"We wrote our names on paper lanterns"],[18,"Set them on the river slow"],
+  [37,"Every wish a little fire"],[55,"Every fire a little hope"],[74,"Paper lanterns, drift for me"],
+  [95,"Down to where the city glows"],[115,"If one burns out, we light another"],
+  [137,"If one returns, we'll never know"],[160,"Paper lanterns, drift for me"]]},
+ {title:"Last Train Paradigm",artist:"Odorenai",dur:245,seed:17,lyrics:[
+  [0,"Platform four, the last parade"],[20,"Of strangers going home"],
+  [41,"I mapped the rhythms of the rails"],[63,"And called the map a song"],
+  [86,"Last train paradigm"],[108,"Everyone asleep but me"],
+  [132,"The city dims in single file"],[158,"I keep the window seat"],
+  [185,"Last train paradigm"],[212,"Home is where I'm almost there"]]}
+];
+
+const S={i:0,t:46,playing:false,vol:.7,pinned:false,drag:null,lidx:-1,lyricsOpen:false};
+window.S=S;
+const trk=()=>TRACKS[S.i];
+const $=id=>document.getElementById(id);
+const el={};
+["widget","dragzone","art","seek","seekCv","tip","tCur","tTot","tTitle","trkNo","lyrics","lyrWrap","qrows","queue","plmenu","leds","icoPlay","icoPause","btnPlay","btnPin","btnLyrics","btnQueue","btnAdd","btnPrev","btnNext"].forEach(k=>el[k]=$(k));
+const fmt=s=>{s=Math.max(0,Math.round(s));return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0")};
+
+/* ---------- procedural audio (real analyser, silent out) ---------- */
+let AC=null,analyser=null,DATA=null;
+function ensureAudio(){
+  if(AC)return true;
+  try{
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    const len=AC.sampleRate*2,buf=AC.createBuffer(1,len,AC.sampleRate),ch=buf.getChannelData(0);
+    let last=0;
+    for(let i=0;i<len;i++){const w=Math.random()*2-1;last=(last+.02*w)/1.02;ch[i]=last*3.5}
+    const noise=AC.createBufferSource();noise.buffer=buf;noise.loop=true;
+    const bp=AC.createBiquadFilter();bp.type="bandpass";bp.frequency.value=420;bp.Q.value=1.1;
+    const trem=AC.createGain();trem.gain.value=.9;
+    analyser=AC.createAnalyser();analyser.fftSize=256;analyser.smoothingTimeConstant=.82;
+    const mute=AC.createGain();mute.gain.value=0;
+    noise.connect(bp);bp.connect(trem);trem.connect(analyser);analyser.connect(mute);mute.connect(AC.destination);
+    const lfo=AC.createOscillator();lfo.frequency.value=.11;
+    const lfoG=AC.createGain();lfoG.gain.value=320;lfo.connect(lfoG);lfoG.connect(bp.frequency);lfo.start();
+    const beat=AC.createOscillator();beat.frequency.value=2;
+    const beatG=AC.createGain();beatG.gain.value=.3;beat.connect(beatG);beatG.connect(trem.gain);beat.start();
+    noise.start();
+    DATA=new Uint8Array(analyser.frequencyBinCount);
+    return true;
+  }catch(e){return false}
+}
+function spectrum(){
+  const N=48,out=new Float32Array(N);
+  if(analyser&&S.playing){
+    analyser.getByteFrequencyData(DATA);
+    const m=DATA.length;
+    for(let i=0;i<N;i++)out[i]=DATA[Math.min(m-1,Math.floor(Math.pow(i/N,1.55)*m))]/255;
+  }else{
+    const now=performance.now()/1000;
+    for(let i=0;i<N;i++)out[i]=.14+.1*Math.sin(now*.9+i*.33)+.04*Math.sin(now*.37+i*.11);
+  }
+  return out;
+}
+
+/* ---------- seeded art: LED glyph matrix ---------- */
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function drawArt(){
+  const cv=el.art,dpr=Math.min(2,devicePixelRatio||1);
+  cv.width=96*dpr;cv.height=96*dpr;
+  const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);
+  g.fillStyle="#12171A";g.fillRect(0,0,96,96);
+  const rnd=mulberry(trk().seed*7919);
+  const cols=12,cell=8;
+  for(let y=0;y<12;y++)for(let x=0;x<12;x++){
+    const cxx=x*cell+cell/2-1,cyy=y*cell+cell/2-1;
+    const d=Math.hypot(cxx-48,cyy-48);
+    const lit=rnd()<.44&&(d<44||rnd()<.15);
+    g.fillStyle=lit?`rgba(102,224,194,${.35+rnd()*.55})`:"#1B2126";
+    g.fillRect(cxx,cyy,5,5);
+  }
+  g.fillStyle="rgba(18,23,26,.9)";
+  g.fillRect(44,44,8,8);
+  g.fillStyle="#66E0C2";
+  g.fillRect(46,46,4,4);
+}
+
+/* ---------- LED meter seek: segments ARE the spectrum ---------- */
+function drawSeek(){
+  const box=el.seek,W=box.clientWidth,H=box.clientHeight;if(!W||!H)return;
+  const dpr=Math.min(2,devicePixelRatio||1);
+  if(el.seekCv.width!==Math.round(W*dpr)||el.seekCv.height!==Math.round(H*dpr)){el.seekCv.width=Math.round(W*dpr);el.seekCv.height=Math.round(H*dpr)}
+  const g=el.seekCv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
+  const spec=spectrum(),N=spec.length,gap=2,cw=Math.max(2,(W-gap*(N-1))/N);
+  const cell=4,rows=Math.max(2,Math.floor((H-2)/cell));
+  const prog=(S.drag!=null?S.drag.p:S.t)/trk().dur;
+  const volK=.35+.65*S.vol;
+  for(let i=0;i<N;i++){
+    const played=(i+.5)/N<prog;
+    const lit=Math.round(Math.max(.08,spec[i])*volK*rows);
+    for(let r=0;r<rows;r++){
+      const y=H-2-(r+1)*cell;
+      if(r<lit){
+        const top=r>rows*.78;
+        g.fillStyle=played?(top?"rgba(102,224,194,.5)":"#66E0C2"):"rgba(102,224,194,.22)";
+      }else{
+        g.fillStyle=played?"rgba(102,224,194,.08)":"#232A2E";
+      }
+      g.fillRect(i*(cw+gap),y,cw,cell-1);
+    }
+  }
+  const px=prog*W;
+  g.fillStyle="#F2E8CF";
+  g.fillRect(px-.75,0,1.5,H);
+  g.beginPath();g.moveTo(px-3,0);g.lineTo(px+3,0);g.lineTo(px,4);g.closePath();g.fill();
+}
+
+/* ---------- lyrics ---------- */
+function buildLyrics(){
+  el.lyrWrap.innerHTML="";
+  trk().lyrics.forEach(L=>{
+    const d=document.createElement("div");d.className="line";d.textContent=L[1];d.dataset.t=L[0];
+    el.lyrWrap.appendChild(d);
+  });
+  S.lidx=-1;
+}
+function updateLyrics(){
+  if(!S.lyricsOpen)return;
+  const lines=[...el.lyrWrap.children];
+  let idx=-1;
+  for(let i=0;i<lines.length;i++){if(S.t>=+lines[i].dataset.t)idx=i}
+  if(idx===S.lidx)return;
+  S.lidx=idx;
+  lines.forEach((l,i)=>l.classList.toggle("active",i===idx));
+  if(idx>=0){
+    const ln=lines[idx];
+    el.lyrWrap.style.transform=`translateY(${64-(ln.offsetTop+ln.offsetHeight/2)}px)`;
+  }
+}
+
+/* ---------- queue ---------- */
+function buildQueue(){
+  el.qrows.innerHTML="";
+  TRACKS.forEach((T,i)=>{
+    const b=document.createElement("button");
+    b.className="prow"+(i===S.i?" cur":"");
+    b.innerHTML=`<span class="n mono">${String(i+1).padStart(2,"0")}</span><span class="t">${T.title}</span><span class="d mono">${fmt(T.dur)}</span>`;
+    b.onclick=()=>{load(i);el.queue.classList.remove("open")};
+    el.qrows.appendChild(b);
+  });
+}
+
+/* ---------- transport ---------- */
+function load(i){
+  S.i=(i+TRACKS.length)%TRACKS.length;S.t=0;S.lidx=-1;
+  el.tTitle.textContent=trk().title;
+  el.trkNo.textContent="TRK "+String(S.i+1).padStart(2,"0")+" / "+String(TRACKS.length).padStart(2,"0");
+  el.tTot.textContent=fmt(trk().dur);
+  drawArt();buildLyrics();buildQueue();
+}
+function setPlaying(p){
+  S.playing=p;
+  el.icoPlay.style.display=p?"none":"block";
+  el.icoPause.style.display=p?"block":"none";
+  if(AC){p?AC.resume():AC.suspend()}
+}
+function next(){load(S.i+1)}
+function prev(){if(S.t>3){S.t=0}else{load(S.i-1)}}
+
+/* ---------- pointer: drag-to-seek + widget drag ---------- */
+const seek=el.seek;
+seek.addEventListener("pointerenter",()=>seek.classList.add("open"));
+seek.addEventListener("pointerleave",()=>{if(S.drag==null)seek.classList.remove("open")});
+seek.addEventListener("pointerdown",e=>{
+  try{seek.setPointerCapture(e.pointerId)}catch(_){/* synthetic/edge cases */}
+  const r=seek.getBoundingClientRect();
+  S.drag={p:Math.min(1,Math.max(0,(e.clientX-r.left)/r.width))};
+  seek.classList.add("open","dragging");
+  el.tip.textContent=fmt(S.drag.p*trk().dur)+" / "+fmt(trk().dur);
+  el.tip.style.left=(S.drag.p*seek.clientWidth)+"px";
+});
+seek.addEventListener("pointermove",e=>{
+  if(S.drag==null)return;
+  const r=seek.getBoundingClientRect();
+  S.drag.p=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width));
+  el.tip.textContent=fmt(S.drag.p*trk().dur)+" / "+fmt(trk().dur);
+  el.tip.style.left=(S.drag.p*seek.clientWidth)+"px";
+});
+const endDrag=()=>{
+  if(S.drag==null)return;
+  S.t=S.drag.p*trk().dur;S.drag=null;S.lidx=-1;
+  seek.classList.remove("dragging");
+  if(!seek.matches(":hover"))seek.classList.remove("open");
+};
+seek.addEventListener("pointerup",endDrag);
+seek.addEventListener("pointercancel",endDrag);
+
+el.dragzone.addEventListener("pointerdown",e=>{
+  if(e.button!==0||e.target.closest("button"))return;
+  const w=el.widget,r=w.getBoundingClientRect(),sx=e.clientX,sy=e.clientY;
+  const move=ev=>{w.style.position="fixed";w.style.left=(r.left+ev.clientX-sx)+"px";w.style.top=(r.top+ev.clientY-sy)+"px"};
+  const up=()=>{removeEventListener("pointermove",move);removeEventListener("pointerup",up)};
+  addEventListener("pointermove",move);addEventListener("pointerup",up);
+});
+
+/* ---------- buttons + LED volume ---------- */
+el.btnPlay.onclick=()=>{ensureAudio();setPlaying(!S.playing)};
+el.btnNext.onclick=next;el.btnPrev.onclick=prev;
+el.btnPin.onclick=()=>{S.pinned=!S.pinned;el.btnPin.classList.toggle("on",S.pinned);el.btnPin.setAttribute("aria-pressed",S.pinned)};
+el.btnLyrics.onclick=()=>{S.lyricsOpen=!S.lyricsOpen;el.lyrics.classList.toggle("open",S.lyricsOpen);el.btnLyrics.classList.toggle("on",S.lyricsOpen);if(S.lyricsOpen){S.lidx=-1;updateLyrics()}};
+el.btnQueue.onclick=e=>{e.stopPropagation();el.plmenu.classList.remove("open");el.queue.classList.toggle("open");buildQueue()};
+el.btnAdd.onclick=e=>{e.stopPropagation();el.queue.classList.remove("open");el.plmenu.classList.toggle("open")};
+document.addEventListener("click",e=>{
+  if(!el.queue.contains(e.target)&&!el.btnQueue.contains(e.target))el.queue.classList.remove("open");
+  if(!el.plmenu.contains(e.target)&&!el.btnAdd.contains(e.target))el.plmenu.classList.remove("open");
+});
+el.plmenu.querySelectorAll(".mitem").forEach(m=>m.onclick=()=>el.plmenu.classList.remove("open"));
+
+const LEDN=5,leds=[];
+for(let i=0;i<LEDN;i++){
+  const d=document.createElement("div");d.className="led";
+  d.onclick=()=>{S.vol=(i+1)/LEDN;paintLeds()};
+  el.leds.appendChild(d);leds.push(d);
+}
+function syncLeds(){S.vol=Math.round(S.vol*LEDN)/LEDN}
+function paintLeds(){leds.forEach((l,i)=>l.classList.toggle("on",S.vol>=(i+1)/LEDN-.01))}
+paintLeds();
+el.leds.addEventListener("keydown",e=>{
+  if(e.key==="ArrowRight"){S.vol=Math.min(1,S.vol+1/LEDN);paintLeds()}
+  if(e.key==="ArrowLeft"){S.vol=Math.max(0,S.vol-1/LEDN);paintLeds()}
+});
+
+addEventListener("keydown",e=>{
+  if(e.target.tagName==="INPUT"||e.target===el.leds)return;
+  if(e.code==="Space"){e.preventDefault();el.btnPlay.click()}
+  if(e.code==="ArrowRight")S.t=Math.min(trk().dur,S.t+5);
+  if(e.code==="ArrowLeft")S.t=Math.max(0,S.t-5);
+});
+
+/* ---------- clock ---------- */
+let last=performance.now();
+function loop(now){
+  const dt=(now-last)/1000;last=now;
+  if(S.playing&&S.drag==null){S.t+=dt;if(S.t>=trk().dur)next()}
+  el.tCur.textContent=fmt(S.t);
+  drawSeek();updateLyrics();
+  requestAnimationFrame(loop);
+}
+
+load(0);drawSeek();
+window.__qa={advance:d=>{S.t=Math.min(trk().dur,S.t+d);drawSeek();updateLyrics()}};
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

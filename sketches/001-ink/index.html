@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Halftone — variant 001 “Ink”</title>
+<style>
+/* ============================================================
+   INK — monochrome editorial stance
+   Design system (the whole file obeys exactly these tokens):
+   - spacing: 4px base scale (4 / 8 / 12 / 16 / 24) — nothing else
+   - radius:  14 (widget) / 10 (popovers) / 8 (chip) / pill (play) — one family
+   - elevation: exactly 2 levels — e1 widget, e2 popovers. No other shadows.
+   - type: 3 sizes — 16/640 title, 11/590 caps meta, 11 tabular time
+   - motion budget: ONE signature moment (seek strip opens) + press feedback
+   ============================================================ */
+:root{
+  --sp1:4px; --sp2:8px; --sp3:12px; --sp4:16px; --sp6:24px;
+  --r-w:14px; --r-p:10px; --r-c:8px;
+  --e1:0 16px 48px -12px rgba(0,0,0,.55);
+  --e2:0 6px 20px rgba(0,0,0,.35);
+  --fg:#F4F4F5; --fg2:rgba(244,244,245,.58); --fg3:rgba(244,244,245,.42);
+  --surface:#131316; --surface2:#1A1A1E; --line:rgba(255,255,255,.07);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:"Segoe UI",-apple-system,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  background:radial-gradient(120% 90% at 30% 18%,#1B1D22 0%,#101115 70%);
+  color:var(--fg);
+  display:flex;align-items:center;justify-content:center;
+  overflow:hidden;
+}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+:focus-visible{outline:1.5px solid rgba(244,244,245,.7);outline-offset:2px;border-radius:4px}
+.mocknote{position:fixed;right:var(--sp3);bottom:var(--sp3);font-size:10px;letter-spacing:.08em;color:rgba(244,244,245,.28);text-transform:uppercase}
+
+/* ---- widget shell ---- */
+.widget{
+  position:relative;width:312px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r-w);
+  box-shadow:var(--e1);
+  user-select:none;
+}
+
+/* ---- album art (hero, bleeds to edges) ---- */
+.artwrap{position:relative;border-radius:var(--r-w) var(--r-w) 0 0;overflow:hidden;cursor:grab}
+.artwrap:active{cursor:grabbing}
+canvas.art{display:block;width:100%;height:312px}
+.chip{
+  position:absolute;top:var(--sp3);right:var(--sp3);
+  display:flex;gap:var(--sp1);padding:var(--sp1) var(--sp2);
+  background:rgba(10,10,12,.44);backdrop-filter:blur(10px);
+  border-radius:var(--r-c);
+}
+.chip button{width:28px;height:28px;display:grid;place-items:center;border-radius:6px;color:rgba(244,244,245,.85)}
+.chip button:hover{background:rgba(255,255,255,.09)}
+.chip button.on{color:#fff;background:rgba(255,255,255,.16)}
+.chip .pin-ind{position:absolute;left:6px;bottom:4px;width:4px;height:4px;border-radius:50%;background:#F4F4F5;opacity:0;transition:opacity .2s}
+.chip button.on .pin-ind{opacity:1}
+.ico{width:15px;height:15px;display:block}
+
+/* ---- meta ---- */
+.meta{padding:var(--sp4) var(--sp4) var(--sp2)}
+.title{font-size:16px;font-weight:640;letter-spacing:-.01em;line-height:1.25}
+.artist{margin-top:var(--sp1);font-size:11px;font-weight:590;letter-spacing:.14em;text-transform:uppercase;color:var(--fg2)}
+
+/* ---- seek strip: THE signature component ---- */
+.seek{position:relative;margin:var(--sp2) var(--sp4) 0;height:8px;cursor:pointer;touch-action:none}
+.seek.open{height:36px}
+.seek canvas{position:absolute;inset:0;width:100%;height:100%}
+.times{
+  display:flex;justify-content:space-between;margin-top:var(--sp1);
+  font-size:11px;font-variant-numeric:tabular-nums;color:var(--fg3);
+  opacity:0;transform:translateY(3px);pointer-events:none;
+  transition:opacity .18s ease,transform .22s cubic-bezier(.2,.9,.2,1);
+}
+.seek-wrap:hover .times,.seek.dragging .times{opacity:1;transform:none}
+.tip{
+  position:absolute;bottom:calc(100% + 6px);left:0;transform:translateX(-50%);
+  padding:2px 6px;border-radius:6px;background:#F4F4F5;color:#0B0B0D;
+  font-size:10.5px;font-weight:600;font-variant-numeric:tabular-nums;
+  box-shadow:var(--e2);display:none;white-space:nowrap;
+}
+.seek.dragging .tip{display:block}
+
+/* ---- controls ---- */
+.controls{display:flex;align-items:center;gap:var(--sp3);padding:var(--sp3) var(--sp4) var(--sp4)}
+.ctrl{width:34px;height:34px;display:grid;place-items:center;border-radius:50%;color:rgba(244,244,245,.85)}
+.ctrl:hover{color:#fff}
+.ctrl:active{transform:scale(.94)}
+.ctrl svg{width:17px;height:17px}
+.play{width:38px;height:38px;background:var(--fg);color:#0B0B0D;border-radius:50%}
+.play:hover{background:#fff;color:#000}
+.play:active{transform:scale(.95)}
+.play svg{width:17px;height:17px}
+.vol{margin-left:auto;display:flex;align-items:center;gap:var(--sp2);color:var(--fg2)}
+.vol svg{width:15px;height:15px}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:72px;height:14px;background:transparent;cursor:pointer;
+}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:rgba(244,244,245,.22);border-radius:2px}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:10px;height:10px;border-radius:50%;background:var(--fg);margin-top:-4px;
+}
+input[type=range]:focus-visible{outline:1.5px solid rgba(244,244,245,.7);outline-offset:3px;border-radius:4px}
+
+/* ---- lyrics: living, auto-scrolled ---- */
+.lyrics{overflow:hidden;max-height:0;transition:max-height .45s cubic-bezier(.2,.9,.2,1)}
+.lyrics.open{max-height:184px}
+.lyr-view{
+  position:relative;height:184px;overflow:hidden;
+  padding:0 var(--sp4);
+  -webkit-mask-image:linear-gradient(transparent,#000 18%,#000 82%,transparent);
+          mask-image:linear-gradient(transparent,#000 18%,#000 82%,transparent);
+}
+.lyr-wrap{transform:translateY(70px);transition:transform .5s cubic-bezier(.25,.9,.2,1)}
+.line{padding:7px 0;font-size:14px;line-height:1.45;color:var(--fg3);transition:color .3s ease}
+.line.active{color:var(--fg);font-weight:600}
+
+/* ---- popovers (elevation level 2, the only other shadow) ---- */
+.pop{
+  position:absolute;z-index:5;min-width:236px;background:var(--surface2);
+  border:1px solid var(--line);border-radius:var(--r-p);box-shadow:var(--e2);
+  padding:var(--sp2);display:none;
+}
+.pop.open{display:block}
+#queue{right:var(--sp4);bottom:64px}
+#plmenu{right:var(--sp4);top:calc(312px + 44px)}
+.prow{display:flex;align-items:center;gap:var(--sp2);width:100%;padding:var(--sp2) var(--sp1);border-radius:8px;text-align:left}
+.prow:hover{background:rgba(255,255,255,.06)}
+.prow .n{font-size:10px;font-variant-numeric:tabular-nums;color:var(--fg3);width:16px}
+.prow .t{font-size:12.5px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow.cur .t{font-weight:600}
+.prow .d{font-size:10px;font-variant-numeric:tabular-nums;color:var(--fg3)}
+.prow.cur .n{color:var(--fg)}
+.mitem{display:flex;align-items:center;gap:var(--sp2);width:100%;padding:var(--sp2);border-radius:8px;font-size:12.5px;text-align:left}
+.mitem:hover{background:rgba(255,255,255,.06)}
+.pop .cap{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg3);padding:var(--sp1) var(--sp2) var(--sp2)}
+</style>
+</head>
+<body>
+<div class="mocknote">desktop mock — not part of UI</div>
+
+<div class="widget" id="widget">
+  <div class="artwrap" id="artwrap" title="Drag to move the widget">
+    <canvas class="art" id="art"></canvas>
+    <div class="chip">
+      <button id="btnPin" title="Pin (always on top)" aria-pressed="false">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.7 2 6 4.7 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.3-2.7-6-6-6z"/><circle cx="12" cy="8" r="2.2"/></svg>
+        <span class="pin-ind"></span>
+      </button>
+      <button id="btnLyrics" title="Lyrics">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.3"/><circle cx="16.5" cy="15" r="2.3"/></svg>
+      </button>
+      <button id="btnQueue" title="Queue">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 11h16M4 16h7"/><path d="M14 14.5l6 2.5-6 2.5z" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <button id="btnAdd" title="Add to playlist">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 11h10"/><path d="M18 11v6M15 14h6"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="meta">
+    <div class="title" id="tTitle">Hollow Signal</div>
+    <div class="artist" id="tArtist">Night Circuitry</div>
+  </div>
+
+  <div class="seek-wrap">
+    <div class="seek" id="seek">
+      <canvas id="seekCv"></canvas>
+      <div class="tip" id="tip">1:40</div>
+    </div>
+    <div class="times"><span id="tCur">0:00</span><span id="tTot">3:34</span></div>
+  </div>
+
+  <div class="controls">
+    <button class="ctrl" id="btnPrev" title="Previous">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2.2v14H6z"/><path d="M20 5.4v13.2c0 .8-.9 1.3-1.6.9L9.5 12.7a1 1 0 0 1 0-1.7l8.9-5.9c.7-.4 1.6.1 1.6.9z"/></svg>
+    </button>
+    <button class="ctrl play" id="btnPlay" title="Play / pause">
+      <svg id="icoPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.2v13.6c0 .8.9 1.3 1.6.9l10.4-6.8a1 1 0 0 0 0-1.7L9.8 4.3c-.7-.4-1.6.1-1.6.9z"/></svg>
+      <svg id="icoPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z"/></svg>
+    </button>
+    <button class="ctrl" id="btnNext" title="Next">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.8 5H18v14h-2.2z"/><path d="M4 5.4v13.2c0 .8.9 1.3 1.6.9l8.9-5.8a1 1 0 0 0 0-1.7L5.6 4.5c-.7-.4-1.6.1-1.6.9z"/></svg>
+    </button>
+    <div class="vol">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6"/><path d="M18 7a7 7 0 0 1 0 10"/></svg>
+      <input type="range" id="vol" min="0" max="1" step="0.01" value="0.7" aria-label="Volume">
+    </div>
+  </div>
+
+  <div class="lyrics" id="lyrics">
+    <div class="lyr-view"><div class="lyr-wrap" id="lyrWrap"></div></div>
+  </div>
+
+  <div class="pop" id="queue">
+    <div class="cap">Queue</div>
+    <div id="qrows"></div>
+  </div>
+  <div class="pop" id="plmenu">
+    <div class="cap">Add to</div>
+    <button class="mitem">Night Drive</button>
+    <button class="mitem">Focus Loop</button>
+    <button class="mitem">On Repeat</button>
+  </div>
+</div>
+
+<script>
+/* ---------- data ---------- */
+const TRACKS=[
+ {title:"Hollow Signal",artist:"Night Circuitry",dur:214,seed:3,lyrics:[
+  [0,"Static on the wire tonight"],[14,"I keep the frequency alive"],[29,"Every ghost in the grid"],
+  [44,"Knows my name by now"],[62,"Hollow signal, carry me home"],[81,"Past the towers and the drones"],
+  [100,"I can hear the city breathe"],[120,"Through the noise, a single tone"],
+  [142,"Hollow signal, carry me home"],[163,"Take me somewhere I'm unknown"]]},
+ {title:"Midnight Vending",artist:"Soft Static",dur:178,seed:7,lyrics:[
+  [0,"Fluorescent hum at 2 a.m."],[16,"Coins for a memory"],[33,"The machine knows what I need"],
+  [52,"Better than I do"],[70,"Midnight vending, keep the change"],[90,"I'll take the warm one"],
+  [108,"Sugar coating every ache"],[128,"Till the morning comes again"],[150,"Midnight vending, keep the change"]]},
+ {title:"Paper Lanterns",artist:"Yumegawa",dur:192,seed:11,lyrics:[
+  [0,"We wrote our names on paper lanterns"],[18,"Set them on the river slow"],
+  [37,"Every wish a little fire"],[55,"Every fire a little hope"],[74,"Paper lanterns, drift for me"],
+  [95,"Down to where the city glows"],[115,"If one burns out, we light another"],
+  [137,"If one returns, we'll never know"],[160,"Paper lanterns, drift for me"]]},
+ {title:"Last Train Paradigm",artist:"Odorenai",dur:245,seed:17,lyrics:[
+  [0,"Platform four, the last parade"],[20,"Of strangers going home"],
+  [41,"I mapped the rhythms of the rails"],[63,"And called the map a song"],
+  [86,"Last train paradigm"],[108,"Everyone asleep but me"],
+  [132,"The city dims in single file"],[158,"I keep the window seat"],
+  [185,"Last train paradigm"],[212,"Home is where I'm almost there"]]}
+];
+
+/* ---------- state (exposed for automated QA) ---------- */
+const S={i:0,t:46,playing:false,vol:.7,pinned:false,drag:null,lidx:-1,lyricsOpen:false};
+window.S=S;
+const trk=()=>TRACKS[S.i];
+const $=id=>document.getElementById(id);
+const el={};
+["widget","artwrap","art","seek","seekCv","tip","tCur","tTot","tTitle","tArtist","lyrics","lyrWrap","qrows","queue","plmenu","vol","icoPlay","icoPause","btnPlay","btnPin","btnLyrics","btnQueue","btnAdd","btnPrev","btnNext"].forEach(k=>el[k]=$(k));
+const fmt=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0")};
+
+/* ---------- procedural audio (real analyser data, silent output) ---------- */
+let AC=null,analyser=null,DATA=null;
+function ensureAudio(){
+  if(AC)return true;
+  try{
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    const len=AC.sampleRate*2,buf=AC.createBuffer(1,len,AC.sampleRate),ch=buf.getChannelData(0);
+    let last=0;
+    for(let i=0;i<len;i++){const w=Math.random()*2-1;last=(last+.02*w)/1.02;ch[i]=last*3.5}
+    const noise=AC.createBufferSource();noise.buffer=buf;noise.loop=true;
+    const bp=AC.createBiquadFilter();bp.type="bandpass";bp.frequency.value=420;bp.Q.value=1.1;
+    const trem=AC.createGain();trem.gain.value=.9;
+    analyser=AC.createAnalyser();analyser.fftSize=256;analyser.smoothingTimeConstant=.82;
+    const mute=AC.createGain();mute.gain.value=0;
+    noise.connect(bp);bp.connect(trem);trem.connect(analyser);analyser.connect(mute);mute.connect(AC.destination);
+    const lfo=AC.createOscillator();lfo.frequency.value=.11;
+    const lfoG=AC.createGain();lfoG.gain.value=320;lfo.connect(lfoG);lfoG.connect(bp.frequency);lfo.start();
+    const beat=AC.createOscillator();beat.frequency.value=2;
+    const beatG=AC.createGain();beatG.gain.value=.3;beat.connect(beatG);beatG.connect(trem.gain);beat.start();
+    noise.start();
+    DATA=new Uint8Array(analyser.frequencyBinCount);
+    return true;
+  }catch(e){return false}
+}
+function spectrum(){
+  const N=56,out=new Float32Array(N);
+  if(analyser&&S.playing){
+    analyser.getByteFrequencyData(DATA);
+    const m=DATA.length;
+    for(let i=0;i<N;i++)out[i]=DATA[Math.min(m-1,Math.floor(Math.pow(i/N,1.55)*m))]/255;
+  }else{
+    const now=performance.now()/1000;
+    for(let i=0;i<N;i++)out[i]=.12+.09*Math.sin(now*.9+i*.33)+.04*Math.sin(now*.37+i*.11);
+  }
+  return out;
+}
+
+/* ---------- seeded album art: mono signal-ring cover ---------- */
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function drawArt(){
+  const cv=el.art,W=cv.clientWidth,H=cv.clientHeight;if(!W||!H)return;
+  const dpr=Math.min(2,devicePixelRatio||1);
+  cv.width=W*dpr;cv.height=H*dpr;
+  const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);
+  const rnd=mulberry(trk().seed*9973);
+  g.fillStyle="#0E0E11";g.fillRect(0,0,W,H);
+  const cx=W*(.5+.14*(rnd()-.5)),cy=H*(.5+.1*(rnd()-.5));
+  g.strokeStyle="rgba(244,244,245,.9)";g.lineWidth=1.25;
+  g.beginPath();g.arc(cx,cy,W*.29,0,7);g.stroke();
+  g.strokeStyle="rgba(244,244,245,.28)";g.lineWidth=1;
+  g.beginPath();g.arc(cx,cy,W*.42,0,7);g.stroke();
+  g.fillStyle="#1B1B20";g.beginPath();g.arc(cx,cy,W*.185,0,7);g.fill();
+  g.fillStyle="#0E0E11";
+  for(let i=0;i<3;i++){const y=H*(.18+.32*i);g.fillRect(0,y,W,1)}
+  for(let i=0;i<46;i++){
+    const a=rnd()*Math.PI*2,r=W*(.2+rnd()*.3);
+    const x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r,s=.6+rnd()*2.2;
+    g.fillStyle=`rgba(244,244,245,${.15+rnd()*.6})`;
+    g.beginPath();g.arc(x,y,s,0,7);g.fill();
+  }
+  const idx=(S.i+1);
+  g.fillStyle="rgba(244,244,245,.8)";
+  g.font="600 10px 'Segoe UI',sans-serif";
+  g.fillText("HALFTONE·0"+idx,W-58,H-16);
+}
+
+/* ---------- seek strip: bars ARE the spectrum ---------- */
+function drawSeek(){
+  const box=el.seek,W=box.clientWidth,H=box.clientHeight;if(!W||!H)return;
+  const dpr=Math.min(2,devicePixelRatio||1);
+  if(el.seekCv.width!==Math.round(W*dpr)||el.seekCv.height!==Math.round(H*dpr)){el.seekCv.width=Math.round(W*dpr);el.seekCv.height=Math.round(H*dpr)}
+  const g=el.seekCv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
+  const spec=spectrum(),N=spec.length,gap=3,bw=(W-gap*(N-1))/N;
+  const prog=(S.drag!=null?S.drag.p:S.t)/trk().dur;
+  const volK=.35+.65*S.vol;
+  for(let i=0;i<N;i++){
+    const played=(i+.5)/N<prog;
+    const bh=Math.max(2,Math.max(.1,spec[i])*volK*(H-5));
+    g.fillStyle=played?"rgba(244,244,245,.95)":(S.drag!=null?"rgba(244,244,245,.1)":"rgba(244,244,245,.18)");
+    g.fillRect(i*(bw+gap),H-bh,bw,bh);
+  }
+  const px=prog*W;
+  g.fillStyle="#fff";g.fillRect(px-.75,0,1.5,H);
+}
+
+/* ---------- lyrics ---------- */
+function buildLyrics(){
+  el.lyrWrap.innerHTML="";
+  trk().lyrics.forEach(L=>{
+    const d=document.createElement("div");d.className="line";d.textContent=L[1];d.dataset.t=L[0];
+    el.lyrWrap.appendChild(d);
+  });
+  S.lidx=-1;
+}
+function updateLyrics(){
+  if(!S.lyricsOpen)return;
+  const lines=[...el.lyrWrap.children];
+  let idx=-1;
+  for(let i=0;i<lines.length;i++){if(S.t>=+lines[i].dataset.t)idx=i}
+  if(idx===S.lidx)return;
+  S.lidx=idx;
+  lines.forEach((l,i)=>l.classList.toggle("active",i===idx));
+  if(idx>=0){
+    const ln=lines[idx];
+    el.lyrWrap.style.transform=`translateY(${72-(ln.offsetTop+ln.offsetHeight/2)}px)`;
+  }
+}
+
+/* ---------- queue popover ---------- */
+function buildQueue(){
+  el.qrows.innerHTML="";
+  TRACKS.forEach((T,i)=>{
+    const b=document.createElement("button");
+    b.className="prow"+(i===S.i?" cur":"");
+    b.innerHTML=`<span class="n">${String(i+1).padStart(2,"0")}</span><span class="t">${T.title}</span><span class="d">${fmt(T.dur)}</span>`;
+    b.onclick=()=>{load(i);el.queue.classList.remove("open")};
+    el.qrows.appendChild(b);
+  });
+}
+
+/* ---------- transport ---------- */
+function load(i){
+  S.i=(i+TRACKS.length)%TRACKS.length;S.t=0;S.lidx=-1;
+  el.tTitle.textContent=trk().title;el.tArtist.textContent=trk().artist;
+  el.tTot.textContent=fmt(trk().dur);
+  drawArt();buildLyrics();buildQueue();
+}
+function setPlaying(p){
+  S.playing=p;
+  el.icoPlay.style.display=p?"none":"block";
+  el.icoPause.style.display=p?"block":"none";
+  if(AC){p?AC.resume():AC.suspend()}
+}
+function next(){load(S.i+1)}
+function prev(){if(S.t>3){S.t=0}else{load(S.i-1)}}
+
+/* ---------- pointer: drag-to-seek + widget drag ---------- */
+const seek=el.seek;
+seek.addEventListener("pointerenter",()=>seek.classList.add("open"));
+seek.addEventListener("pointerleave",()=>{if(S.drag==null)seek.classList.remove("open")});
+seek.addEventListener("pointerdown",e=>{
+  try{seek.setPointerCapture(e.pointerId)}catch(_){/* synthetic/edge cases */}
+  const r=seek.getBoundingClientRect();
+  S.drag={p:Math.min(1,Math.max(0,(e.clientX-r.left)/r.width))};
+  seek.classList.add("open","dragging");
+  el.tip.textContent=fmt(S.drag.p*trk().dur);
+  el.tip.style.left=(S.drag.p*seek.clientWidth)+"px";
+});
+seek.addEventListener("pointermove",e=>{
+  if(S.drag==null)return;
+  const r=seek.getBoundingClientRect();
+  S.drag.p=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width));
+  el.tip.textContent=fmt(S.drag.p*trk().dur);
+  el.tip.style.left=(S.drag.p*seek.clientWidth)+"px";
+});
+const endDrag=()=>{
+  if(S.drag==null)return;
+  S.t=S.drag.p*trk().dur;S.drag=null;S.lidx=-1;
+  seek.classList.remove("dragging");
+  if(!seek.matches(":hover"))seek.classList.remove("open");
+};
+seek.addEventListener("pointerup",endDrag);
+seek.addEventListener("pointercancel",endDrag);
+
+el.artwrap.addEventListener("pointerdown",e=>{
+  if(e.button!==0)return;
+  const w=el.widget,r=w.getBoundingClientRect(),sx=e.clientX,sy=e.clientY;
+  const move=ev=>{w.style.position="fixed";w.style.left=(r.left+ev.clientX-sx)+"px";w.style.top=(r.top+ev.clientY-sy)+"px"};
+  const up=()=>{removeEventListener("pointermove",move);removeEventListener("pointerup",up)};
+  addEventListener("pointermove",move);addEventListener("pointerup",up);
+});
+
+/* ---------- buttons ---------- */
+el.btnPlay.onclick=()=>{ensureAudio();setPlaying(!S.playing)};
+el.btnNext.onclick=next;el.btnPrev.onclick=prev;
+el.btnPin.onclick=()=>{S.pinned=!S.pinned;el.btnPin.classList.toggle("on",S.pinned);el.btnPin.setAttribute("aria-pressed",S.pinned)};
+el.btnLyrics.onclick=()=>{S.lyricsOpen=!S.lyricsOpen;el.lyrics.classList.toggle("open",S.lyricsOpen);el.btnLyrics.classList.toggle("on",S.lyricsOpen);if(S.lyricsOpen){S.lidx=-1;updateLyrics()}};
+el.btnQueue.onclick=e=>{e.stopPropagation();el.plmenu.classList.remove("open");el.queue.classList.toggle("open");buildQueue()};
+el.btnAdd.onclick=e=>{e.stopPropagation();el.queue.classList.remove("open");el.plmenu.classList.toggle("open")};
+document.addEventListener("click",e=>{
+  if(!el.queue.contains(e.target)&&e.target!==el.btnQueue&&!el.btnQueue.contains(e.target))el.queue.classList.remove("open");
+  if(!el.plmenu.contains(e.target)&&e.target!==el.btnAdd&&!el.btnAdd.contains(e.target))el.plmenu.classList.remove("open");
+});
+el.plmenu.querySelectorAll(".mitem").forEach(m=>m.onclick=()=>el.plmenu.classList.remove("open"));
+el.vol.addEventListener("input",()=>S.vol=+el.vol.value);
+
+addEventListener("keydown",e=>{
+  if(e.target.tagName==="INPUT")return;
+  if(e.code==="Space"){e.preventDefault();el.btnPlay.click()}
+  if(e.code==="ArrowRight")S.t=Math.min(trk().dur,S.t+5);
+  if(e.code==="ArrowLeft")S.t=Math.max(0,S.t-5);
+});
+
+/* ---------- clock loop ---------- */
+let last=performance.now();
+function loop(now){
+  const dt=(now-last)/1000;last=now;
+  if(S.playing&&S.drag==null){S.t+=dt;if(S.t>=trk().dur)next()}
+  el.tCur.textContent=fmt(S.t);
+  drawSeek();updateLyrics();
+  requestAnimationFrame(loop);
+}
+
+/* ---------- boot ---------- */
+load(0);drawSeek();
+window.__qa={advance:d=>{S.t=Math.min(trk().dur,S.t+d);drawSeek();updateLyrics()}};
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
