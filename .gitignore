@@ -3,3 +3,9 @@ dist/
 target/
 .DS_Store
 *.log
+
+# local builds + real-library assets (third-party audio/art bytes never committed)
+sketches/002-phosphor/index.local.html
+sketches/002-phosphor/assets/
+sketches/002-phosphor/covers/
+sketches/shots/*-local-*
