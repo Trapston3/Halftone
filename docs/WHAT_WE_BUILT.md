@@ -143,16 +143,37 @@ context (`__qa.owner().hasAC === false`, no `<audio>` in widget DOM).
 
 ### 2. Windows SMTC
 Global media keys (play/pause/next/prev from keyboards, headsets, Bluetooth) + the OS
-now-playing overlay, populated from the already-parsed TrackMeta: title, artist, album, and
-the embedded cover art (METADATA_BLOCK_PICTURE bytes handed to the overlay in memory — no
-file re-read, no network). The SMTC state machine is driven only by the owner window.
-Implementation: `src-tauri/src/smtc.rs` using `windows::Media` (SMTC via
-`GetForCurrentView`), wired through a `smtc_update` command and `smtc-button` events.
+now-playing overlay, showing title, artist, album and the embedded cover art
+(METADATA_BLOCK_PICTURE bytes — no file re-read, no network).
+
+**Architecture note (Phase 0 correction):** the first implementation used a Rust-side SMTC
+session via `ISystemMediaTransportControlsInterop::GetForWindow`. It compiled and ran but was
+a zombie — WebView2 already owns the OS media session for the process (it auto-exposes the
+owner's `<audio>` element) and the two sessions fought; the overlay kept showing the window
+title with empty tags. The Rust module was removed. The real mechanism is the
+**`navigator.mediaSession` API in the owner page** (`ui/main.html`): metadata + artwork +
+playbackState + `setPositionState` (OS seekbar) + action handlers (play/pause/prev/next/
+seekbackward/seekforward/seekto). Tray menu and OS media keys land in the same owner window
+via the `smtc-button` Tauri event.
+
+**Runtime verification — machine-checked, not claimed** (`tools/smtc_probe.py`, WinRT
+GlobalSystemMediaTransportControlsSessionManager via `py -3.10` + winsdk):
+- Session exists, source `msedgewebview2.exe`, title/artist correct ("Harvey" / "Her's")
+- Status follows the owner: PLAYING after play, PAUSED after pause
+- Track change reflected ("Chest Pain (I Love)")
+- Timeline `end` matches track duration (211.2s); position tracks via setPositionState
+Not machine-verifiable from script: the overlay's *visual* rendering (OS-drawn) — confirmed by
+the probe reading the same data the overlay draws, but a human glance at Win+G / volume HUD is
+the final word.
 
 ### 3. Tray icon
 System tray presence with a native menu: Show/Hide Widget, Show Main Window, Play/Pause,
 Next, Previous, Quit. Left-click toggles widget visibility. **Tray Quit is the real
 terminate path** (matches the window-lifecycle rules above).
+Verified: menu-item actions and left-click route through `on_menu_event` /
+`on_tray_icon_event`, whose `smtc-button` emit path is machine-verified end-to-end (toggling
+flips playback both ways). The icon's on-screen presence and the Quit terminate path are wired
+but not scriptable from CDP — visually confirm on first run; not marked machine-verified.
 
 ### 4. Parametric / graphic EQ
 10-band chain (31 Hz lowshelf → 16 kHz highshelf, peaking in between) inserted into the
@@ -202,26 +223,43 @@ shared mixer — not exclusive-mode output**. Also only reachable on the owner w
 | EQ boost/cut | chain responds (graph probes) |
 | AutoEQ import | profile name shown, bands mapped |
 | Sink enumeration | works; persisted; hotplug fallback |
-| SMTC/tray | compile-verified; runtime check pending |
+| SMTC metadata (title/artist) | machine-verified via winsdk probe ("Harvey"/"Her's") |
+| SMTC status PLAYING/PAUSED | machine-verified, follows owner |
+| SMTC track change | machine-verified ("Chest Pain (I Love)") |
+| SMTC timeline end | machine-verified (211.2s = track duration) |
+| Tray smtc-button channel | machine-verified end-to-end (toggles playback) |
+| Tray icon visual presence / Quit | wired; visual-confirm only (not scriptable) |
 | Accent parity widget ↔ app | both `rgb(151,172,57)` in album mode |
 
-### Open spec questions (for the next pass)
+### Phase 0 hardening (commit 4b86404)
 
-1. **SMTC seek/position**: should the OS overlay expose a seekbar (SMTC supports timeline
-   properties) or just play/pause/next/prev? Currently buttons only.
-2. **EQ parametric mode**: do you want per-band frequency + Q editing exposed in the UI
-   (full parametric), or is the 10-band graphic + AutoEQ import enough for now?
-3. **EQ on other surfaces**: should the widget get a mini-EQ toggle (just bypass + preset
-   cycle), or stay EQ-free?
-4. **AutoEQ auto-match**: import by headphone name from the AutoEQ database URL, or
-   file-based import only (current)?
-5. **Output device**: exclusive-mode (WASAPI) is impossible via `setSinkId` — acceptable
-   long-term, or should we look at a Rust-side CPAL output path for bit-perfect output?
-6. **Sleep timer fade**: stop hard at N minutes, or fade volume over the last 30s?
-7. **ReplayGain pre-amp**: apply a global RG pre-amp (default -6dB) per the spec, or the
-   current auto-trim approach?
-8. **Folder watch scope**: currently non-recursive (matches the scan). Recursive watch +
-   recursive scan?
+SMTC and tray were promoted from "compile-verified; runtime check pending" to runtime-verified
+(see section 2 above). The Rust `smtc.rs` interop approach was **deleted** after runtime probing
+showed it produced a zombie session that never reached the overlay — WebView2's built-in media
+session bridge, driven by `navigator.mediaSession` in the owner page, is the correct and now
+verified mechanism. A reusable probe (`tools/smtc_probe.py`) reads the real OS session state so
+this stays verifiable.
+
+### Open spec questions — status after Phase 6 decisions
+
+1. **SMTC seek/position**: ✅ DECIDED + DONE — OS overlay now exposes a working seekbar
+   (`setPositionState` + `seekto` handler), not just buttons.
+2. **EQ parametric mode**: DECIDED NO for now — 10-band graphic + AutoEQ import is the scope.
+3. **EQ on other surfaces**: DECIDED — widget gets bypass toggle + preset cycle ONLY, no full EQ.
+4. **AutoEQ auto-match**: DECIDED NO — file-based import only.
+5. **Output device**: DECIDED — WASAPI exclusive NOT this pass; README documents the
+   shared-mixer limitation as a known limitation + roadmap item.
+6. **Sleep timer fade**: DECIDED — fade volume over the final 30 seconds (not a hard stop).
+7. **ReplayGain pre-amp**: DECIDED — apply the standard -6dB global RG pre-amp per spec,
+   keeping the existing auto-trim clipping protection on top.
+8. **Folder watch scope**: DECIDED — recursive watch + recursive scan (folded into Phase 2).
+
+## Hardening pass — IN PROGRESS (phases 1–6 of 6 open)
+
+Phase 0 (verification gap) is closed and committed `4b86404`; see sections 2–3 above. Phases
+1–6 (robustness, scale, first-run, distribution, accessibility, and the settled spec decisions
+listed above) are being implemented phase-by-phase, each with a hard CDP gate before the next
+begins. Status will be recorded here per phase as gates pass.
 
 ## Known limits / next ideas
 
@@ -230,3 +268,4 @@ shared mixer — not exclusive-mode output**. Also only reachable on the owner w
 - WSOL/ALAC format support (FLAC-only today)
 - position sync granularity is the ~30fps broadcast — no interpolation on the widget side
   (per spec: widget renders the owner's value, never estimates)
+- WASAPI exclusive / bit-perfect output — deliberately out of scope (shared mixer via setSinkId)
