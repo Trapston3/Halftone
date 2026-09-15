@@ -12,19 +12,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-
-#[cfg(target_os = "windows")]
-mod smtc;
-
-/// Global app handle for SMTC button callbacks (set in setup()).
-static APP_HANDLE: Mutex<Option<tauri::AppHandle>> = Mutex::new(None);
-#[cfg(target_os = "windows")]
-static SMTC: Mutex<Option<smtc::Smtc>> = Mutex::new(None);
-
-pub fn app_handle() -> Option<tauri::AppHandle> {
-    APP_HANDLE.lock().ok()?.clone()
-}
 
 pub fn base64_decode_pub(s: &str) -> Option<Vec<u8>> {
     base64_decode(s)
@@ -342,6 +329,9 @@ pub fn read_lrc_file(track_path: &Path) -> Vec<LyricLine> {
 // Tauri commands
 // ---------------------------------------------------------------------------
 
+/// App handle captured at setup; watcher + any backend->UI emit uses it.
+static APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
 /// Watch the library folder; on any change, emit halftone:lib-changed so
 /// the owner UI auto-rescans. One dedicated watcher thread per scan.
 fn watch_folder(app: tauri::AppHandle, dir: &str) {
@@ -400,8 +390,8 @@ fn scan_library(dir: &str) -> Result<ScanResult, String> {
         }
     }
     tracks.sort_by(|a, b| a.path.cmp(&b.path));
-    if let Some(app) = app_handle() {
-        watch_folder(app, dir);
+    if let Some(app) = APP.get() {
+        watch_folder(app.clone(), dir);
     }
     Ok(ScanResult { tracks, skipped })
 }
@@ -458,35 +448,6 @@ fn pct_decode(s: &str) -> String {
 
 // ---------------------------------------------------------------------------
 // SMTC bridge commands (owner/UI only)
-// ---------------------------------------------------------------------------
-
-#[tauri::command]
-fn smtc_update(
-    title: String,
-    artist: String,
-    album: String,
-    cover_b64: Option<String>,
-    playing: bool,
-) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        let guard = SMTC.lock().map_err(|e| e.to_string())?;
-        if let Some(s) = guard.as_ref() {
-            s.set_metadata(&title, &artist, &album, cover_b64.as_deref());
-            s.set_status(playing);
-            s.set_enabled(true, true, true, true);
-        }
-        Ok(())
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (title, artist, album, cover_b64, playing);
-        Ok(())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// flac:// protocol — serves original bytes, Accept-Ranges for seeking
 // ---------------------------------------------------------------------------
 
 fn serve_flac(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
@@ -568,21 +529,6 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // SMTC init (Windows): OS now-playing overlay + global media keys.
-            // Button presses are forwarded to the main window (the audio owner).
-            #[cfg(target_os = "windows")]
-            {
-                let handle = app.handle().clone();
-                if let Some(s) = smtc::Smtc::new(move |ev: &str| {
-                    use tauri::Emitter;
-                    let _ = handle.emit("smtc-button", ev);
-                }) {
-                    if let Ok(mut g) = SMTC.lock() {
-                        *g = Some(s);
-                    }
-                }
-            }
-
             // Tray icon + native menu: show/hide widget, show/hide main,
             // transport, quit. QUIT IS THE TERMINATE PATH (the main window's
             // close only hides — it is the audio owner; killing it kills audio).
@@ -666,10 +612,7 @@ pub fn run() {
                     .build(app)?;
             }
 
-            // store handle for SMTC callbacks
-            if let Ok(mut g) = APP_HANDLE.lock() {
-                *g = Some(app.handle().clone());
-            }
+            let _ = APP.set(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -688,8 +631,7 @@ pub fn run() {
             scan_library,
             open_track,
             read_lyrics,
-            flac_url,
-            smtc_update
+            flac_url
         ])
         .run(tauri::generate_context!())
         .expect("halftone widget failed to start");

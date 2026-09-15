@@ -196,7 +196,8 @@ if(T&&T.event&&T.event.listen&&curWin){
           else if(c.cmd==="toggle")await setPlaying(!S.playing);
           else if(c.cmd==="next")await nextTrack();
           else if(c.cmd==="prev")await prevTrack();
-          else if(c.cmd==="seek"&&c.t!=null)el.aud.currentTime=Math.max(0,Math.min(durSec(),c.t));
+          else if(c.cmd==="seek"&&c.t!=null){el.aud.currentTime=Math.max(0,Math.min(durSec(),c.t));
+            document.dispatchEvent(new CustomEvent("halftone:seeked"))}
           else if(c.cmd==="nudge")el.aud.currentTime=Math.max(0,Math.min(durSec(),posSec()+c.d));
           else if(c.cmd==="vol")setVol(c.v);
           else if(c.cmd==="load"&&c.i!=null)await loadTrack(c.i,true);
@@ -686,6 +687,7 @@ function wireSeek(seek){
     if(S.drag==null)return;
     const t=S.drag.p*durSec();
     if(IS_OWNER)el.aud.currentTime=t;else emitCmd({cmd:"seek",t});
+    document.dispatchEvent(new CustomEvent("halftone:seeked"));
     S.drag=null;S.lidx=-1;
     seek.classList.remove("dragging");
     if(!seek.matches(":hover"))seek.classList.remove("open");

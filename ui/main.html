@@ -1256,29 +1256,52 @@ if(T&&T.event&&T.event.listen&&IS_OWNER){
   }).catch(()=>{})}catch(_){}
 }
 
-/* SMTC bridge (owner): metadata + cover from the ALREADY-PARSED TrackMeta.
-   UpdateMediaPropertiesAsync wants a stream; we hand the embedded PICTURE
-   bytes straight over (base64 -> bytes in Rust). No re-read, no network. */
-async function smtcPush(){
-  if(!IS_OWNER||!invoke)return;
+/* ============ SMTC via WebView2 media-session bridge ============
+   WebView2 auto-exposes the owner's <audio> as the OS media session;
+   navigator.mediaSession is the sanctioned way to customize it. (A Rust
+   SMTC interop session cannot coexist with it — removed to avoid a
+   competing zombie session.) */
+function smtcPush(){
+  if(!IS_OWNER||!S.meta||!('mediaSession' in navigator))return;
+  const m=S.meta;
   try{
-    const m=S.meta;if(!m)return;
-    await invoke("smtc_update",{title:m.title||"",artist:m.artist||"",album:m.album||"",
-      coverB64:m.cover?m.cover.data_b64:null,playing:!!S.playing});
-  }catch(e){console.warn("smtc",e)}
+    navigator.mediaSession.metadata=new MediaMetadata({
+      title:m.title,artist:m.artist,album:m.album,
+      artwork:m.cover?[{src:"data:"+m.cover.mime+";base64,"+m.cover.data_b64,sizes:"512x512"}]:[]});
+    navigator.mediaSession.playbackState=S.playing?"playing":"paused";
+    if(el.aud.duration){
+      navigator.mediaSession.setPositionState({
+        duration:el.aud.duration,position:Math.min(el.aud.currentTime,el.aud.duration),
+        playbackRate:el.aud.playbackRate||1});
+    }
+  }catch(e){console.warn("mediaSession",e)}
 }
-document.addEventListener("halftone:track",smtcPush);
-document.addEventListener("halftone:state",smtcPush);
+if('mediaSession' in navigator){
+  document.addEventListener("halftone:track",smtcPush);
+  document.addEventListener("halftone:state",smtcPush);
+  document.addEventListener("halftone:seeked",smtcPush);
+  setInterval(()=>{if(S.playing)smtcPush()},3000);   /* keep OS seekbar honest */
+  const H=(id,fn)=>{try{navigator.mediaSession.setActionHandler(id,fn)}catch(_){}};
+  H("play",()=>setPlaying(true));
+  H("pause",()=>setPlaying(false));
+  H("previoustrack",()=>{posSec()>3?el.aud.currentTime=0:loadTrack(S.i-1)});
+  H("nexttrack",()=>nextTrack());
+  H("seekbackward",()=>{el.aud.currentTime=Math.max(0,el.aud.currentTime-10);smtcPush()});
+  H("seekforward",()=>{el.aud.currentTime=Math.min(durSec(),el.aud.currentTime+10);smtcPush()});
+  try{navigator.mediaSession.setActionHandler("seekto",e=>{
+    if(e.seekTime!=null)el.aud.currentTime=e.seekTime;smtcPush()})}catch(_){}
+}
+/* tray menu + OS media keys both land here (tray emits smtc-button) */
 if(T&&T.event&&T.event.listen&&IS_OWNER){
   try{T.event.listen("smtc-button",e=>{
-    const ev=e.payload;
     (async()=>{
       try{
+        const ev=e.payload;
         if(ev==="play")await setPlaying(true);
         else if(ev==="pause")await setPlaying(false);
         else if(ev==="toggle")await setPlaying(!S.playing);
         else if(ev==="next")await nextTrack();
-        else if(ev==="prev"){if(posSec()>3)el.aud.currentTime=0;else await loadTrack(S.i-1)}
+        else if(ev==="prev"){posSec()>3?el.aud.currentTime=0:loadTrack(S.i-1)}
       }catch(err){console.warn("smtc-button",err)}
     })();
   }).catch(()=>{})}catch(_){}
