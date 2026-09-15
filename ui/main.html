@@ -15,7 +15,7 @@ body{background:transparent}
 .tui-body{position:relative;border-radius:calc(var(--r-w) - 1px);overflow:hidden;flex:1;display:flex;flex-direction:column;background:var(--bg)}
 #edgeCv{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:40}
 
-.app{display:grid;grid-template-columns:212px 1fr;flex:1;min-height:0}
+.app{display:grid;grid-template-columns:212px 1fr;grid-template-rows:minmax(0,1fr);flex:1;min-height:0}
 .side{border-right:1px solid var(--line);display:flex;flex-direction:column;background:var(--bg2)}
 .side .logo{display:flex;align-items:center;gap:var(--sp2);padding:var(--sp3);cursor:grab}
 .side .logo:active{cursor:grabbing}
@@ -101,7 +101,7 @@ body{background:transparent}
 #ambient{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
 .np.hidden #ambient{display:none}
 .np.noambient #ambient{display:none}
-.np-grid{position:relative;z-index:1;flex:1;min-height:0;display:grid;grid-template-columns:400px 1fr;gap:var(--sp8);padding:var(--sp8) var(--sp8) var(--sp4)}
+.np-grid{position:relative;z-index:1;flex:1;min-height:0;display:grid;grid-template-columns:400px 1fr;grid-template-rows:minmax(0,1fr);gap:var(--sp8);padding:var(--sp8) var(--sp8) var(--sp4)}
 .np-left{display:flex;flex-direction:column;gap:var(--sp4);min-width:0}
 .np-coverwrap{position:relative;width:min(340px,100%);aspect-ratio:1;flex:none}
 .np-coverwrap .np-cover{width:100%;height:100%;border-radius:var(--r-w);border:1px solid var(--line2);display:block;background:#12171A;object-fit:cover;
@@ -127,12 +127,12 @@ body{background:transparent}
 }
 .np-lyr .h-caps{padding-left:4px}
 .np-lyrview{
-  flex:1;min-height:0;overflow:hidden;padding:0 var(--sp2);
+  flex:1;min-height:0;overflow-y:auto;padding:0 var(--sp2);
   -webkit-mask-image:linear-gradient(transparent,#000 12%,#000 88%,transparent);
           mask-image:linear-gradient(transparent,#000 12%,#000 88%,transparent);
 }
-.np-lyrwrap{transform:translateY(40%);transition:transform .5s cubic-bezier(.25,.9,.2,1);will-change:transform}
-.np-lyrwrap .line{padding:13px 0;font-size:21px;line-height:1.45;color:rgba(242,232,207,.30);transition:color .3s ease,transform .3s ease;cursor:pointer;border-radius:var(--r-m)}
+.np-lyrwrap{position:relative}
+.np-lyrwrap .line{padding:15px 0;font-size:28px;line-height:1.4;color:rgba(242,232,207,.30);transition:color .3s ease;cursor:pointer;border-radius:var(--r-m)}
 .np-lyrwrap .line:hover{color:rgba(242,232,207,.55)}
 .np-lyrwrap .line.active{color:var(--cream);transform:translateX(10px)}
 .np-lyrwrap .line.active::before{content:"\25B8  ";color:var(--accent)}
@@ -224,7 +224,7 @@ body{background:transparent}
             <input id="search" type="text" placeholder="search" spellcheck="false">
           </div>
           <div class="spacer"></div>
-          <button class="tbtn back2widget" id="btnWidget" data-tip="WIDGET &#183; MINIPLAYER" aria-label="Show widget">
+          <button class="tbtn back2widget" id="btnWidget" data-tip="TOGGLE WIDGET &#183; MINIPLAYER" aria-label="Show widget">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.7 2 6 4.7 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.3-2.7-6-6-6z"/><circle cx="12" cy="8" r="2.2"/></svg>
           </button>
           <button class="tbtn" id="btnMin" data-tip="MINIMIZE" aria-label="Minimize">
@@ -344,6 +344,7 @@ if(qTrack!=null&&qTrack!=="")S._npReq={track:+qTrack};
 /* which surface is visible */
 function showView(v){
   const np=v==="nowplaying";
+  S._npLyrics=np;   /* lyrics pane follows playback exactly while this view is up */
   el.np.style.display=np?"flex":"none";
   el.content.style.display=np?"none":"flex";
   el.npbar.style.display=np?"none":"flex";
@@ -582,6 +583,25 @@ document.addEventListener("halftone:track",()=>{
   paintNP();
   S._npLyrics=(S.view==="nowplaying");
 });
+
+/* big lyric pane: NATIVE scrolling + smooth follow.
+   (common.js's transform-follow remains the widget's variant) */
+function updateLyrics(){
+  if(!S._npLyrics)return;
+  const view=el.npLyrView,lines=[...el.lyrWrap.children];
+  if(!lines.length)return;
+  const t=el.aud.currentTime;
+  let idx=-1;for(let i=0;i<lines.length;i++){if(t>=+lines[i].dataset.t)idx=i}
+  if(idx!==S.lidx){S.lidx=idx;
+    lines.forEach((l,i)=>l.classList.toggle("active",i===idx));
+    if(idx>=0&&!S._lyrManual){
+      const ln=lines[idx];
+      const top=ln.offsetTop-view.clientHeight/2+ln.offsetHeight/2;
+      view.scrollTo({top:Math.max(0,top),behavior:"smooth"});
+    }}
+}
+/* manual scroll pauses follow; clicking a line or changing track resumes it */
+el.npLyrView.addEventListener("wheel",()=>{S._lyrManual=true},{passive:true});
 document.addEventListener("halftone:state",()=>updTransport());
 document.addEventListener("halftone:state",()=>{
   el.np.classList.toggle("playing",S.playing);
@@ -652,8 +672,7 @@ el.lrcGet.onclick=async e=>{
   e.preventDefault();
   const t=trk()||{title:"",artist:""};
   const url="https://lrclib.net/search?q="+encodeURIComponent(t.artist+" "+t.title);
-  try{await invoke("plugin:openExternal|open",{url})}catch(err){
-    try{await invoke("opener:open_url",{url})}catch(e2){console.warn(e2)}}
+  try{await invoke("plugin:opener|open_url",{url})}catch(err){console.warn("open_url",err)}
 };
 
 /* window controls — main hides; only the widget's close ends the app */
@@ -661,7 +680,12 @@ el.btnMin.onclick=async()=>{try{await curWin.minimize()}catch(e){console.warn(e)
 el.btnClose.onclick=async()=>{try{await curWin.hide()}catch(e){console.warn(e)}};
 try{curWin.onCloseRequested(async e=>{e.preventDefault();try{await curWin.hide()}catch(_){}})}catch(_){}
 el.btnWidget.onclick=async()=>{
-  try{const w=await winByLabel("widget");if(w){await w.show();await w.setFocus()}}catch(e){console.warn(e)}
+  /* toggle: hide the widget if it is showing, otherwise show + focus it */
+  try{
+    const w=await winByLabel("widget");if(!w)return;
+    if(await w.isVisible()){await w.hide();el.btnWidget.classList.remove("on")}
+    else{await w.show();await w.setFocus();el.btnWidget.classList.add("on")}
+  }catch(e){console.warn(e)}
 };
 wireDrag(el.dragTop);wireDrag(el.dragLogo);
 
@@ -710,6 +734,7 @@ document.body.addEventListener("contextmenu",e=>{
       {label:"DENSITY \u00B7 FINE",checked:S.cfg.grid===48,onClick:()=>setGrid(48)},
       {label:"DENSITY \u00B7 ULTRA",checked:S.cfg.grid===64,onClick:()=>setGrid(64)},
     ]},
+    {label:"ACCENT",children:accentMenuItems()},
   ]);
 });
 function setCfgM(k,v){
@@ -788,6 +813,17 @@ window.__qa={
   transport:()=>({shuffle:S.shuffle,repeat:S.repeat}),
   transportSet(kind){kind==="shuffle"?el.btnShuf.click():el.btnRep.click();return this.transport()},
   dragAPI:()=>({startDragging:typeof (curWin&&curWin.startDragging)}),
+  accent:()=>({mode:accMode(),rgb:"rgb("+ACC.hex.join(",")+")"}),
+  accentSet(m){setAccentMode(m);return this.accent()},
+  lyr:()=>{const v=el.npLyrView,f=v.querySelector(".line");return {
+    scrollable:v.scrollHeight>v.clientHeight+4,top:Math.round(v.scrollTop),
+    manual:!!S._lyrManual,lines:el.lyrWrap.children.length,
+    fontSize:f?getComputedStyle(f).fontSize:null}},
+  lyrWheel(){el.npLyrView.dispatchEvent(new WheelEvent("wheel",{deltaY:120,bubbles:true}));
+    return {manual:!!S._lyrManual}},
+  async widgetToggle(){el.btnWidget.click();await new Promise(r=>setTimeout(r,400));
+    try{const w=await winByLabel("widget");return {visible:w?await w.isVisible():null,
+      btnOn:el.btnWidget.classList.contains("on")}}catch(e){return {err:""+e}}},
   ctx(x,y){document.body.dispatchEvent(new MouseEvent("contextmenu",{clientX:x||300,clientY:200,bubbles:true,cancelable:true}));
     return {root:document.querySelectorAll(".ctxmenu>.ctxitem,.ctxmenu>.ctxwrap").length,
             subs:document.querySelectorAll(".ctxsub").length}},
@@ -811,7 +847,7 @@ window.__qa={
 };
 
 /* boot */
-applyAccent();drawLogo();
+initAccent();drawLogo();
 requestAnimationFrame(loop);
 render();
 paintNP();

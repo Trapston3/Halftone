@@ -22,7 +22,8 @@ const S={lib:[],i:-1,playing:false,vol:.8,pinned:false,drag:null,lidx:-1,
          lyricsOpen:false,lyrics:[],meta:null,root:null,
          liked:new Set(),playlists:[],view:"tracks",
          shuffle:false,repeat:"off",_npLyrics:false,
-         cfg:{cover:"small",grid:32,queueSide:true,tech:true,art:"real",ambient:true},
+         cfg:{cover:"small",grid:32,queueSide:true,tech:true,art:"real",ambient:true,
+          acc:{main:"album",widget:"album"}},
          _managed:true,_prog:false,_img:null};
 window.S=S;
 
@@ -47,6 +48,29 @@ async function winByLabel(label){
   try{const all=await T.window.getAllWindows();return all.find(w=>w.label===label)||null}
   catch(e){console.warn(e);return null}
 }
+
+/* ============ per-window accent mode ============
+   Each surface (widget / main) follows the album art by default
+   but can lock to a fixed hue, so widget and app can differ. */
+var ACC_HUES={
+  mint:{h:.44,s:.62,l:.56},sky:{h:.57,s:.62,l:.58},violet:{h:.76,s:.55,l:.62},
+  rose:{h:.965,s:.62,l:.62},amber:{h:.10,s:.68,l:.56},red:{h:1.0,s:.66,l:.56}};
+var UIZ=1;  /* widget UI zoom factor; main window stays 1 */
+function winLabel(){return curWin?curWin.label:"widget"}
+function accMode(){S.cfg.acc=S.cfg.acc||{};return S.cfg.acc[winLabel()]||"album"}
+function setAccentMode(m){
+  S.cfg.acc=S.cfg.acc||{};S.cfg.acc[winLabel()]=m;saveStore();
+  if(m==="album"){S._img?tweenAccent(clampAccent(extractAccent(S._img))):tweenAccent({h:.44,s:.62,l:.56})}
+  else{tweenAccent(clampAccent(ACC_HUES[m]))}
+}
+function initAccent(){const m=accMode();if(m!=="album")ACC.cur={...clampAccent(ACC_HUES[m])};applyAccent()}
+function accentMenuItems(){return [
+  {label:"FROM ALBUM ART",checked:accMode()==="album",onClick:()=>setAccentMode("album")},
+  ...Object.keys(ACC_HUES).map(k=>({label:k.toUpperCase(),checked:accMode()===k,onClick:()=>setAccentMode(k)})),
+]}
+function nudgeVol(d){S.vol=Math.min(1,Math.max(0,S.vol+d));el.aud.volume=S.vol;
+  if(gainNode)gainNode.gain.value=S.vol;saveStore();
+  document.dispatchEvent(new CustomEvent("halftone:vol"))}
 
 /* ============ accent system ============ */
 function rgb2hsl(r,g,b){const mx=Math.max(r,g,b),mn=Math.min(r,g,b);let h=0,s=0;const l=(mx+mn)/2;
@@ -246,9 +270,8 @@ function drawMeter(cv,H){
 /* ============ lyrics ============ */
 function buildLyrics(){el.lyrWrap.innerHTML="";
   S.lyrics.forEach(L=>{const d=document.createElement("div");d.className="line";d.textContent=L.text;d.dataset.t=L.t;
-    d.onclick=()=>{el.aud.currentTime=L.t;S.lidx=-1};  /* click a line to seek */
-    el.lyrWrap.appendChild(d)});
-  S.lidx=-1}
+    d.onclick=()=>{el.aud.currentTime=L.t;S.lidx=-1;S._lyrManual=false};  /* click a line to seek + resume follow */
+    el.lyrWrap.appendChild(d)});S.lidx=-1;S._lyrManual=false}
 function updateLyrics(){
   if(!(S.lyricsOpen||S._npLyrics))return;
   const t=el.aud.currentTime;const lines=[...el.lyrWrap.children];
@@ -279,11 +302,13 @@ async function loadTrack(i,autoplay=true){
   const url=await invoke("flac_url",{path:S.lib[S.i].path});
   el.aud.src=url;
   buildLyrics();
+  const mode=accMode();
   if(meta.cover){
     const img=new Image();
-    img.onload=()=>{S._img=img;tweenAccent(clampAccent(extractAccent(img)));};
+    img.onload=()=>{S._img=img;
+      tweenAccent(mode==="album"?clampAccent(extractAccent(img)):clampAccent(ACC_HUES[mode]));};
     img.src="data:"+meta.cover.mime+";base64,"+meta.cover.data_b64;
-  }else{S._img=null;tweenAccent({h:.44,s:.62,l:.56})}
+  }else{S._img=null;tweenAccent(mode==="album"?{h:.44,s:.62,l:.56}:clampAccent(ACC_HUES[mode]))}
   saveStore();
   /* Apple-style: explicitly loading a track always plays it; only
      boot/restore passes autoplay=false to stay where the user was. */
@@ -363,7 +388,7 @@ function wireSeek(seek){
 function seekTip(){
   const seek=el.seek;const dur=el.aud.duration||0;
   if(el.tip){el.tip.textContent=fmt(S.drag.p*dur)+" / "+fmt(dur);
-    el.tip.style.left=(S.drag.p*seek.clientWidth)+"px"}
+    el.tip.style.left=(S.drag.p*seek.clientWidth/UIZ)+"px"}
 }
 
 /* ============ JS window dragging ============ */
@@ -423,9 +448,9 @@ function openCtx(x,y,items){
   const m=buildCtxMenu(items);
   document.body.appendChild(m);
   m.classList.add("open");
-  const w=m.offsetWidth,h=m.offsetHeight;
-  m.style.left=Math.min(x,innerWidth-w-8)+"px";
-  m.style.top=Math.min(y,innerHeight-h-8)+"px";
+  const w=m.offsetWidth/UIZ,h=m.offsetHeight/UIZ;
+  m.style.left=Math.min(x/UIZ,innerWidth/UIZ-w-8)+"px";
+  m.style.top=Math.min(y/UIZ,innerHeight/UIZ-h-8)+"px";
   setTimeout(()=>addEventListener("pointerdown",function h(ev){
     if(!m.contains(ev.target)){closeCtx();removeEventListener("pointerdown",h)}},0),0);
 }

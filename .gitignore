@@ -9,3 +9,5 @@ sketches/002-phosphor/index.local.html
 sketches/002-phosphor/assets/
 sketches/002-phosphor/covers/
 sketches/shots/*-local-*
+
+tools/shot_*.png

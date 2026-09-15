@@ -215,7 +215,7 @@ async function shiftH(d){
   if(!curWin||!d)return;
   try{
     const sf=await curWin.scaleFactor(),s=await curWin.innerSize();
-    await curWin.setSize(new T.window.LogicalSize(s.width/sf,s.height/sf+d));
+    await curWin.setSize(new T.window.LogicalSize(s.width/sf,s.height/sf+d*UIZ));
   }catch(e){console.warn("size",e)}
 }
 
@@ -260,8 +260,7 @@ el.lrcGet.onclick=async e=>{
   e.preventDefault();
   const t=trk()||{title:"",artist:""};
   const url="https://lrclib.net/search?q="+encodeURIComponent(t.artist+" "+t.title);
-  try{await invoke("plugin:openExternal|open",{url})}catch(err){
-    try{await invoke("opener:open_url",{url})}catch(e2){console.warn(e2)}}
+  try{await invoke("plugin:opener|open_url",{url})}catch(err){console.warn("open_url",err)}
 };
 
 /* ============ queue / library ============ */
@@ -304,6 +303,7 @@ el.widget.addEventListener("contextmenu",e=>{
       {label:"ALBUM ART \u00B7 DITHER",checked:S.cfg.art!=="real",onClick:()=>setCfg("art","dither")},
       {label:"ALBUM ART \u00B7 REAL PHOTO",checked:S.cfg.art==="real",onClick:()=>setCfg("art","real")},
     ]},
+    {label:"ACCENT",children:accentMenuItems()},
   ]);
 });
 
@@ -376,6 +376,13 @@ for(let i=0;i<LEDN;i++){
   el.leds.appendChild(d);leds.push(d)}
 function paintLeds(){leds.forEach((l,i)=>l.classList.toggle("on",S.vol>=(i+1)/LEDN-.01))}
 paintLeds();el.aud.volume=S.vol;
+document.addEventListener("halftone:vol",paintLeds);
+/* wheel anywhere in the widget = volume (queue list + seek bar keep their own scroll) */
+el.wbody.addEventListener("wheel",e=>{
+  if(e.target.closest(".qscroll,.seek"))return;
+  e.preventDefault();
+  nudgeVol(e.deltaY<0?.05:-.05);
+},{passive:false});
 el.leds.addEventListener("keydown",e=>{
   if(e.key==="ArrowRight"){S.vol=Math.min(1,S.vol+1/LEDN)}
   if(e.key==="ArrowLeft"){S.vol=Math.max(0,S.vol-1/LEDN)}
@@ -409,6 +416,16 @@ function loop(now){
 /* resizable widget: refit the perimeter band whenever the box changes */
 new ResizeObserver(()=>drawEdge(el.edgeCv,S._img)).observe(el.wbody);
 
+/* UI scales with the window: zoom the whole widget to the box */
+function fitZoom(){
+  const z=Math.max(.7,Math.min(2.4,Math.min(innerWidth/400,innerHeight/254)));
+  UIZ=z;document.body.style.zoom=z;
+  drawEdge(el.edgeCv,S._img);
+  if(S.cfg.art!=="real")drawDither(el.artCv,S._img);
+}
+addEventListener("resize",fitZoom);
+fitZoom();
+
 /* track-change bookkeeping */
 document.addEventListener("halftone:track",()=>{
   const m=S.meta;
@@ -434,6 +451,12 @@ window.__qa={
   sweepState:()=>({t:+SWEEP.t.toFixed(2),dir:SWEEP.dir,v:+SWEEP.v.toFixed(3),drag:S.drag!=null}),
   accent:()=>({rgb:"rgb("+ACC.hex.join(",")+")",animating:ACC.anim,
                ratioVsBg:+ratio(lum(...ACC.hex),BG_LUM).toFixed(2)}),
+  accentMode:()=>accMode(),
+  accentSet(m){setAccentMode(m);return this.accent()},
+  zoom:()=>({z:+UIZ.toFixed(3),css:document.body.style.zoom,artW:el.artCv.clientWidth,headH:el.head.clientHeight}),
+  async wheelVol(){const v0=S.vol;
+    el.wbody.dispatchEvent(new WheelEvent("wheel",{deltaY:-120,bubbles:true,cancelable:true}));
+    await new Promise(r=>setTimeout(r,60));return {before:+v0.toFixed(2),after:+S.vol.toFixed(2)}},
   artLit:()=>{if(S.cfg.art==="real")return +(el.artImg.style.display!=="none"&&el.artImg.complete&&el.artImg.naturalWidth>0);
     const g=el.artCv.getContext("2d");const d=g.getImageData(0,0,el.artCv.width,el.artCv.height).data;
     let lit=0,n=0;for(let i=0;i<d.length;i+=64){n++;if(d[i]>32||d[i+1]>32||d[i+2]>32)lit++}
@@ -476,7 +499,7 @@ window.__qa={
 };
 
 /* boot: default collapsed; restore library + first paint */
-applyAccent();
+initAccent();
 applyCfg();
 requestAnimationFrame(loop);
 (async()=>{
