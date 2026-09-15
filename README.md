@@ -1,65 +1,148 @@
-# Halftone
+<div align="center">
 
-*(working title — naming is open)*
+# HALFTONE
 
-A floating desktop mini-player widget for a local music player.
-Free, open, and built to be contributed to. Cross-platform, primary target Windows.
+**A floating dither-styled music widget + full player for your local FLAC library.**
 
-**Status: Pass 1 — interaction model + design directions (interactive sketches).**
-Open the three variants in a browser and click around; every control is live.
+Tauri 2 · vanilla JS · zero transcode · zero cloud
 
-| Variant | Stance | Open it |
-|---|---|---|
-| Ink | Monochrome editorial — art as hero, quiet chrome | `sketches/001-ink/index.html` |
-| Phosphor | CRT instrument deck — LED meter seek bar | `sketches/002-phosphor/index.html` |
-| Pulp | Comic print — ink outlines, offset shadows, neon | `sketches/003-pulp/index.html` |
+</div>
 
-Screenshots of each state live in `sketches/shots/`.
+---
 
-## What the widget does
+Halftone is a small always-on-top desktop widget that plays your local FLAC files — original
+bytes, no transcoding, no streaming service — plus a full player window when you want the
+library view. Both surfaces render as two views of the **same player**: same song, same
+position, same theme, live-synced.
 
-- Floating, frameless, always-on-top, draggable window (art area = drag handle), pinnable
-- One integrated seek/visualizer: the spectrum bars ARE the progress bar — hover to expand, drag to seek with a time tooltip
-- Play/pause, next/previous, precise drag-to-seek
-- Synced lyrics: line-by-line highlight timed to playback, smooth center-anchored auto-scroll
-- Queue, add-to-playlist, volume
+The whole UI is themed around **halftones and dither patterns**: album covers become Bayer
+dither grids in a color extracted from the artwork itself, the seek bar is a 48-segment LED
+spectrum meter, volume is a row of LEDs, and a music-reactive dither field breathes behind the
+now-playing view.
 
-Design rules the sketches are built under (carried into production):
-one 4px spacing scale, one elevation logic per variant, one typographic hierarchy,
-one signature animated moment (the seek/visualizer interaction) — everything else stays still.
+## Screenshots
 
-## Architecture plan
+| | |
+|---|---|
+| **The widget** — always-on-top, resizable, scales 0.7–2.4× | ![widget](docs/screen_widget.png) |
+| **Now playing** — dither art, 28px synced lyrics, ambient dither field | ![now playing](docs/screen_nowplaying.png) |
+| **Lyrics off** — art scales into a centered hero | ![hero](docs/screen_hero.png) |
+| **Library** — tracks/albums/liked/playlists with search | ![library](docs/screen_library.png) |
+| **Equalizer** — 10-band LED ladders, AutoEQ import | ![eq](docs/screen_eq.png) |
+
+## Features
+
+### Player
+- **Direct FLAC playback** — the file's own bytes via a custom `flac://` protocol with range
+  requests; nothing is re-encoded, ever (see the [audio pipeline contract](docs/audio-pipeline.md))
+- Full transport: play/pause, previous (restart-if->3s), next, shuffle, repeat off/all/one
+- Seek bar with hover-expand, drag-sweep physics, and scroll-wheel ±5s scrub
+- LED volume — click, arrow keys, or **scroll wheel anywhere** in either window
+- Library: tracks / albums / liked / playlists, debounced search, virtualized list rendering
+  (handles tens of thousands of tracks)
+- Recursive folder scan with live progress and cancel; folder watcher auto-rescans on changes
+- Scan cache — restart doesn't rescan the whole library
+
+### Two surfaces, one player
+- The **main window** is the permanent audio owner; the widget is a pure view + controller
+- Track, position (30fps broadcast), volume, shuffle/repeat, accent and EQ state stay in sync
+- Widget-only mode: hide the main window, audio keeps playing, widget keeps animating
+- Widget ↔ app toggle button; tray icon with menu (show/hide, transport, quit)
+
+### OS integration (Windows)
+- **SMTC**: global media keys + the OS now-playing overlay (title, artist, album, embedded
+  cover art) with a working seekbar — driven by the audio owner, never the widget
+- Tray icon with native menu; left-click toggles the widget
+
+### Theming
+- Accent color **extracted from the album art**, contrast-clamped to ≥3:1
+- Both windows always share one theme (follow album art, or lock: mint / sky / violet / rose /
+  amber / red)
+- Dither art repaints *during* accent tweens — colors never lag
+
+### Lyrics
+- `.lrc` sidecar files (multi-timestamp lines supported), parsed in the same single read
+- App: large 28px lines, native scrolling, auto-follow centered on the active line; wheel
+  pauses follow; clicking a line seeks and resumes it
+- No lyrics for the track? The art auto-scales into a centered hero — no dead pane
+- Widget: collapsible pane with the same follow behavior
+- lrclib.net search link when a track has no sidecar
+
+### Equalizer
+- 10-band graphic EQ (31 Hz – 16 kHz) with per-band LED ladders
+- Pre-amp with automatic clipping protection (`TRIM` readout)
+- True bypass — filters disconnect from the graph, not just zero out
+- 7 built-in presets + user presets (save/load/delete)
+- **AutoEQ import** — load any `ParametricEQ.txt` from the AutoEQ database; filters map onto
+  the band chain with the profile's pre-amp, and the profile name shows while active
+
+### Output device
+- Pick any audio output via `setSinkId`; persisted across restarts; hot-plug safe (falls back
+  to default if the device disappears)
+- Note: routes through the Windows shared mixer — exclusive/bit-perfect output is a roadmap
+  item, not the current path
+
+### Extras
+- Sleep timer (15/30/60 min, end-of-track, or off) with countdown
+- ReplayGain (off / track / album) applied at the pre-amp, from tags read in the same pass
+- Error toasts for everything: corrupt files, missing drives, unreadable lyrics, scan results —
+  never console-only, never a silent no-op
+- First-run state that explains what to do; graceful empty states everywhere
+
+## Install
+
+Download the latest `Halftone` installer (NSIS) from releases, or build from source. After
+install: launch from the Start menu, or `Win+R` → `halftone`.
+
+## Build from source
 
 ```
-halftone/
-  desktop shell (Tauri or Electron — pass 2 decision)
-  ├─ widget window  (this UI, frameless, always-on-top)
-  ├─ player core    (playback, queue, playlists, volume — pure TS, shell-agnostic)
-  │   └─ source providers (plugin seam)
-  │       ├─ local-library  (ships first: real files, tags, .lrc/embedded lyrics)
-  │       └─ ...            (community plugins; each provider owns its own licensing)
+# Prereqs: Rust (MSVC), Node not required (vanilla JS frontend), Tauri 2 prerequisites on Windows
+cd src-tauri
+cargo build --release
+# exe lands at target/release/halftone.exe
+cargo tauri build        # or: produces the NSIS installer
 ```
 
-The core plays a **local music library** — your own files, real metadata,
-embedded and `.lrc` synced lyrics. Streaming/source plugins are a deliberate seam:
-third parties can contribute providers, each responsible for complying with the
-licenses of whatever it touches. The core itself never ships a bundled
-streaming source.
+`tools/install.py` is a **developer convenience only** (copies the exe to
+`%LOCALAPPDATA%\Halftone`, adds PATH + App Paths + shortcuts). Testers should use the
+installer.
 
-## Roadmap
+## Scope & design principles
 
-- [x] Pass 1 — interaction model + 3 design directions (this repo)
-- [ ] Pass 2 — desktop shell: real frameless always-on-top window, real audio + live analyser
-- [ ] Pass 3 — real library: scan folders, read tags (music-metadata), embedded/LRC synced lyrics
-- [ ] Pass 4 — queue + playlists persisted, volume/memory
-- [ ] Pass 5 — polish pass, Windows packaging/installer, contributor docs
+- **FLAC only** — MP3/M4A/WAV/OGG are detected and reported during scans, but not playable yet
+- **Original bytes** — the direct-FLAC contract (one header read per track, cover art from
+  `METADATA_BLOCK_PICTURE` only, no transcode) is binding; see
+  [docs/audio-pipeline.md](docs/audio-pipeline.md)
+- **Single audio owner** — exactly one `<audio>` element exists in the whole app; the widget
+  constructs no audio objects
+- **Local only** — no account, no telemetry, no network calls (except the lrclib.net link you
+  click yourself)
+
+## Known limitations
+
+- Shared-mixer output only (no exclusive mode yet)
+- Lyrics require a `.lrc` sidecar next to the FLAC (auto-fetch from lrclib is planned)
+- FLAC only — other formats are on the roadmap
+- Overlay rendering (SMTC seekbar, tray icon) is OS-drawn and varies slightly across
+  Windows versions
 
 ## Contributing
 
-Early-stage: the design language and architecture skeleton are being set now,
-which is the highest-leverage time to weigh in. Open an issue with `design:`,
-`core:`, or `plugin:` prefix. Pass-2+ PRs welcome once the shell lands.
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Please keep PRs FLAC-only and
+respect the single-audio-owner architecture (the widget must not construct audio objects).
 
-## License
+---
 
-MIT (to be finalized with first tagged release).
+## Disclaimer
+
+This project was **vibecoded — built with AI assistance** (Claude / Hermes Agent by Nous
+Research) as a personal project. All design decisions, testing, and direction by a human; all
+code written collaboratively with AI. No copyrighted audio or artwork is included in the
+repository — the screenshots show the author's own local library.
+
+<div align="center">
+
+*Halftone · local music, dithered*
+
+</div>
