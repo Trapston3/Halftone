@@ -113,9 +113,13 @@ Downloads the standalone exe to `%LOCALAPPDATA%\Halftone`, adds it to your user 
 (`halftone` from Win+R or any shell), registers App Paths, and creates Desktop + Start Menu
 shortcuts. Uninstall = delete the folder + the two shortcuts.
 
-**Packaged installer:** the NSIS `Halftone_x.y.z_x64-setup.exe` from
-[Releases](https://github.com/Trapston3/Halftone/releases) — standard install/uninstall via
-Windows Settings.
+**Packaged installer:** [Releases](https://github.com/Trapston3/Halftone/releases) →
+`Halftone.exe` (standalone, what the one-liner downloads) — or grab it directly and run it;
+no admin, no dependencies.
+
+**If the one-liner fails** (proxy/corporate network), download
+[`Halftone.exe`](https://github.com/Trapston3/Halftone/releases/latest/download/Halftone.exe)
+manually and just run it — same result, minus the PATH/shortcut setup.
 
 **Build from source:** see below.
 
