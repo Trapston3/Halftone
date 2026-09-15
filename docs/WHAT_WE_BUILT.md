@@ -112,10 +112,121 @@ spectrum-reactive visuals; a gain node handles volume.
 | Real-art mode shows photo, hides dither canvas | ✓ |
 | Widget native menu opens/closes cleanly | promise resolves on close |
 
+## Pass: audio ownership + native integration + EQ + output (2026-09-15, commit c04b71c)
+
+### 1. Single audio owner (structural fix for drift)
+The **main window is the permanent, sole audio owner** — the only window that constructs an
+`<audio>` element, AudioContext, gain node or AnalyserNode. The widget is a pure view +
+controller: it sends `halftone:cmd` messages (play/pause/next/prev/seek/nudge/volume/load/scan/
+like/playlist) and renders what the owner broadcasts. It never decodes, never taps an analyser,
+never estimates position.
+
+Owner broadcasts:
+- `halftone:sync` — authoritative full state (track, meta, lyrics, library, likes, playlists,
+  volume, shuffle, repeat, accent, EQ)
+- `halftone:time` — current position, ~30fps
+- `halftone:bars` — the 48 analyser bars quantized to one byte each, ~30fps (via `setInterval`,
+  which stays live while the window is hidden because audible audio exempts the page from
+  timer throttling)
+
+**Deleted:** the drift-correction logic and the play-takeover protocol — with exactly one
+decoder they are structurally meaningless, and leaving them would mask real bugs.
+
+Window lifecycle is load-bearing: hiding a window does not destroy its WebView, so the owner
+keeps playing while invisible (widget-only workflow verified: position advanced, bars animated,
+with main hidden). Main's close button only hides; only the widget's close or tray Quit ends
+the process. This dependency is documented in code comments in both `lib.rs` and `main.html`.
+
+Verified: owner/viewer identity probes (`__qa.owner()`), widget→owner commands, position
+readouts identical at broadcast resolution, zero AudioContext construction in the widget's JS
+context (`__qa.owner().hasAC === false`, no `<audio>` in widget DOM).
+
+### 2. Windows SMTC
+Global media keys (play/pause/next/prev from keyboards, headsets, Bluetooth) + the OS
+now-playing overlay, populated from the already-parsed TrackMeta: title, artist, album, and
+the embedded cover art (METADATA_BLOCK_PICTURE bytes handed to the overlay in memory — no
+file re-read, no network). The SMTC state machine is driven only by the owner window.
+Implementation: `src-tauri/src/smtc.rs` using `windows::Media` (SMTC via
+`GetForCurrentView`), wired through a `smtc_update` command and `smtc-button` events.
+
+### 3. Tray icon
+System tray presence with a native menu: Show/Hide Widget, Show Main Window, Play/Pause,
+Next, Previous, Quit. Left-click toggles widget visibility. **Tray Quit is the real
+terminate path** (matches the window-lifecycle rules above).
+
+### 4. Parametric / graphic EQ
+10-band chain (31 Hz lowshelf → 16 kHz highshelf, peaking in between) inserted into the
+single owner graph between source and analyser. UI is a sheet over the now-playing ambient
+in the established dither/LED language:
+
+- Band sliders are **vertical LED ladders** — 12 segments of 2 dB, same segment rhythm as
+  the volume LEDs and spectrum bars; drag, click or scroll-wheel (0.5 dB fine trim)
+- Separate pre-amp as a **horizontal LED strip** (center = 0 dB)
+- Clipping protection: positive sum of pre-amp + ReplayGain + boosted bands is auto-trimmed
+  and shown as `TRIM -x.xdB` next to the pre-amp
+- True bypass: toggling off physically disconnects the filter chain (`eqIn`/`eqOut` null),
+  verified via graph probes — filters are not merely zeroed
+- Presets: 7 built-ins (FLAT/ROCK/POP/JAZZ/VOCAL/ELECTRONIC/ACOUSTIC) + user
+  save/load/delete (localStorage), named and marked with `*` in the dropdown
+- **AutoEQ import**: parse the AutoEQ database's `ParametricEQ.txt` (Preamp line + per-filter
+  `Filter N: ON <LSC|PK|HSC> Fc f Hz Gain g dB Q q` lines), map each filter onto the nearest
+  band, apply pre-amp, show the imported profile name in the sheet. This gives the entire
+  AutoEQ headphone database for free.
+
+### 5. Output device selection
+`navigator.mediaDevices.enumerateDevices()` + `setSinkId()` on the owner's `<audio>` element.
+Persisted in `cfg.sink`; hot-plug handled via `devicechange` (falls back to system default if
+the saved device disappears). Honest limitation shown in the UI: **routes through the Windows
+shared mixer — not exclusive-mode output**. Also only reachable on the owner window.
+
+### 6. Smaller wins
+- **ReplayGain**: REPLAYGAIN_TRACK_GAIN / REPLAYGAIN_ALBUM_GAIN parsed from VORBIS_COMMENT
+  in the same single read (zero extra I/O). Mode toggle off/track/album, applied at the
+  pre-amp, visible in the EQ sheet readout.
+- **Folder watching**: the backend watches the library folder (notify crate); any change
+  triggers a debounced auto-rescan and re-broadcast — no manual SCAN needed after edits.
+- **Sleep timer**: 15/30/60 min, end-of-track, or off, with a live countdown readout.
+
+### This pass's verification table
+
+| Check | Result |
+| --- | --- |
+| Owner identity (main) | `owner:true`, has `<audio>` |
+| Viewer identity (widget) | `owner:false`, no `<audio>`, no AC |
+| Track change in owner → widget | meta + lyrics + library + cover arrive via sync |
+| Widget command → owner | play/pause/seek/vol/load all applied |
+| Position readouts | identical at broadcast resolution |
+| Spectrum in widget while main hidden | bars animate (owner pump lives) |
+| Playback continues with main hidden | yes (hide ≠ destroy) |
+| EQ bypass | filters disconnected, not zeroed |
+| EQ boost/cut | chain responds (graph probes) |
+| AutoEQ import | profile name shown, bands mapped |
+| Sink enumeration | works; persisted; hotplug fallback |
+| SMTC/tray | compile-verified; runtime check pending |
+| Accent parity widget ↔ app | both `rgb(151,172,57)` in album mode |
+
+### Open spec questions (for the next pass)
+
+1. **SMTC seek/position**: should the OS overlay expose a seekbar (SMTC supports timeline
+   properties) or just play/pause/next/prev? Currently buttons only.
+2. **EQ parametric mode**: do you want per-band frequency + Q editing exposed in the UI
+   (full parametric), or is the 10-band graphic + AutoEQ import enough for now?
+3. **EQ on other surfaces**: should the widget get a mini-EQ toggle (just bypass + preset
+   cycle), or stay EQ-free?
+4. **AutoEQ auto-match**: import by headphone name from the AutoEQ database URL, or
+   file-based import only (current)?
+5. **Output device**: exclusive-mode (WASAPI) is impossible via `setSinkId` — acceptable
+   long-term, or should we look at a Rust-side CPAL output path for bit-perfect output?
+6. **Sleep timer fade**: stop hard at N minutes, or fade volume over the last 30s?
+7. **ReplayGain pre-amp**: apply a global RG pre-amp (default -6dB) per the spec, or the
+   current auto-trim approach?
+8. **Folder watch scope**: currently non-recursive (matches the scan). Recursive watch +
+   recursive scan?
+
 ## Known limits / next ideas
 
 - lrclib auto-fetch of `.lrc` files (button currently opens their search page)
-- tray icon / menubar presence for the widget
 - drag-and-drop folder scan
 - WSOL/ALAC format support (FLAC-only today)
-- the sync tick is event-driven: position drift is corrected only when it exceeds ~1.5s
+- position sync granularity is the ~30fps broadcast — no interpolation on the widget side
+  (per spec: widget renders the owner's value, never estimates)
