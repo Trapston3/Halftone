@@ -20,13 +20,15 @@
         "alwaysOnTop": true,
         "resizable": true,
         "minWidth": 380,
-        "minHeight": 216,
+        "minHeight": 260,
         "shadow": false,
         "skipTaskbar": true,
         "dragDropEnabled": false,
         "center": true,
         "width": 400,
-        "height": 254
+        "height": 254,
+        "maxWidth": 760,
+        "maxHeight": 560
       },
       {
         "label": "main",
@@ -51,12 +53,18 @@
     }
   },
   "bundle": {
-    "targets": ["nsis"],
-    "icon": ["icons/icon.ico"],
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.ico"
+    ],
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["English"],
+        "languages": [
+          "English"
+        ],
         "displayLanguageSelector": false
       }
     }

@@ -70,6 +70,7 @@ var ACC_HUES={
   mint:{h:.44,s:.62,l:.56},sky:{h:.57,s:.62,l:.58},violet:{h:.76,s:.55,l:.62},
   rose:{h:.965,s:.62,l:.62},amber:{h:.10,s:.68,l:.56},red:{h:1.0,s:.66,l:.56}};
 var UIZ=1;  /* widget UI zoom factor; main window stays 1 */
+window.UIZgetter=()=>UIZ;
 /* ONE shared theme: both windows follow cfg.acc ("album" or a fixed hue). */
 function accMode(){return S.cfg.acc||"album"}
 function setAccentMode(m){
@@ -577,15 +578,50 @@ function updateLyrics(){
     const mid=view&&view.clientHeight?view.clientHeight/2:84;
     el.lyrWrap.style.transform=`translateY(${mid-(ln.offsetTop+ln.offsetHeight/2)}px)`}}
 
+/* ============ error/status toast (visible, non-blocking, dismissible) ============ */
+function toast(msg, kind="info", ms=4200){
+  let host=document.getElementById("htToasts");
+  if(!host){
+    host=document.createElement("div");host.id="htToasts";
+    host.style.cssText="position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:95;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none";
+    document.body.appendChild(host);
+  }
+  const t=document.createElement("div");
+  t.className="ht-toast";
+  t.style.cssText="pointer-events:auto;max-width:70vw;padding:8px 14px;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--bg2);color:var(--cream);font:11px var(--mono);letter-spacing:.04em;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer";
+  if(kind==="error"){t.style.borderColor="#E06666";t.style.color="#E06666"}
+  if(kind==="warn"){t.style.borderColor="#E0B966"}
+  t.textContent=msg;
+  t.onclick=()=>t.remove();
+  host.appendChild(t);
+  if(ms)setTimeout(()=>t.remove(),ms);
+  return t;
+}
+window.toast=toast;
+
 /* ============ library ============ */
 async function scanLibrary(dir){
   if(el.libstat)el.libstat.textContent="scanning...";
   try{
+    if(!IS_OWNER){
+      /* viewer: forward to owner; result comes back via sync */
+      emitCmd({cmd:"scan",dir});
+      toast("Scan requested \u2014 the player window does the scanning.","info");
+      return {tracks:S.lib,skipped:[],unsupported:0};
+    }
     const res=await invoke("scan_library",{dir});
     S.lib=res.tracks;S.root=dir;saveStore();
+    emitSync();emitFullState();
     if(el.libstat)el.libstat.textContent=res.tracks.length+" TRACKS"+(res.skipped.length?" / "+res.skipped.length+" SKIPPED":"");
+    if(!res.tracks.length&&!res.unsupported)toast("No audio files found in that folder.","warn");
+    else if(!res.tracks.length&&res.unsupported)toast(res.unsupported+" audio files found \u2014 Halftone plays FLAC only (MP3/M4A/WAV not yet).","warn",7000);
+    if(res.unsupported)toast(res.unsupported+" files can't be played \u2014 FLAC only for now.","warn",6000);
+    if(res.skipped.length)toast(res.skipped.length+" files skipped (corrupt or unreadable).","warn",6000);
     return res;
-  }catch(e){if(el.libstat)el.libstat.textContent="scan failed: "+e;return null}}
+  }catch(e){
+    toast("Scan failed: "+e,"error",7000);
+    if(el.libstat)el.libstat.textContent="scan failed";
+    return null}}
 
 async function loadTrack(i,autoplay=true){
   if(!S.lib.length)return;
@@ -593,11 +629,24 @@ async function loadTrack(i,autoplay=true){
     S.i=(i+S.lib.length)%S.lib.length;   /* optimistic; authoritative via sync */
     return}
   S.i=(i+S.lib.length)%S.lib.length;
-  const meta=await invoke("open_track",{path:S.lib[S.i].path});
+  let meta;
+  try{meta=await invoke("open_track",{path:S.lib[S.i].path})}
+  catch(e){
+    toast("Can't read this file: "+S.lib[S.i].title+" \u2014 skipped.","error",6000);
+    /* skip to next playable in the current order */
+    if(S.lib.length>1){setTimeout(()=>loadTrack(S.i+1,autoplay),50)}
+    return;
+  }
   S.meta=meta;
-  S.lyrics=await invoke("read_lyrics",{path:S.lib[S.i].path});
+  try{S.lyrics=await invoke("read_lyrics",{path:S.lib[S.i].path})}
+  catch(e){S.lyrics=[];toast("Lyrics file unreadable for this track.","warn",4000)}
   const url=await invoke("flac_url",{path:S.lib[S.i].path});
   el.aud.src=url;
+  el.aud.addEventListener("error",function onErr(){
+    el.aud.removeEventListener("error",onErr);
+    toast("Playback failed \u2014 file missing or drive disconnected.","error",7000);
+    if(S.lib.length>1)setTimeout(()=>nextTrack(true),400);
+  },{once:true});
   buildLyrics();
   const mode=accMode();
   if(meta.cover){

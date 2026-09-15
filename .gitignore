@@ -16,3 +16,9 @@ tools/shot_natmenu*.png
 tools/shot_menuprobe.png
 
 tools/_edit_*
+
+tools/_p*.py
+tools/_w1.py
+tools/_w2.py
+tools/_main_hero.py
+tools/_verify_w*.py

@@ -73,6 +73,8 @@ fn parse_rg_db(tag: &str) -> Option<f64> {
 pub struct ScanResult {
     pub tracks: Vec<TrackMeta>,
     pub skipped: Vec<String>,
+    /// Files with audio extensions Halftone can't play yet (FLAC-only scope).
+    pub unsupported: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -365,35 +367,97 @@ fn try_watch(app: tauri::AppHandle, dir: String) -> Result<(), String> {
     }
 }
 
+/// Extensions WebView2 can likely play but Halftone does not support yet.
+const UNSUPPORTED_AUDIO: &[&str] = &["mp3", "m4a", "aac", "wav", "ogg", "oga", "opus", "wma", "aiff", "aif"];
+
 #[tauri::command]
-fn scan_library(dir: &str) -> Result<ScanResult, String> {
-    let root = PathBuf::from(dir);
+fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> {
+    use tauri::Emitter;
+
+    if !Path::new(dir).is_dir() {
+        return Err(format!("folder not found: {}", dir));
+    }
     let mut tracks = Vec::new();
     let mut skipped = Vec::new();
-    let rd = fs::read_dir(&root).map_err(|e| format!("open dir {}: {}", dir, e))?;
-    for entry in rd.flatten() {
-        let p = entry.path();
-        if !p.is_file() {
-            continue;
+    let mut unsupported = 0usize;
+    let mut flac_seen = 0usize;
+    let t0 = std::time::Instant::now();
+    let cancel = CANCEL_SCAN.load(std::sync::atomic::Ordering::Relaxed);
+
+    // RECURSIVE walk (Artist/Album/ layouts) with progress events.
+    fn walk(
+        dir: &Path,
+        depth: usize,
+        tracks: &mut Vec<TrackMeta>,
+        skipped: &mut Vec<String>,
+        unsupported: &mut usize,
+        flac_seen: &mut usize,
+        app: &tauri::AppHandle,
+    ) -> Result<(), String> {
+        if depth > 16 {
+            return Ok(()); // pathological nesting guard
         }
-        let ext = p
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|s| s.to_ascii_lowercase())
-            .unwrap_or_default();
-        if ext != "flac" {
-            continue;
+        let rd = fs::read_dir(dir).map_err(|e| format!("open dir {}: {}", dir.display(), e))?;
+        for entry in rd.flatten() {
+            if CANCEL_SCAN.load(std::sync::atomic::Ordering::Relaxed) {
+                return Ok(());
+            }
+            let p = entry.path();
+            if p.is_dir() {
+                walk(&p, depth + 1, tracks, skipped, unsupported, flac_seen, app)?;
+                continue;
+            }
+            if !p.is_file() {
+                continue;
+            }
+            let ext = p.extension().and_then(|e| e.to_str()).map(|s| s.to_ascii_lowercase()).unwrap_or_default();
+            if ext != "flac" {
+                if UNSUPPORTED_AUDIO.contains(&ext.as_str()) {
+                    *unsupported += 1;
+                }
+                continue;
+            }
+            *flac_seen += 1;
+            match read_track(&p) {
+                Ok(t) => {
+                    tracks.push(t);
+                    // progress every 25 files: count + current folder
+                    if tracks.len() % 25 == 0 {
+                        let _ = app.emit("halftone:scan-progress", serde_json::json!({
+                            "found": tracks.len(),
+                            "folder": p.parent().map(|d| d.display().to_string()).unwrap_or_default(),
+                            "done": false,
+                        }));
+                    }
+                }
+                Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
+            }
         }
-        match read_track(&p) {
-            Ok(t) => tracks.push(t),
-            Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
-        }
+        Ok(())
     }
+
+    walk(Path::new(dir), 0, &mut tracks, &mut skipped, &mut unsupported, &mut flac_seen, &app)
+        .map_err(|e| format!("scan failed: {}", e))?;
+    CANCEL_SCAN.store(false, std::sync::atomic::Ordering::Relaxed);
     tracks.sort_by(|a, b| a.path.cmp(&b.path));
+
+    let _ = app.emit(
+        "halftone:scan-progress",
+        serde_json::json!({"found": tracks.len(), "skipped": skipped.len(),
+                           "unsupported": unsupported, "done": true,
+                           "ms": t0.elapsed().as_millis()}),
+    );
     if let Some(app) = APP.get() {
         watch_folder(app.clone(), dir);
     }
-    Ok(ScanResult { tracks, skipped })
+    Ok(ScanResult { tracks, skipped, unsupported })
+}
+
+static CANCEL_SCAN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[tauri::command]
+fn scan_cancel() {
+    CANCEL_SCAN.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -612,6 +676,23 @@ pub fn run() {
                     .build(app)?;
             }
 
+            // Widget size constraints: enforced at the window level. (JS setMinSize
+            // proved unreliable on this Tauri/Windows combo — the OS would accept
+            // 200x120 despite min being set.) Logical pixels: 380x260 .. 760x560.
+            // Deferred: webview windows from config register slightly after setup starts.
+            let w_app = app.handle().clone();
+            std::thread::spawn(move || {
+                use tauri::Manager;
+                for _ in 0..50 {
+                    if let Some(w) = w_app.get_webview_window("widget") {
+                        let r1 = w.set_min_size(Some(tauri::LogicalSize::new(380.0, 260.0)));
+                        let r2 = w.set_max_size(Some(tauri::LogicalSize::new(760.0, 560.0)));
+                        eprintln!("halftone bounds: min={:?} max={:?}", r1.is_ok(), r2.is_ok());
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            });
             let _ = APP.set(app.handle().clone());
             Ok(())
         })
@@ -629,6 +710,7 @@ pub fn run() {
         .register_uri_scheme_protocol("flac", |_ctx, request| serve_flac(request))
         .invoke_handler(tauri::generate_handler![
             scan_library,
+            scan_cancel,
             open_track,
             read_lyrics,
             flac_url

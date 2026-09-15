@@ -39,16 +39,17 @@ canvas.art,.art{width:96px;height:96px;border-radius:var(--r-b);border:1px solid
 .artwrap{flex:none}
 .art.large{width:128px;height:128px}
 
-/* lyrics zone */
+/* lyrics zone: NATIVE scroll (no transform follow) — no mid-line clipping.
+   Fade mask pads 26px = a full line, so glyphs are never half-masked. */
 .lyrics{overflow:hidden;max-height:0;transition:max-height .45s cubic-bezier(.2,.9,.2,1)}
-.lyrics.open{max-height:168px}
+.lyrics.open{max-height:200px}
 .lyr-view{
-  height:168px;overflow:hidden;padding:0 var(--sp4);
-  -webkit-mask-image:linear-gradient(transparent,#000 18%,#000 82%,transparent);
-          mask-image:linear-gradient(transparent,#000 18%,#000 82%,transparent);
+  height:200px;overflow-y:auto;padding:26px var(--sp4);
+  -webkit-mask-image:linear-gradient(transparent,#000 26px,#000 calc(100% - 26px),transparent);
+          mask-image:linear-gradient(transparent,#000 26px,#000 calc(100% - 26px),transparent);
 }
-.lyr-wrap{transform:translateY(64px);transition:transform .5s cubic-bezier(.25,.9,.2,1)}
-.line{padding:6px 0;font-size:12px;line-height:1.5;color:rgba(242,232,207,.38);transition:color .25s ease;cursor:pointer}
+.lyr-wrap{position:relative}
+.line{padding:7px 0;font-size:12.5px;line-height:1.45;color:rgba(242,232,207,.38);transition:color .25s ease;cursor:pointer;overflow-wrap:anywhere}
 .line:hover{color:rgba(242,232,207,.7)}
 .line.active{color:var(--cream)}
 .line.active::before{content:"\25B8  ";color:var(--accent)}
@@ -92,7 +93,7 @@ canvas.art,.art{width:96px;height:96px;border-radius:var(--r-b);border:1px solid
 #queue.qdrawer .qscroll{flex:1;min-height:0;max-height:none;overflow-y:auto}
 #queue.qdrawer .libsec{border-top:1px solid var(--line);padding-top:var(--sp2);margin-top:0}
 
-.qscroll{max-height:150px;overflow-y:auto}
+.qscroll{max-height:min(150px,40vh);overflow-y:auto}
 .librow{display:flex;gap:var(--sp1)}
 .librow input{
   flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-l);
@@ -172,7 +173,7 @@ canvas.art,.art{width:96px;height:96px;border-radius:var(--r-b);border:1px solid
     </div>
 
     <div class="lyrics" id="lyrics">
-      <div class="lyr-view"><div class="lyr-wrap mono" id="lyrWrap"></div></div>
+      <div class="lyr-view" id="lyrView"><div class="lyr-wrap mono" id="lyrWrap"></div></div>
       <div class="lrc-hint" id="lrcHint">
         <div class="h-caps mono">LYRICS</div>
         <div class="msg">No .lrc file found for this track.<br>
@@ -200,13 +201,13 @@ canvas.art,.art{width:96px;height:96px;border-radius:var(--r-b);border:1px solid
 <script>
 /* ============ widget page wiring ============ */
 ["widget","wbody","head","edgeCv","artCv","artImg","trkNo","tTitle","tTech","seek","seekCv","tip","tCur","tTot",
- "lyrics","lyrWrap","lrcHint","lrcGet","qrows","queue","libpath","libscan","libstat","leds",
+ "lyrics","lyrWrap","lyrView","lrcHint","lrcGet","qrows","queue","libpath","libscan","libstat","leds",
  "icoPlay","icoPause","btnPlay","btnLyrics","btnQueue","btnShuf","btnRep","btnPrev","btnNext",
  "btnMax","btnClose"].forEach(k=>el[k]=document.getElementById(k));
 wireSeek(el.seek);
 wireDrag(el.wbody);
 
-const COV_D=32,LYR_D=172;
+const COV_D=32,LYR_D=228;   /* pane 200px + 2x padding/mask */
 const artSize=()=>S.cfg.cover==="large"?128:96;
 
 /* height management: deltas only, so a user resize is never clobbered */
@@ -382,8 +383,12 @@ function updTransport(){
   el.btnShuf.classList.toggle("on",S.shuffle);
   el.btnRep.classList.toggle("on",S.repeat!=="off");
   el.btnRep.classList.toggle("rep-one",S.repeat==="one");
+  /* play/pause icon: EXACTLY one visible, driven by the owner's broadcast.
+     Both inline styles set every time — never rely on initial markup. */
+  if(el.icoPlay)el.icoPlay.style.display=S.playing?"none":"block";
+  if(el.icoPause)el.icoPause.style.display=S.playing?"block":"none";
 }
-el.btnShuf.onclick=()=>{S.shuffle=!S.shuffle;saveStore();updTransport();emitSync({shuffle:S.shuffle})};
+el.btnShuf.onclick=()=>{S.shuffle=!S.shuffle;saveStore();updTransport();emitCmd({cmd:"shuffle"})};
 el.btnRep.onclick=()=>{cycleRepeat();updTransport()};
 document.addEventListener("halftone:state",updTransport);
 updTransport();
@@ -422,6 +427,11 @@ addEventListener("keydown",e=>{
   if(e.code==="ArrowLeft")emitCmd({cmd:"nudge",d:-5});
 });
 
+/* widget lyrics: native scroll follow; wheel pauses follow; seek resumes */
+if(el.lyrView)el.lyrView.addEventListener("wheel",()=>{S._lyrManual=true},{passive:true});
+document.addEventListener("halftone:seeked",()=>{S._lyrManual=false});
+document.addEventListener("halftone:tick",()=>{el.tCur.textContent=fmt(posSec())});
+
 /* render loop */
 function loop(now){
   const tinted=tickAccent(now);
@@ -436,13 +446,26 @@ function loop(now){
 new ResizeObserver(()=>drawEdge(el.edgeCv,S._img)).observe(el.wbody);
 
 /* UI scales with the window: zoom the whole widget to the box */
+const W_MIN_W=380,W_MIN_H=260,W_MAX_W=760,W_MAX_H=560;
+let clamping=false;
+function enforceBounds(){
+  if(clamping)return;
+  let w=innerWidth,h=innerHeight,nw=null,nh=null;
+  if(w<W_MIN_W)nw=W_MIN_W; if(w>W_MAX_W)nw=W_MAX_W;
+  if(h<W_MIN_H)nh=W_MIN_H; if(h>W_MAX_H)nh=W_MAX_H;
+  if(nw!=null||nh!=null){
+    clamping=true;
+    curWin.setSize(new T.window.LogicalSize(nw??w,nh??h))
+      .catch(()=>{}).finally(()=>setTimeout(()=>clamping=false,80));
+  }
+}
 function fitZoom(){
   const z=Math.max(.7,Math.min(2.4,Math.min(innerWidth/400,innerHeight/254)));
   UIZ=z;document.body.style.zoom=z;
   drawEdge(el.edgeCv,S._img);
   if(S.cfg.art!=="real")drawDither(el.artCv,S._img);
 }
-addEventListener("resize",fitZoom);
+addEventListener("resize",()=>{enforceBounds();fitZoom()});
 fitZoom();
 
 /* track-change bookkeeping */
@@ -525,6 +548,11 @@ initAccent();
 applyCfg();
 requestAnimationFrame(loop);
 (async()=>{
+  /* enforce widget size bounds at runtime (config seeds it; this guarantees it) */
+  try{
+    await curWin.setMinSize(new T.window.LogicalSize(380,260));
+    await curWin.setMaxSize(new T.window.LogicalSize(760,560));
+  }catch(e){console.warn("bounds",e);toast("Widget bounds could not be enforced.","warn")}
   if(S.cfg.cover==="large")await shiftH(COV_D);
   if(S.pinned){try{await curWin.setAlwaysOnTop(true);document.title="pinned"}catch(_){}}
   /* VIEWER BOOT: no local scan, no local load. Ask the owner for

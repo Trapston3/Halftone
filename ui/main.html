@@ -687,10 +687,13 @@ function paintNP(){
     drawDither(el.npDither,m&&S._img);
     el.npDither.style.display="";
   }else{el.npCover.style.display="none";if(el.npDither)el.npDither.style.display="none"}
-  /* lyrics visibility */
+  /* lyrics visibility — auto-centered hero when the track has no lyrics */
   const has=S.lyrics.length>0;
   el.npNoLrc.style.display=has?"none":"flex";
   el.npLyrView.style.display=has?"":"none";
+  const wantLyrics=has&&S.cfg.lyrics!==false;
+  el.np.classList.toggle("nolyr",!wantLyrics);
+  S._autoNolyr=!has;   /* remember why (user-off vs no-lyrics) for the menu checkmarks */
 }
 document.addEventListener("halftone:track",()=>{
   paintNP();
