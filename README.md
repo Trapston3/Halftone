@@ -1,10 +1,22 @@
 <div align="center">
 
+<img src="src-tauri/icons/icon.png" width="128" alt="Halftone icon"/>
+
 # HALFTONE
 
 **A floating dither-styled music widget + full player for your local FLAC library.**
 
 Tauri 2 · vanilla JS · zero transcode · zero cloud
+
+<video src="video/halftone-demo.mp4" width="660" controls></video>
+
+https://github.com/user-attachments/assets/PLACEHOLDER
+
+**Install (Windows · one line):**
+
+```powershell
+irm https://github.com/Trapston3/Halftone/raw/main/tools/install.ps1 | iex
+```
 
 </div>
 
@@ -91,8 +103,21 @@ now-playing view.
 
 ## Install
 
-Download the latest `Halftone` installer (NSIS) from releases, or build from source. After
-install: launch from the Start menu, or `Win+R` → `halftone`.
+**One line (Windows, no admin):**
+
+```powershell
+irm https://github.com/Trapston3/Halftone/raw/main/tools/install.ps1 | iex
+```
+
+Downloads the standalone exe to `%LOCALAPPDATA%\Halftone`, adds it to your user PATH
+(`halftone` from Win+R or any shell), registers App Paths, and creates Desktop + Start Menu
+shortcuts. Uninstall = delete the folder + the two shortcuts.
+
+**Packaged installer:** the NSIS `Halftone_x.y.z_x64-setup.exe` from
+[Releases](https://github.com/Trapston3/Halftone/releases) — standard install/uninstall via
+Windows Settings.
+
+**Build from source:** see below.
 
 ## Build from source
 

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Halftone Demo</title>
+<style>
+  :root{--bg:#0D0F11;--bg2:#16181A;--accent:#66E0C2;--cream:#F2E8CF;--dim:#8B949C;--line:#262B30}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);overflow:hidden;font-family:Consolas,ui-monospace,monospace}
+  #stage{width:1920px;height:1080px;position:relative;background:var(--bg)}
+  .clip{position:absolute}
+  .scan::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:repeating-linear-gradient(0deg,transparent 0 2px,rgba(255,255,255,.015) 2px 3px)}
+  .caps{letter-spacing:.3em;color:var(--dim);font-size:22px}
+  .frame{border:1px solid var(--accent);border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px rgba(102,224,194,.15)}
+</style>
+</head>
+<body>
+<div id="stage" data-composition-id="halftone" data-width="1920" data-height="1080" class="scan">
+
+  <!-- beat grid backdrop: slow-drifting halftone dot field (canvas, deterministic via t) -->
+  <canvas id="dots" class="clip" data-start="0" data-duration="24" data-track-index="0"
+          width="1920" height="1080" style="inset:0;opacity:.5"></canvas>
+
+  <!-- SCENE 1: icon assemble 0.3-3.2 -->
+  <div class="clip" data-start="0.3" data-duration="3.4" data-track-index="1" id="s1"
+       style="inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px">
+    <canvas id="iconCv" width="420" height="420"></canvas>
+    <div style="text-align:center">
+      <div style="font-size:78px;font-weight:700;color:var(--cream);letter-spacing:.18em">HALFTONE</div>
+      <div class="caps" style="margin-top:14px">YOUR MUSIC · DITHERED · LOCAL FLAC · NO CLOUD</div>
+    </div>
+  </div>
+
+  <!-- SCENE 2: widget 4.2-8.2 -->
+  <div class="clip" data-start="4.2" data-duration="4.2" data-track-index="2" id="s2" style="inset:0">
+    <img src="screen_widget.png" class="frame" width="620" style="position:absolute;left:650px;top:250px">
+    <div style="position:absolute;left:180px;top:400px;width:420px">
+      <div style="font-size:56px;font-weight:700;color:var(--accent)">THE WIDGET</div>
+      <div style="font-size:24px;color:var(--cream);line-height:1.6;margin-top:18px">
+        Always-on-top · scroll for volume<br>synced lyrics · native right-click menu
+      </div>
+      <div class="caps" style="margin-top:20px;font-size:18px">SCALES 0.7× → 2.4×</div>
+    </div>
+  </div>
+
+  <!-- SCENE 3: now playing + lyrics 8.8-13.2 -->
+  <div class="clip" data-start="8.8" data-duration="4.4" data-track-index="3" id="s3" style="inset:0">
+    <img src="screen_nowplaying.png" class="frame" width="900" style="position:absolute;left:120px;top:170px">
+    <div style="position:absolute;left:1100px;top:380px;width:660px">
+      <div style="font-size:56px;font-weight:700;color:var(--accent)">NOW PLAYING</div>
+      <div style="font-size:24px;color:var(--cream);line-height:1.6;margin-top:18px">
+        28px synced lyrics with follow<br>music-reactive ambient dither field<br>accent color extracted from the album art
+      </div>
+    </div>
+  </div>
+
+  <!-- SCENE 4: hero + library 13.8-17.8 -->
+  <div class="clip" data-start="13.8" data-duration="4.0" data-track-index="4" id="s4" style="inset:0">
+    <img src="screen_hero.png" class="frame" width="760" style="position:absolute;left:140px;top:250px">
+    <img src="screen_library.png" class="frame" width="760" style="position:absolute;left:1010px;top:250px">
+    <div style="position:absolute;left:0;right:0;top:130px;text-align:center">
+      <div style="font-size:50px;font-weight:700;color:var(--accent)">CENTERED WHEN WORDLESS · FULL LIBRARY WHEN NOT</div>
+      <div class="caps" style="margin-top:14px">VIRTUALIZED LISTS · 50,000 TRACKS · INSTANT SEARCH</div>
+    </div>
+  </div>
+
+  <!-- SCENE 5: EQ 18.2-21.2 -->
+  <div class="clip" data-start="18.2" data-duration="3.0" data-track-index="5" id="s5" style="inset:0">
+    <img src="screen_eq.png" class="frame" width="940" style="position:absolute;left:180px;top:220px">
+    <div style="position:absolute;left:1180px;top:420px;width:620px">
+      <div style="font-size:56px;font-weight:700;color:var(--accent)">10-BAND EQ</div>
+      <div style="font-size:24px;color:var(--cream);line-height:1.6;margin-top:18px">
+        AutoEQ import · ReplayGain<br>true bypass · output device picker
+      </div>
+    </div>
+  </div>
+
+  <!-- SCENE 6: end card 21.5-24 -->
+  <div class="clip" data-start="21.5" data-duration="2.5" data-track-index="6" id="s6"
+       style="inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px">
+    <div style="font-size:84px;font-weight:700;color:var(--cream);letter-spacing:.2em">HALFTONE</div>
+    <div class="caps">github.com/TRAPSTON3/HALFTONE</div>
+    <div style="font-size:20px;color:var(--dim)">MIT · free · local forever</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+<script>
+/* ---- deterministic halftone dot backdrop: redraw fn of local time ---- */
+const dotCv=document.getElementById("dots"),dg=dotCv.getContext("2d");
+const ACC=[102,224,194],CELL=44;
+function drawDots(t){
+  dg.clearRect(0,0,1920,1080);
+  const off=(t*14)%CELL;
+  for(let y=0;y<26;y++)for(let x=0;x<46;x++){
+    const px=x*CELL+CELL/2-((t*9)%CELL), py=y*CELL+CELL/2-((t*5)%CELL);
+    const b=((x*7+y*13)%8)/8;
+    const r=2+b*7+t%1*0.0;
+    dg.fillStyle="rgba("+ACC[0]+","+ACC[1]+","+ACC[2]+","+(0.05+b*0.10).toFixed(3)+")";
+    dg.beginPath();dg.arc(px,py,r,0,7);dg.fill();
+  }
+}
+/* icon draw: dots pop in by diagonal index */
+const ic=document.getElementById("iconCv"),ig=ic.getContext("2d");
+const IC_GRID=30, dots=[];
+{ const S=420,cx=210,cy=210,R=170,cell=S/IC_GRID;
+  for(let gy=0;gy<IC_GRID;gy++)for(let gx=0;gx<IC_GRID;gx++){
+    const mx=gx*cell+cell/2,my=gy*cell+cell/2;
+    if(Math.hypot(mx-cx,my-cy)>R)continue;
+    const t2=((gx+gy)/(2*IC_GRID));
+    dots.push({x:mx,y:my,r:1+ t2*t2*2.2*cell*0.48,ord:(gx+gy)/(2*IC_GRID),t:t2});
+  }
+}
+function drawIcon(p){
+  ig.clearRect(0,0,420,420);
+  for(const d of dots){
+    if(d.ord>p)continue;
+    const a=Math.min(1,(p-d.ord)*6);
+    const col=d.t<0.55?[70,140,124]:ACC;
+    ig.fillStyle="rgba("+col[0]+","+col[1]+","+col[2]+","+a.toFixed(2)+")";
+    ig.beginPath();ig.arc(d.x,d.y,d.r,0,7);ig.fill();
+  }
+  /* play triangle negative space (fine dither carve) */
+  if(p>0.55){
+    const tri=[[105,60],[105,360],[295,210]];
+    const k=Math.min(1,(p-0.55)*4);
+    for(let gy=60;gy<360;gy+=11)for(let gx=100;gx<300;gx+=11){
+      const px=gx+5,py=gy+5;
+      const c1=(tri[1][0]-tri[0][0])*(py-tri[0][1])-(tri[1][1]-tri[0][1])*(px-tri[0][0]);
+      const c2=(tri[2][0]-tri[1][0])*(py-tri[1][1])-(tri[2][1]-tri[1][1])*(px-tri[1][0]);
+      const c3=(tri[0][0]-tri[2][0])*(py-tri[2][1])-(tri[0][1]-tri[2][1])*(px-tri[2][0]);
+      if((c1>=0)===(c2>=0)===(c3>=0)){
+        ig.fillStyle="rgba(13,15,17,"+k.toFixed(2)+")";
+        ig.fillRect(px-2.4,py-2.4,4.8,4.8);
+      }
+    }
+  }
+}
+
+/* ---- GSAP master timeline ---- */
+const tl=gsap.timeline({paused:true});
+tl.to("#s1",{opacity:1,duration:.5},0.3)
+tl.fromTo("#s1",{scale:.96},{scale:1,duration:.9,ease:"power3.out"},0.3)
+tl.to("#s1",{opacity:0,duration:.4},3.3)
+
+tl.fromTo("#s2",{opacity:0,x:-60},{opacity:1,x:0,duration:.7,ease:"power3.out"},4.2)
+tl.to("#s2",{opacity:0,x:40,duration:.4},8.3)
+
+tl.fromTo("#s3",{opacity:0,x:60},{opacity:1,x:0,duration:.7,ease:"power3.out"},8.8)
+tl.to("#s3",{opacity:0,x:-40,duration:.4},13.3)
+
+tl.fromTo("#s4",{opacity:0,y:50},{opacity:1,y:0,duration:.7,ease:"power3.out"},13.8)
+tl.to("#s4",{opacity:0,y:-40,duration:.4},17.9)
+
+tl.fromTo("#s5",{opacity:0,scale:.97},{opacity:1,scale:1,duration:.6,ease:"power3.out"},18.2)
+tl.to("#s5",{opacity:0,duration:.4},21.2)
+
+tl.fromTo("#s6",{opacity:0,scale:.94},{opacity:1,scale:1,duration:.6,ease:"back.out(1.6)"},21.5)
+
+/* deterministic canvas driver: HyperFrames seeks the GSAP timeline; we key canvas
+   redraws off the composition's own clock by tweening a proxy object */
+const clock={t:0};
+tl.to(clock,{t:24,duration:24,ease:"none"},0);
+tl.eventCallback("onUpdate",()=>{
+  drawDots(clock.t);
+  drawIcon(Math.min(1,Math.max(0,(clock.t-0.4)/2.2)));
+});
+
+window.__timelines=window.__timelines||{};
+window.__timelines.halftone=tl;
+</script>
+</body>
+</html>
