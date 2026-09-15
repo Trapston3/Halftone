@@ -567,16 +567,25 @@ function buildLyrics(){el.lyrWrap.innerHTML="";
     d.onclick=()=>{if(IS_OWNER)el.aud.currentTime=L.t;else emitCmd({cmd:"seek",t:L.t});
       S.lidx=-1;S._lyrManual=false};  /* click a line to seek + resume follow */
     el.lyrWrap.appendChild(d)});S.lidx=-1;S._lyrManual=false}
+/* shared lyrics follow: NATIVE scrollTo (widget + app panes are both real
+   scroll containers now). Manual wheel sets S._lyrManual=true to pause the
+   follow; seeking (line click / drag) clears it. No transform juggling. */
 function updateLyrics(){
   if(!(S.lyricsOpen||S._npLyrics))return;
-  const t=posSec();const lines=[...el.lyrWrap.children];
-  let idx=-1;for(let i=0;i<lines.length;i++){if(t>=+lines[i].dataset.t)idx=i}
+  const view=el.lyrView||(el.lyrWrap&&el.lyrWrap.parentElement);
+  const lines=[...el.lyrWrap.children];
+  if(!view||!lines.length)return;
+  const t=posSec();
+  let idx=-1;for(let k=0;k<lines.length;k++){if(t>=+lines[k].dataset.t)idx=k}
   if(idx===S.lidx)return;S.lidx=idx;
   lines.forEach((l,i)=>l.classList.toggle("active",i===idx));
-  if(idx>=0){const ln=lines[idx];
-    const view=el.lyrWrap.parentElement;
-    const mid=view&&view.clientHeight?view.clientHeight/2:84;
-    el.lyrWrap.style.transform=`translateY(${mid-(ln.offsetTop+ln.offsetHeight/2)}px)`}}
+  if(idx>=0&&!S._lyrManual){
+    const ln=lines[idx];
+    const top=ln.offsetTop-view.clientHeight/2+ln.offsetHeight/2;
+    view.scrollTo({top:Math.max(0,top),behavior:"smooth"});
+  }
+  if(idx<0)S._lyrManual=false;
+}
 
 /* ============ error/status toast (visible, non-blocking, dismissible) ============ */
 function toast(msg, kind="info", ms=4200){

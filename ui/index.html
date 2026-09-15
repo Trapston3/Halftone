@@ -579,6 +579,8 @@ document.addEventListener("halftone:track",()=>{
 });
 /* accent/dither repaints when the owner's cover pixels land */
 document.addEventListener("halftone:art",()=>{drawCover();drawEdge(el.edgeCv,S._img)});
+/* viewer: BUILD the lyric lines when synced lyrics arrive (owner builds its own) */
+document.addEventListener("halftone:track",()=>{buildLyrics();if(S.lyricsOpen)updateLyrics()});
 </script>
 </body>
 </html>
