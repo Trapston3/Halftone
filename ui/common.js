@@ -22,12 +22,17 @@ const S={lib:[],i:-1,playing:false,vol:.8,pinned:false,drag:null,lidx:-1,
          lyricsOpen:false,lyrics:[],meta:null,root:null,
          liked:new Set(),playlists:[],view:"tracks",
          shuffle:false,repeat:"off",_npLyrics:false,
-         cfg:{cover:"small",grid:32,queueSide:true,tech:true,art:"real",ambient:true,
-          acc:{main:"album",widget:"album"}},
+         cfg:{cover:"small",grid:32,queueSide:true,tech:true,art:"real",ambient:"dither",
+          lyrics:true,side:true,acc:"album"},
          _managed:true,_prog:false,_img:null};
 window.S=S;
 
 (()=>{const st=loadStore();
+  /* migrate stale cfg shapes from older builds */
+  if(st.cfg){
+    if(typeof st.cfg.ambient==="boolean")st.cfg.ambient=st.cfg.ambient?"dither":"off";
+    if(st.cfg.acc&&typeof st.cfg.acc==="object")st.cfg.acc="album";
+  }
   if(st.vol!=null)S.vol=st.vol;
   if(st.liked)S.liked=new Set(st.liked);
   if(st.playlists)S.playlists=st.playlists.map(p=>({name:p.name,paths:new Set(p.paths)}));
@@ -49,17 +54,23 @@ async function winByLabel(label){
   catch(e){console.warn(e);return null}
 }
 
-/* ============ per-window accent mode ============
+/* external browser helper — the opener plugin command */
+async function openExternal(url){
+  try{await invoke("plugin:opener|open_url",{url})}
+  catch(e){console.warn("open_url",e)}
+}
+
+/* ============ shared accent ============
    Each surface (widget / main) follows the album art by default
    but can lock to a fixed hue, so widget and app can differ. */
 var ACC_HUES={
   mint:{h:.44,s:.62,l:.56},sky:{h:.57,s:.62,l:.58},violet:{h:.76,s:.55,l:.62},
   rose:{h:.965,s:.62,l:.62},amber:{h:.10,s:.68,l:.56},red:{h:1.0,s:.66,l:.56}};
 var UIZ=1;  /* widget UI zoom factor; main window stays 1 */
-function winLabel(){return curWin?curWin.label:"widget"}
-function accMode(){S.cfg.acc=S.cfg.acc||{};return S.cfg.acc[winLabel()]||"album"}
+/* ONE shared theme: both windows follow cfg.acc ("album" or a fixed hue). */
+function accMode(){return S.cfg.acc||"album"}
 function setAccentMode(m){
-  S.cfg.acc=S.cfg.acc||{};S.cfg.acc[winLabel()]=m;saveStore();
+  S.cfg.acc=m;saveStore();emitSync({acc:m});
   if(m==="album"){S._img?tweenAccent(clampAccent(extractAccent(S._img))):tweenAccent({h:.44,s:.62,l:.56})}
   else{tweenAccent(clampAccent(ACC_HUES[m]))}
 }
@@ -68,9 +79,59 @@ function accentMenuItems(){return [
   {label:"FROM ALBUM ART",checked:accMode()==="album",onClick:()=>setAccentMode("album")},
   ...Object.keys(ACC_HUES).map(k=>({label:k.toUpperCase(),checked:accMode()===k,onClick:()=>setAccentMode(k)})),
 ]}
-function nudgeVol(d){S.vol=Math.min(1,Math.max(0,S.vol+d));el.aud.volume=S.vol;
+function nudgeVol(d){setVol(S.vol+d)}
+
+/* ============ single-player state sync ============
+   Widget + app are two views of ONE player: transport, track,
+   position and volume broadcast via halftone:sync and the other
+   window applies them. src prevents echo; _syncMute wraps the
+   loads we trigger FROM a sync so they don't re-broadcast. */
+function emitSync(extra){
+  if(!(T&&T.event&&T.event.emit&&curWin))return;
+  if(!S._syncReady||S._syncMute)return;
+  const p={src:curWin.label,i:S.i,playing:S.playing,t:el.aud?el.aud.currentTime:0,
+           vol:S.vol,shuffle:S.shuffle,repeat:S.repeat,acc:accMode()};
+  if(extra)Object.assign(p,extra);
+  try{T.event.emit("halftone:sync",p).catch(()=>{})}catch(_){}
+}
+function applySync(d){
+  if(!d||!curWin||d.src===curWin.label)return;
+  let cross=false;
+  if(d.vol!=null&&Math.abs(d.vol-S.vol)>.001){S.vol=d.vol;el.aud.volume=d.vol;
+    if(gainNode)gainNode.gain.value=d.vol;
+    document.dispatchEvent(new CustomEvent("halftone:vol"))}
+  if(d.acc&&d.acc!==accMode()){S.cfg.acc=d.acc;saveStore();
+    tweenAccent(d.acc==="album"?(S._img?clampAccent(extractAccent(S._img)):{h:.44,s:.62,l:.56})
+                               :clampAccent(ACC_HUES[d.acc]))}
+  if(d.shuffle!=null&&d.shuffle!==S.shuffle){S.shuffle=d.shuffle;saveStore();cross=true}
+  if(d.repeat!=null&&d.repeat!==S.repeat){S.repeat=d.repeat;saveStore();cross=true}
+  if(d.playing!=null&&d.playing!==S.playing){
+    S.playing=d.playing;
+    if(d.playing){if(ensureAudio()){AC.resume();el.aud.play().catch(()=>{})}}
+    else el.aud.pause();
+    document.dispatchEvent(new CustomEvent("halftone:state"));cross=true}
+  if(d.i!=null&&d.i!==S.i){
+    S._syncMute=true;
+    loadTrack(d.i,false).then(()=>{
+      if(d.t!=null)el.aud.currentTime=d.t;
+      if(d.playing&&ensureAudio()){AC.resume();el.aud.play().catch(()=>{})}
+      S._syncMute=false;});
+  }else if(d.t!=null&&Math.abs((el.aud.currentTime||0)-d.t)>1.5){
+    el.aud.currentTime=d.t}
+  if(cross)updTransportAll();
+}
+function updTransportAll(){document.dispatchEvent(new CustomEvent("halftone:state"))}
+function setVol(v){
+  S.vol=Math.min(1,Math.max(0,v));el.aud.volume=S.vol;
   if(gainNode)gainNode.gain.value=S.vol;saveStore();
-  document.dispatchEvent(new CustomEvent("halftone:vol"))}
+  document.dispatchEvent(new CustomEvent("halftone:vol"));
+  emitSync({vol:S.vol})}
+
+/* default provider for the sync handshake */
+if(T&&T.event&&T.event.listen&&curWin){
+  try{T.event.listen("halftone:sync",e=>applySync(e.payload));
+      T.event.listen("halftone:sync-req",()=>emitSync())}catch(_){}
+}
 
 /* ============ accent system ============ */
 function rgb2hsl(r,g,b){const mx=Math.max(r,g,b),mn=Math.min(r,g,b);let h=0,s=0;const l=(mx+mn)/2;
@@ -178,6 +239,32 @@ function drawEdge(cv,img){
    Big Bayer cells in the album accent, drifting slowly; each
    column's brightness rides the analyser bar for that frequency —
    the whole background breathes with the track.           */
+function drawHalo(cv,t){
+  /* HALO GLOW: large soft radial light blobs breathing with the
+     music + a sparse dither veil. Gentle on the eyes. */
+  const dpr=Math.min(2,devicePixelRatio||1);
+  const W=cv.clientWidth,H=cv.clientHeight;if(!W||!H)return;
+  const dw=Math.round(W*dpr),dh=Math.round(H*dpr);
+  if(cv.width!==dw||cv.height!==dh){cv.width=dw;cv.height=dh}
+  const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
+  const [ar,ag,ab]=ACC.hex,spec=bars();
+  const blobs=[[.22,.32,0],[.74,.28,1],[.32,.76,2],[.7,.72,3]];
+  for(let k=0;k<blobs.length;k++){
+    const bx=blobs[k][0],by=blobs[k][1],bi=blobs[k][2];
+    const e=.18+spec[(bi*7)%NBARS]*.5;
+    const x=(bx+.04*Math.sin(t*.21+k*1.7))*W,y=(by+.05*Math.cos(t*.17+k*2.1))*H;
+    const R=(0.34+0.06*Math.sin(t*.13+k))*Math.min(W,H);
+    const gr=g.createRadialGradient(x,y,0,x,y,R);
+    gr.addColorStop(0,`rgba(${ar},${ag},${ab},${(0.085*e).toFixed(3)})`);
+    gr.addColorStop(1,`rgba(${ar},${ag},${ab},0)`);
+    g.fillStyle=gr;g.fillRect(x-R,y-R,2*R,2*R);
+  }
+  const cell=64,off=Math.floor(t*.4);
+  for(let y=0;y<Math.ceil(H/cell);y++)for(let x=0;x<Math.ceil(W/cell);x++){
+    const b=BAYER[(y+off)%8][(x+off)%8];if(b<.8)continue;
+    g.fillStyle=`rgba(${ar},${ag},${ab},.05)`;
+    g.fillRect(x*cell,y*cell,3,3)}
+}
 function drawAmbient(cv,t){
   const dpr=Math.min(2,devicePixelRatio||1);
   const W=cv.clientWidth,H=cv.clientHeight;if(!W||!H)return;
@@ -306,14 +393,18 @@ async function loadTrack(i,autoplay=true){
   if(meta.cover){
     const img=new Image();
     img.onload=()=>{S._img=img;
-      tweenAccent(mode==="album"?clampAccent(extractAccent(img)):clampAccent(ACC_HUES[mode]));};
+      tweenAccent(mode==="album"?clampAccent(extractAccent(img)):clampAccent(ACC_HUES[mode]));
+      /* art pixels are actually ready NOW — dither slots repaint in the new color */
+      document.dispatchEvent(new CustomEvent("halftone:art"))};
     img.src="data:"+meta.cover.mime+";base64,"+meta.cover.data_b64;
-  }else{S._img=null;tweenAccent(mode==="album"?{h:.44,s:.62,l:.56}:clampAccent(ACC_HUES[mode]))}
+  }else{S._img=null;tweenAccent(mode==="album"?{h:.44,s:.62,l:.56}:clampAccent(ACC_HUES[mode]));
+    document.dispatchEvent(new CustomEvent("halftone:art"))}
   saveStore();
   /* Apple-style: explicitly loading a track always plays it; only
      boot/restore passes autoplay=false to stay where the user was. */
   if(autoplay)await setPlaying(true);
   document.dispatchEvent(new CustomEvent("halftone:track"));
+  emitSync({i:S.i,t:0,playing:S.playing});
 }
 async function setPlaying(p){
   if(p&&S.i<0)await loadTrack(0);
@@ -329,6 +420,7 @@ async function setPlaying(p){
     try{await T.event.emit("halftone:play-takeover",{src:curWin.label})}catch(_){}
   }
   document.dispatchEvent(new CustomEvent("halftone:state"));
+  emitSync({t:el.aud.currentTime,playing:p});
 }
 
 /* ============ transport: shuffle / repeat ============ */
@@ -349,7 +441,7 @@ async function nextTrack(auto=false){
   loadTrack(i);
 }
 function cycleRepeat(){S.repeat=S.repeat==="off"?"all":S.repeat==="all"?"one":"off";saveStore();
-  document.dispatchEvent(new CustomEvent("halftone:state"))}
+  document.dispatchEvent(new CustomEvent("halftone:state"));emitSync({repeat:S.repeat})}
 
 /* ============ seek pointer wiring (shared) ============ */
 function wireSeek(seek){

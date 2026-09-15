@@ -259,8 +259,7 @@ el.btnLyrics.onclick=()=>setLyricsOpen(!S.lyricsOpen);
 el.lrcGet.onclick=async e=>{
   e.preventDefault();
   const t=trk()||{title:"",artist:""};
-  const url="https://lrclib.net/search?q="+encodeURIComponent(t.artist+" "+t.title);
-  try{await invoke("plugin:opener|open_url",{url})}catch(err){console.warn("open_url",err)}
+  openExternal("https://lrclib.net/search?q="+encodeURIComponent(t.artist+" "+t.title));
 };
 
 /* ============ queue / library ============ */
@@ -279,11 +278,30 @@ document.addEventListener("click",e=>{
 el.libscan.onclick=()=>scanLibrary(el.libpath.value.trim()).then(()=>{buildQueue();el.tTitle.textContent=S.lib.length?S.lib[0].title:"no tracks"});
 el.libpath.addEventListener("keydown",e=>{if(e.key==="Enter")el.libscan.click()});
 
-/* ============ right-click configurator (submenu structure) ============ */
+/* ============ right-click configurator ============
+   NATIVE OS menu (Tauri menu API): renders past the window
+   bounds, so nothing is ever clipped by the tiny widget.
+   Falls back to the HTML menu if the bridge is missing. */
+async function nativeMenu(items){
+  const build=async list=>{
+    const out=[];
+    for(const it of list){
+      if(it.sep){out.push(await T.menu.PredefinedMenuItem.new({item:"Separator"}));continue}
+      if(it.children&&it.children.length){
+        out.push(await T.menu.Submenu.new({text:it.label,items:await build(it.children)}));continue}
+      const act=()=>it.onClick&&setTimeout(it.onClick,10);
+      if(it.checked!=null)out.push(await T.menu.CheckMenuItem.new({text:it.label,checked:!!it.checked,action:act}));
+      else out.push(await T.menu.MenuItem.new({text:it.label,action:act}));
+    }
+    return out;
+  };
+  return T.menu.Menu.new({items:await build(items)});
+}
 el.widget.addEventListener("contextmenu",e=>{
   if(e.target.closest("input"))return;
   e.preventDefault();
-  openCtx(e.clientX,e.clientY,[
+  const items=[
+    {label:S.pinned?"UNPIN":"PIN ALWAYS-ON-TOP",checked:S.pinned,onClick:togglePin},
     {label:S.pinned?"UNPIN":"PIN ALWAYS-ON-TOP",checked:S.pinned,onClick:togglePin},
     {label:"EXPAND \u00B7 FULL PLAYER",onClick:()=>el.btnMax.click()},
     {label:"QUEUE AS SIDE DRAWER",checked:!!S.cfg.queueSide,onClick:()=>setCfg("queueSide",true)},
@@ -304,7 +322,10 @@ el.widget.addEventListener("contextmenu",e=>{
       {label:"ALBUM ART \u00B7 REAL PHOTO",checked:S.cfg.art==="real",onClick:()=>setCfg("art","real")},
     ]},
     {label:"ACCENT",children:accentMenuItems()},
-  ]);
+  ];
+  if(T&&T.menu&&T.menu.Menu){
+    nativeMenu(items).then(m=>m.popup()).catch(err=>console.warn("menu",err));
+  }else openCtx(e.clientX,e.clientY,items);
 });
 
 /* ============ window controls ============ */
@@ -363,7 +384,7 @@ function updTransport(){
   el.btnRep.classList.toggle("on",S.repeat!=="off");
   el.btnRep.classList.toggle("rep-one",S.repeat==="one");
 }
-el.btnShuf.onclick=()=>{S.shuffle=!S.shuffle;saveStore();updTransport()};
+el.btnShuf.onclick=()=>{S.shuffle=!S.shuffle;saveStore();updTransport();emitSync({shuffle:S.shuffle})};
 el.btnRep.onclick=()=>{cycleRepeat();updTransport()};
 document.addEventListener("halftone:state",updTransport);
 updTransport();
@@ -372,7 +393,7 @@ updTransport();
 const LEDN=5,leds=[];
 for(let i=0;i<LEDN;i++){
   const d=document.createElement("div");d.className="led";
-  d.onclick=()=>{S.vol=(i+1)/LEDN;paintLeds();el.aud.volume=S.vol;if(gainNode)gainNode.gain.value=S.vol;saveStore()};
+  d.onclick=()=>setVol((i+1)/LEDN);
   el.leds.appendChild(d);leds.push(d)}
 function paintLeds(){leds.forEach((l,i)=>l.classList.toggle("on",S.vol>=(i+1)/LEDN-.01))}
 paintLeds();el.aud.volume=S.vol;
@@ -514,6 +535,8 @@ requestAnimationFrame(loop);
       if(S.lyricsOpen)await setLyricsOpen(true);   /* persisted open -> keep, hint if no lrc */
     }
   }
+  S._syncReady=true;
+  try{if(T&&T.event&&T.event.emit)T.event.emit("halftone:sync-req",{})}catch(_){}
 })();
 </script>
 </body>

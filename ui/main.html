@@ -146,6 +146,23 @@ body{background:transparent}
 }
 .np-nolrc a:hover{background:var(--accent-12)}
 
+/* lyrics-off mode: big centered hero, transport under the art */
+.np.nolyr .np-grid{grid-template-columns:1fr;place-items:center}
+.np.nolyr .np-lyr{display:none}
+.np.nolyr .np-left{align-items:center;text-align:center;justify-content:center;gap:var(--sp3)}
+.np.nolyr .np-coverwrap{width:min(430px,56vh)}
+.np.nolyr .np-info{align-items:center}
+.np.nolyr .np-seek{width:min(600px,82%);margin:0 auto}
+.np.nolyr .np-times{width:min(600px,82%);margin:0 auto}
+.np.nolyr .np-ctl{width:min(600px,82%);margin:0 auto;justify-content:center;padding-top:var(--sp1)}
+.np.nolyr .np-ctl .vol{margin-left:0}
+
+/* collapsible sidebar */
+.app.noside{grid-template-columns:0 1fr}
+.app.noside .side{border-right:0;opacity:0;pointer-events:none}
+.side{transition:opacity .18s ease}
+.app{transition:grid-template-columns .18s ease}
+
 /* ============ bottom mini-bar (library views) ============ */
 .npbar{
   display:flex;align-items:center;gap:var(--sp3);padding:var(--sp2) var(--sp4);
@@ -218,6 +235,9 @@ body{background:transparent}
 
       <div class="main">
         <div class="topbar" id="dragTop">
+          <button class="tbtn" id="btnSide" data-tip="LIBRARY &#183; MENU" aria-label="Toggle sidebar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
           <div class="h-caps mono" id="viewCap">NOW PLAYING</div>
           <div class="search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
@@ -333,8 +353,8 @@ body{background:transparent}
  "content","viewCap","search","npbar","npArt","nbTitle","nbSub","nbCur","nbTot",
  "seek2","seekCv2","nbPrev","nbPlay","nbNext","nbIcoPlay","nbIcoPause",
  "icoPlay","icoPause","btnPlay","btnPrev","btnNext","btnShuf","btnRep","leds",
- "btnMin","btnClose","btnWidget","logoCv","dragLogo","dragTop","libpath","libscan",
- "libstat","aud"].forEach(k=>el[k]=document.getElementById(k));
+ "btnMin","btnClose","btnWidget","btnSide","logoCv","dragLogo","dragTop","libpath","libscan",
+ "libstat","aud","npLyr"].forEach(k=>el[k]=document.getElementById(k));
 
 const Q=new URLSearchParams(location.search);
 if(Q.get("view"))S.view=Q.get("view");
@@ -568,6 +588,7 @@ function paintNP(){
   if(S.cfg.art==="real"&&m&&m.cover){
     el.npCover.src="data:"+m.cover.mime+";base64,"+m.cover.data_b64;
     el.npCover.style.display="";el.npCover.classList.remove("dithered");
+    if(el.npDither)el.npDither.style.display="none";
   }else if(m&&m.cover){
     el.npCover.classList.add("dithered");el.npCover.style.display="none";
     /* draw onto a hidden canvas swapped in behind */
@@ -587,7 +608,7 @@ document.addEventListener("halftone:track",()=>{
 /* big lyric pane: NATIVE scrolling + smooth follow.
    (common.js's transform-follow remains the widget's variant) */
 function updateLyrics(){
-  if(!S._npLyrics)return;
+  if(!S._npLyrics||S.cfg.lyrics===false)return;
   const view=el.npLyrView,lines=[...el.lyrWrap.children];
   if(!lines.length)return;
   const t=el.aud.currentTime;
@@ -650,7 +671,7 @@ function updTransport(){
   el.btnRep.classList.toggle("on",S.repeat!=="off");
   el.btnRep.classList.toggle("rep-one",S.repeat==="one");
 }
-el.btnShuf.onclick=()=>{S.shuffle=!S.shuffle;saveStore();updTransport()};
+el.btnShuf.onclick=()=>{S.shuffle=!S.shuffle;saveStore();updTransport();emitSync({shuffle:S.shuffle})};
 el.btnRep.onclick=()=>{cycleRepeat();updTransport()};
 updTransport();
 
@@ -658,21 +679,26 @@ updTransport();
 const LEDN=5,leds=[];
 for(let i=0;i<LEDN;i++){
   const d=document.createElement("div");d.className="led";
-  d.onclick=()=>{S.vol=(i+1)/LEDN;paintLeds();el.aud.volume=S.vol;if(gainNode)gainNode.gain.value=S.vol;saveStore()};
+  d.onclick=()=>setVol((i+1)/LEDN);
   el.leds.appendChild(d);leds.push(d)}
 function paintLeds(){leds.forEach((l,i)=>l.classList.toggle("on",S.vol>=(i+1)/LEDN-.01))}
 paintLeds();el.aud.volume=S.vol;
+document.addEventListener("halftone:vol",paintLeds);
 el.leds.addEventListener("keydown",e=>{
-  if(e.key==="ArrowRight"){S.vol=Math.min(1,S.vol+1/LEDN)}
-  if(e.key==="ArrowLeft"){S.vol=Math.max(0,S.vol-1/LEDN)}
-  paintLeds();el.aud.volume=S.vol;if(gainNode)gainNode.gain.value=S.vol;saveStore()});
+  if(e.key==="ArrowRight")setVol(S.vol+1/LEDN);
+  if(e.key==="ArrowLeft")setVol(S.vol-1/LEDN)});
+/* wheel anywhere = volume, except inside scrollable regions */
+document.body.addEventListener("wheel",e=>{
+  if(e.target.closest(".np-lyrview,.tlist,.agrid,.qscroll,.content,.ctxmenu"))return;
+  e.preventDefault();
+  nudgeVol(e.deltaY<0?.05:-.05);
+},{passive:false});
 
 /* lrc fetch */
 el.lrcGet.onclick=async e=>{
   e.preventDefault();
   const t=trk()||{title:"",artist:""};
-  const url="https://lrclib.net/search?q="+encodeURIComponent(t.artist+" "+t.title);
-  try{await invoke("plugin:opener|open_url",{url})}catch(err){console.warn("open_url",err)}
+  openExternal("https://lrclib.net/search?q="+encodeURIComponent(t.artist+" "+t.title));
 };
 
 /* window controls — main hides; only the widget's close ends the app */
@@ -688,6 +714,7 @@ el.btnWidget.onclick=async()=>{
   }catch(e){console.warn(e)}
 };
 wireDrag(el.dragTop);wireDrag(el.dragLogo);
+el.btnSide.onclick=()=>setCfgM("side",S.cfg.side===false?true:false);
 
 /* widget -> open on now playing */
 function takeNP(req){
@@ -727,19 +754,28 @@ document.body.addEventListener("contextmenu",e=>{
       {label:"ALBUM ART \u00B7 REAL PHOTO",checked:S.cfg.art==="real",onClick:()=>{setCfgM("art","real")}},
       {label:"ALBUM ART \u00B7 DITHER",checked:S.cfg.art!=="real",onClick:()=>{setCfgM("art","dither")}},
       {sep:1},
-      {label:"AMBIENT BACKGROUND",checked:!!S.cfg.ambient,onClick:()=>{setCfgM("ambient",!S.cfg.ambient)}},
+      {label:"SIDEBAR",checked:S.cfg.side!==false,onClick:()=>setCfgM("side",S.cfg.side===false)},
+      {label:"LYRICS \u00B7 SHOW",checked:S.cfg.lyrics!==false,onClick:()=>setCfgM("lyrics",true)},
+      {label:"LYRICS \u00B7 HIDE (CENTERED ART)",checked:S.cfg.lyrics===false,onClick:()=>setCfgM("lyrics",false)},
     ]},
     {label:"DITHER",children:[
       {label:"DENSITY \u00B7 STANDARD",checked:S.cfg.grid===32,onClick:()=>setGrid(32)},
       {label:"DENSITY \u00B7 FINE",checked:S.cfg.grid===48,onClick:()=>setGrid(48)},
       {label:"DENSITY \u00B7 ULTRA",checked:S.cfg.grid===64,onClick:()=>setGrid(64)},
     ]},
+    {label:"AMBIENT",children:[
+      {label:"OFF \u00B7 NONE",checked:(S.cfg.ambient||"dither")==="off",onClick:()=>setCfgM("ambient","off")},
+      {label:"DITHER BLOOM",checked:(S.cfg.ambient||"dither")==="dither",onClick:()=>setCfgM("ambient","dither")},
+      {label:"HALO GLOW \u00B7 SOFT",checked:S.cfg.ambient==="halo",onClick:()=>setCfgM("ambient","halo")},
+    ]},
     {label:"ACCENT",children:accentMenuItems()},
   ]);
 });
 function setCfgM(k,v){
   S.cfg[k]=v;saveStore();
-  if(k==="ambient")el.np.classList.toggle("noambient",!v);
+  if(k==="ambient")el.np.classList.toggle("noambient",v==="off");
+  if(k==="lyrics")el.np.classList.toggle("nolyr",v===false);
+  if(k==="side")document.querySelector(".app").classList.toggle("noside",v===false);
   paintNP();
   if(!["nowplaying"].includes(S.view)&&["art"].includes(k))render();
 }
@@ -763,14 +799,21 @@ addEventListener("keydown",e=>{
 /* loop */
 function loop(now){
   const tinted=tickAccent(now);
-  if(tinted){drawEdge(el.edgeCv,S._img);drawLogo()}
+  if(tinted){drawEdge(el.edgeCv,S._img);drawLogo();
+    /* dither slots follow the tweening accent so the color never lags */
+    if(S.cfg.art!=="real"&&el.npDither&&el.npDither.style.display!=="none")drawDither(el.npDither,S._img)}
   sweepTick();
   drawMeter(el.seekCv,el.seek.clientHeight);
   if(el.npbar.style.display!=="none")drawMeter(el.seekCv2,el.seek2.clientHeight);
-  if(S.view==="nowplaying"&&S.cfg.ambient&&S._npLyrics!==null)drawAmbient(el.ambient,now/1000);
+  if(S.view==="nowplaying"&&S._npLyrics!==null){
+    const am=S.cfg.ambient||"dither";
+    if(am==="dither")drawAmbient(el.ambient,now/1000);
+    else if(am==="halo")drawHalo(el.ambient,now/1000);
+  }
   updateLyrics();
   requestAnimationFrame(loop);
 }
+document.addEventListener("halftone:art",()=>{paintNP();drawEdge(el.edgeCv,S._img)});
 
 /* np cover dither canvas behind the img (created once) */
 (function(){
@@ -784,7 +827,9 @@ el.npIcoP=document.getElementById("icoPlay");el.npIcoPa=document.getElementById(
 
 /* resize -> edge refit */
 new ResizeObserver(()=>drawEdge(el.edgeCv,S._img)).observe(el.tui);
-el.np.classList.toggle("noambient",!S.cfg.ambient);
+el.np.classList.toggle("noambient",(S.cfg.ambient||"dither")==="off");
+el.np.classList.toggle("nolyr",S.cfg.lyrics===false);
+document.querySelector(".app").classList.toggle("noside",S.cfg.side===false);
 
 /* tips */
 document.querySelectorAll(".tbtn[data-tip]").forEach(b=>{
@@ -824,6 +869,13 @@ window.__qa={
   async widgetToggle(){el.btnWidget.click();await new Promise(r=>setTimeout(r,400));
     try{const w=await winByLabel("widget");return {visible:w?await w.isVisible():null,
       btnOn:el.btnWidget.classList.contains("on")}}catch(e){return {err:""+e}}},
+  ambientSet2(m){setCfgM("ambient",m);return {mode:S.cfg.ambient,
+    shown:getComputedStyle(el.ambient).display!=="none"}},
+  lyricsSet(v){setCfgM("lyrics",v);return {lyrics:S.cfg.lyrics,
+    lyrShown:getComputedStyle(el.npLyr).display!=="none",
+    gridCols:getComputedStyle(document.querySelector(".np-grid")).gridTemplateColumns.split(" ").length}},
+  sideSet(v){setCfgM("side",v);return {side:S.cfg.side,
+    cols:getComputedStyle(document.querySelector(".app")).gridTemplateColumns.split(" ").length}},
   ctx(x,y){document.body.dispatchEvent(new MouseEvent("contextmenu",{clientX:x||300,clientY:200,bubbles:true,cancelable:true}));
     return {root:document.querySelectorAll(".ctxmenu>.ctxitem,.ctxmenu>.ctxwrap").length,
             subs:document.querySelectorAll(".ctxsub").length}},
@@ -866,6 +918,8 @@ paintNP();
     }
   }
   if(qTrack!=null&&qTrack!==""){S.view="nowplaying";render()}
+  S._syncReady=true;
+  try{if(T&&T.event&&T.event.emit)T.event.emit("halftone:sync-req",{})}catch(_){}
 })();
 </script>
 </body>

@@ -11,3 +11,6 @@ sketches/002-phosphor/covers/
 sketches/shots/*-local-*
 
 tools/shot_*.png
+tools/shot_menu2.png
+tools/shot_natmenu*.png
+tools/shot_menuprobe.png
