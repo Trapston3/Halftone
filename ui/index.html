@@ -196,14 +196,13 @@ canvas.art,.art{width:96px;height:96px;border-radius:var(--r-b);border:1px solid
   </div>
 </div>
 
-<audio id="aud" preload="metadata" crossorigin="anonymous"></audio>
 <script src="common.js"></script>
 <script>
 /* ============ widget page wiring ============ */
 ["widget","wbody","head","edgeCv","artCv","artImg","trkNo","tTitle","tTech","seek","seekCv","tip","tCur","tTot",
  "lyrics","lyrWrap","lrcHint","lrcGet","qrows","queue","libpath","libscan","libstat","leds",
  "icoPlay","icoPause","btnPlay","btnLyrics","btnQueue","btnShuf","btnRep","btnPrev","btnNext",
- "btnMax","btnClose","aud"].forEach(k=>el[k]=document.getElementById(k));
+ "btnMax","btnClose"].forEach(k=>el[k]=document.getElementById(k));
 wireSeek(el.seek);
 wireDrag(el.wbody);
 
@@ -275,7 +274,7 @@ el.btnQueue.onclick=e=>{e.stopPropagation();el.queue.classList.toggle("open");bu
 document.addEventListener("click",e=>{
   if(!el.queue.contains(e.target)&&!el.btnQueue.contains(e.target))el.queue.classList.remove("open");
 });
-el.libscan.onclick=()=>scanLibrary(el.libpath.value.trim()).then(()=>{buildQueue();el.tTitle.textContent=S.lib.length?S.lib[0].title:"no tracks"});
+el.libscan.onclick=()=>scanLibrary(el.libpath.value.trim()).then(()=>{buildQueue()});  /* viewer: forwards cmd to owner; state returns via sync */
 el.libpath.addEventListener("keydown",e=>{if(e.key==="Enter")el.libscan.click()});
 
 /* ============ right-click configurator ============
@@ -372,13 +371,13 @@ async function togglePin(){
   saveStore();
 }
 
-/* transport */
+/* transport: pure controller - every action is a command to the owner */
 el.btnPlay.onclick=()=>setPlaying(!S.playing);
 el.btnNext.onclick=()=>nextTrack();
 el.btnPrev.onclick=()=>{if(!S.lib.length)return;
-  if(el.aud.currentTime>3)el.aud.currentTime=0;else loadTrack(S.i-1)};
-el.aud.addEventListener("ended",()=>nextTrack(true));
-el.aud.addEventListener("timeupdate",()=>{el.tCur.textContent=fmt(el.aud.currentTime)});
+  if(posSec()>3)emitCmd({cmd:"seek",t:0});else loadTrack(S.i-1)};
+/* clock text renders ONLY the owner's broadcast (halftone:tick, wired in common.js) */
+document.addEventListener("halftone:tick",()=>{el.tCur.textContent=fmt(posSec())});
 function updTransport(){
   el.btnShuf.classList.toggle("on",S.shuffle);
   el.btnRep.classList.toggle("on",S.repeat!=="off");
@@ -396,7 +395,7 @@ for(let i=0;i<LEDN;i++){
   d.onclick=()=>setVol((i+1)/LEDN);
   el.leds.appendChild(d);leds.push(d)}
 function paintLeds(){leds.forEach((l,i)=>l.classList.toggle("on",S.vol>=(i+1)/LEDN-.01))}
-paintLeds();el.aud.volume=S.vol;
+paintLeds();
 document.addEventListener("halftone:vol",paintLeds);
 /* wheel anywhere in the widget = volume (queue list + seek bar keep their own scroll) */
 el.wbody.addEventListener("wheel",e=>{
@@ -405,9 +404,8 @@ el.wbody.addEventListener("wheel",e=>{
   nudgeVol(e.deltaY<0?.05:-.05);
 },{passive:false});
 el.leds.addEventListener("keydown",e=>{
-  if(e.key==="ArrowRight"){S.vol=Math.min(1,S.vol+1/LEDN)}
-  if(e.key==="ArrowLeft"){S.vol=Math.max(0,S.vol-1/LEDN)}
-  paintLeds();el.aud.volume=S.vol;if(gainNode)gainNode.gain.value=S.vol;saveStore()});
+  if(e.key==="ArrowRight")setVol(S.vol+1/LEDN);
+  if(e.key==="ArrowLeft")setVol(S.vol-1/LEDN)});
 
 /* tooltips */
 document.querySelectorAll(".tbtn[data-tip]").forEach(b=>{
@@ -420,8 +418,8 @@ document.querySelectorAll(".tbtn[data-tip]").forEach(b=>{
 addEventListener("keydown",e=>{
   if(e.target.tagName==="INPUT")return;
   if(e.code==="Space"){e.preventDefault();el.btnPlay.click()}
-  if(e.code==="ArrowRight"&&el.aud.duration)el.aud.currentTime=Math.min(el.aud.duration,el.aud.currentTime+5);
-  if(e.code==="ArrowLeft")el.aud.currentTime=Math.max(0,el.aud.currentTime-5);
+  if(e.code==="ArrowRight")emitCmd({cmd:"nudge",d:5});
+  if(e.code==="ArrowLeft")emitCmd({cmd:"nudge",d:-5});
 });
 
 /* render loop */
@@ -462,13 +460,16 @@ document.addEventListener("halftone:track",()=>{
 
 /* QA surface */
 window.__qa={
-  state:()=>({lib:S.lib.length,i:S.i,playing:S.playing&&!el.aud.paused,
-              dur:+(el.aud.duration||0).toFixed(2),src:el.aud.src.slice(0,60),
+  state:()=>({lib:S.lib.length,i:S.i,playing:S.playing,
+              dur:+durSec().toFixed(2),pos:+posSec().toFixed(2),
               vol:S.vol,pinned:S.pinned,lyricsOpen:S.lyricsOpen,
               lrc:S.lyrics.length,root:S.root,liked:S.liked.size,
               meta:S.meta?{sr:S.meta.streaminfo.sample_rate,bits:S.meta.streaminfo.bits,
-                ch:S.meta.streaminfo.channels,cover:!!S.meta.cover,blocks:S.meta.block_types}:null}),
-  meter:()=>({maxBar:+Math.max(...EMA).toFixed(3),sweep:+SWEEP.v.toFixed(3),alive:EMA.some(v=>v>.02),ctx:AC?AC.state:"none"}),
+                ch:S.meta.streaminfo.channels,cover:!!S.meta.cover}:null}),
+  meter:()=>{const B=S._barsRcv||new Float32Array(NBARS);
+    return {maxBar:+Math.max(...B).toFixed(3),sweep:+SWEEP.v.toFixed(3),
+            alive:[...B].some(v=>v>.02),ctx:"viewer"}},  /* bars are the owner's broadcast */
+  owner:()=>({owner:IS_OWNER,hasAC:typeof AudioContext!=="undefined"&&!!(window.AudioContext&&false),audInDom:!!document.getElementById("aud")}),
   sweepState:()=>({t:+SWEEP.t.toFixed(2),dir:SWEEP.dir,v:+SWEEP.v.toFixed(3),drag:S.drag!=null}),
   accent:()=>({rgb:"rgb("+ACC.hex.join(",")+")",animating:ACC.anim,
                ratioVsBg:+ratio(lum(...ACC.hex),BG_LUM).toFixed(2)}),
@@ -526,18 +527,30 @@ requestAnimationFrame(loop);
 (async()=>{
   if(S.cfg.cover==="large")await shiftH(COV_D);
   if(S.pinned){try{await curWin.setAlwaysOnTop(true);document.title="pinned"}catch(_){}}
-  if(S.root){el.libpath.value=S.root;const r=await scanLibrary(S.root);
-    if(r&&r.tracks.length){
-      el.tTitle.textContent=S.lib[0].title;
-      el.tTech.textContent="READY / "+S.lib.length+" TRACKS";
-      const li=S._lastTrack!=null?S._lastTrack:null;
-      await loadTrack(li!=null&&li>=0&&li<S.lib.length?li:0,false);
-      if(S.lyricsOpen)await setLyricsOpen(true);   /* persisted open -> keep, hint if no lrc */
-    }
-  }
+  /* VIEWER BOOT: no local scan, no local load. Ask the owner for
+     authoritative state; halftone:sync does the rest. The widget
+     never decodes, never constructs an AudioContext. */
+  if(S.root)el.libpath.value=S.root;
   S._syncReady=true;
-  try{if(T&&T.event&&T.event.emit)T.event.emit("halftone:sync-req",{})}catch(_){}
+  try{if(T&&T.event&&T.event.emit)T.event.emit("halftone:hello",{}).catch(()=>{})}catch(_){}
+  if(!IS_OWNER){
+    try{T.event.listen("halftone:hello",()=>emitCmd({cmd:"hello"})).catch(()=>{})}catch(_){}
+  }
 })();
+/* viewer-only: keep title/queue from track events (state comes via sync) */
+document.addEventListener("halftone:track",()=>{
+  const m=S.meta;
+  el.tTitle.textContent=m?m.title:"\u2014";
+  el.tTech.textContent=m?`${m.streaminfo.sample_rate/1000} kHz / ${m.streaminfo.bits}-BIT / ${m.streaminfo.channels===2?"STEREO":m.streaminfo.channels+"CH"}`:"\u2014";
+  el.trkNo.textContent="HALFTONE / "+String(S.i+1).padStart(2,"0")+" / "+String(S.lib.length).padStart(2,"0");
+  el.tTot.textContent=fmt(durSec());
+  el.btnLyrics.classList.toggle("lrc-available",S.lyrics.length>0);
+  if(S.lyricsOpen){S.lyrics.length?el.lrcHint.classList.remove("show"):el.lrcHint.classList.add("show")}
+  drawCover();
+  buildQueue();
+});
+/* accent/dither repaints when the owner's cover pixels land */
+document.addEventListener("halftone:art",()=>{drawCover();drawEdge(el.edgeCv,S._img)});
 </script>
 </body>
 </html>

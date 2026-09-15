@@ -7,10 +7,28 @@
 //! bytes via the flac:// protocol — no transcode, no AAC, no side files.
 
 use serde::Serialize;
+use tauri::Manager;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+#[cfg(target_os = "windows")]
+mod smtc;
+
+/// Global app handle for SMTC button callbacks (set in setup()).
+static APP_HANDLE: Mutex<Option<tauri::AppHandle>> = Mutex::new(None);
+#[cfg(target_os = "windows")]
+static SMTC: Mutex<Option<smtc::Smtc>> = Mutex::new(None);
+
+pub fn app_handle() -> Option<tauri::AppHandle> {
+    APP_HANDLE.lock().ok()?.clone()
+}
+
+pub fn base64_decode_pub(s: &str) -> Option<Vec<u8>> {
+    base64_decode(s)
+}
 
 /// How much of the file we read for metadata. All FLAC metadata blocks sit
 /// before the first audio frame; 8 MiB is generous (largest known PICTURE
@@ -46,6 +64,22 @@ pub struct TrackMeta {
     pub duration: f64,
     pub cover: Option<Picture>,
     pub block_types: Vec<u8>,
+    /// REPLAYGAIN_TRACK_GAIN / REPLAYGAIN_ALBUM_GAIN from VORBIS_COMMENT
+    /// (already parsed in the same single read — zero extra I/O).
+    pub replaygain: Option<ReplayGain>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReplayGain {
+    pub track_gain: Option<f64>,
+    pub album_gain: Option<f64>,
+}
+
+fn parse_rg_db(tag: &str) -> Option<f64> {
+    // tags like "-7.20 dB" / "+3.5 dB" / "-6.4"
+    let t = tag.trim();
+    let num: String = t.chars().take_while(|c| c.is_ascii_digit() || *c == '-' || *c == '+' || *c == '.').collect();
+    num.parse::<f64>().ok()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -190,6 +224,28 @@ fn base64_encode(data: &[u8]) -> String {
     out
 }
 
+fn base64_decode(s: &str) -> Option<Vec<u8>> {
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    let mut out = Vec::new();
+    for c in s.bytes() {
+        if c == b'=' {
+            break;
+        }
+        let v = match B64.iter().position(|&b| b == c) {
+            Some(idx) => idx as u32,
+            None => return None,
+        };
+        acc = (acc << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((acc >> bits) & 0xFF) as u8);
+        }
+    }
+    Some(out)
+}
+
 // ---------------------------------------------------------------------------
 // Track load — the single header read (with full-file fallback)
 // ---------------------------------------------------------------------------
@@ -218,6 +274,14 @@ pub fn read_track(path: &Path) -> Result<TrackMeta, String> {
         0.0
     };
     let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("?").to_string();
+    let replaygain = if tags.contains_key("REPLAYGAIN_TRACK_GAIN") || tags.contains_key("REPLAYGAIN_ALBUM_GAIN") {
+        Some(ReplayGain {
+            track_gain: tags.get("REPLAYGAIN_TRACK_GAIN").and_then(|t| parse_rg_db(t)),
+            album_gain: tags.get("REPLAYGAIN_ALBUM_GAIN").and_then(|t| parse_rg_db(t)),
+        })
+    } else {
+        None
+    };
     Ok(TrackMeta {
         path: path.to_string_lossy().to_string(),
         title: tags.get("TITLE").cloned().unwrap_or(file_stem),
@@ -227,6 +291,7 @@ pub fn read_track(path: &Path) -> Result<TrackMeta, String> {
         duration: duration_s,
         cover: if pics.is_empty() { None } else { Some(pics.remove(0)) },
         block_types,
+        replaygain,
     })
 }
 
@@ -277,6 +342,39 @@ pub fn read_lrc_file(track_path: &Path) -> Vec<LyricLine> {
 // Tauri commands
 // ---------------------------------------------------------------------------
 
+/// Watch the library folder; on any change, emit halftone:lib-changed so
+/// the owner UI auto-rescans. One dedicated watcher thread per scan.
+fn watch_folder(app: tauri::AppHandle, dir: &str) {
+    let d = dir.to_string();
+    let h = app.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = try_watch(h, d) {
+            eprintln!("halftone watch: {e}");
+        }
+    });
+}
+
+fn try_watch(app: tauri::AppHandle, dir: String) -> Result<(), String> {
+    use notify::Watcher as _;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut watcher = notify::RecommendedWatcher::new(tx, notify::Config::default())
+        .map_err(|e| e.to_string())?;
+    watcher.watch(Path::new(&dir), notify::RecursiveMode::NonRecursive)
+        .map_err(|e| e.to_string())?;
+    // watcher must outlive the loop; debounce bursts then notify the owner UI
+    loop {
+        match rx.recv_timeout(std::time::Duration::from_secs(86400)) {
+            Ok(_) => {
+                while rx.recv_timeout(std::time::Duration::from_millis(700)).is_ok() {}
+                use tauri::Emitter;
+                let _ = app.emit("halftone:lib-changed", {});
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+        }
+    }
+}
+
 #[tauri::command]
 fn scan_library(dir: &str) -> Result<ScanResult, String> {
     let root = PathBuf::from(dir);
@@ -302,6 +400,9 @@ fn scan_library(dir: &str) -> Result<ScanResult, String> {
         }
     }
     tracks.sort_by(|a, b| a.path.cmp(&b.path));
+    if let Some(app) = app_handle() {
+        watch_folder(app, dir);
+    }
     Ok(ScanResult { tracks, skipped })
 }
 
@@ -353,6 +454,35 @@ fn pct_decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).to_string()
+}
+
+// ---------------------------------------------------------------------------
+// SMTC bridge commands (owner/UI only)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn smtc_update(
+    title: String,
+    artist: String,
+    album: String,
+    cover_b64: Option<String>,
+    playing: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let guard = SMTC.lock().map_err(|e| e.to_string())?;
+        if let Some(s) = guard.as_ref() {
+            s.set_metadata(&title, &artist, &album, cover_b64.as_deref());
+            s.set_status(playing);
+            s.set_enabled(true, true, true, true);
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (title, artist, album, cover_b64, playing);
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -437,12 +567,129 @@ fn serve_flac(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            // SMTC init (Windows): OS now-playing overlay + global media keys.
+            // Button presses are forwarded to the main window (the audio owner).
+            #[cfg(target_os = "windows")]
+            {
+                let handle = app.handle().clone();
+                if let Some(s) = smtc::Smtc::new(move |ev: &str| {
+                    use tauri::Emitter;
+                    let _ = handle.emit("smtc-button", ev);
+                }) {
+                    if let Ok(mut g) = SMTC.lock() {
+                        *g = Some(s);
+                    }
+                }
+            }
+
+            // Tray icon + native menu: show/hide widget, show/hide main,
+            // transport, quit. QUIT IS THE TERMINATE PATH (the main window's
+            // close only hides — it is the audio owner; killing it kills audio).
+            {
+                use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+                use tauri::tray::TrayIconBuilder;
+
+                let m_show_widget = MenuItem::with_id(app, "show_widget", "Show Widget", true, None::<&str>)?;
+                let m_hide_widget = MenuItem::with_id(app, "hide_widget", "Hide Widget", true, None::<&str>)?;
+                let m_show_main = MenuItem::with_id(app, "show_main", "Show Main Window", true, None::<&str>)?;
+                let m_sep1 = PredefinedMenuItem::separator(app)?;
+                let m_play = MenuItem::with_id(app, "play", "Play / Pause", true, None::<&str>)?;
+                let m_next = MenuItem::with_id(app, "next", "Next", true, None::<&str>)?;
+                let m_prev = MenuItem::with_id(app, "prev", "Previous", true, None::<&str>)?;
+                let m_sep2 = PredefinedMenuItem::separator(app)?;
+                let m_quit = MenuItem::with_id(app, "quit", "Quit Halftone", true, None::<&str>)?;
+
+                let menu = Menu::with_items(
+                    app,
+                    &[&m_show_widget, &m_hide_widget, &m_show_main, &m_sep1, &m_play, &m_next, &m_prev, &m_sep2, &m_quit],
+                )?;
+
+                let _tray = TrayIconBuilder::with_id("halftone-tray")
+                    .icon(app.default_window_icon().unwrap().clone())
+                    .tooltip("Halftone")
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| {
+                        use tauri::Emitter;
+                        match event.id().as_ref() {
+                            "quit" => {
+                                std::process::exit(0);
+                            }
+                            "show_widget" => {
+                                if let Some(w) = app.get_webview_window("widget") {
+                                    let _ = w.show();
+                                    let _ = w.set_focus();
+                                }
+                            }
+                            "hide_widget" => {
+                                if let Some(w) = app.get_webview_window("widget") {
+                                    let _ = w.hide();
+                                }
+                            }
+                            "show_main" => {
+                                if let Some(w) = app.get_webview_window("main") {
+                                    let _ = w.show();
+                                    let _ = w.set_focus();
+                                }
+                            }
+                            "play" => {
+                                let _ = app.emit("smtc-button", "toggle");
+                            }
+                            "next" => {
+                                let _ = app.emit("smtc-button", "next");
+                            }
+                            "prev" => {
+                                let _ = app.emit("smtc-button", "prev");
+                            }
+                            _ => {}
+                        }
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let tauri::tray::TrayIconEvent::Click {
+                            button: tauri::tray::MouseButton::Left,
+                            button_state: tauri::tray::MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            // left-click toggles widget visibility
+                            if let Some(w) = tray.app_handle().get_webview_window("widget") {
+                                if w.is_visible().unwrap_or(false) {
+                                    let _ = w.hide();
+                                } else {
+                                    let _ = w.show();
+                                    let _ = w.set_focus();
+                                }
+                            }
+                        }
+                    })
+                    .build(app)?;
+            }
+
+            // store handle for SMTC callbacks
+            if let Ok(mut g) = APP_HANDLE.lock() {
+                *g = Some(app.handle().clone());
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // LOAD-BEARING: the main window is the audio OWNER. Its close
+            // button only HIDES — destroying it would kill app-wide audio.
+            // Only the widget's close / tray quit terminates the process.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .register_uri_scheme_protocol("flac", |_ctx, request| serve_flac(request))
         .invoke_handler(tauri::generate_handler![
             scan_library,
             open_track,
             read_lyrics,
-            flac_url
+            flac_url,
+            smtc_update
         ])
         .run(tauri::generate_context!())
         .expect("halftone widget failed to start");

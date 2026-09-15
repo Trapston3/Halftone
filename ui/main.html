@@ -178,6 +178,48 @@ body{background:transparent}
 .npbar .vol{display:flex;align-items:center;gap:var(--sp2)}
 .npbar .vol svg{width:14px;height:14px;color:var(--dim)}
 
+/* ============ EQ panel — same dither/LED language as the player ============
+   Bands are LED ladders (same segment rhythm as the volume LEDs and the
+   spectrum meter); the header carries the dotgrid cap; panel is an in-place
+   sheet over the ambient field, not a floating dialog. */
+.eqpanel{
+  position:absolute;inset:var(--sp8) var(--sp8) var(--sp4) auto;z-index:45;
+  width:540px;max-width:calc(100% - 40px);max-height:calc(100% - 90px);overflow-y:auto;
+  background:rgba(22,24,26,.92);backdrop-filter:blur(6px);
+  border:1px solid var(--accent);border-radius:var(--r-b);
+  padding:var(--sp3) var(--sp4);display:none;flex-direction:column;gap:var(--sp3)}
+.eqpanel.open{display:flex;animation:eqin .22s cubic-bezier(.2,.9,.2,1)}
+@keyframes eqin{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+.eqhead{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:var(--sp2)}
+.eqhead .dotrow{display:flex;gap:3px;margin-right:var(--sp2)}
+.eqhead .dotrow i{width:3px;height:3px;background:var(--accent);opacity:.6}
+.eqrow{display:flex;align-items:center;gap:var(--sp2);flex-wrap:wrap}
+.eqpre{display:flex;align-items:center;gap:var(--sp2);flex:1;min-width:200px}
+/* preamp = horizontal LED ladder, same .led rhythm as volume */
+.eqpre .leds{flex:1;padding:4px 6px}
+.eqpre .leds .ledseg{height:10px;width:14px;flex:1}
+.eqpre .leds .ledseg.zmark{opacity:.55}
+.eqpre .leds .ledseg.lit.neglit{background:var(--dim2)}
+.eqdb{font-size:10px;color:var(--dim2);min-width:64px;text-align:right;font-variant-numeric:tabular-nums}
+.eqclip{font-size:9px;color:#E06666;letter-spacing:.1em;min-width:110px;text-align:right}
+/* bands: vertical LED ladders — 12 quantized steps of 2dB */
+.eqbands{display:flex;gap:var(--sp3);align-items:flex-end;padding:var(--sp1) 2px 0}
+.eqband{display:flex;flex-direction:column;align-items:center;gap:5px;flex:1;cursor:pointer;touch-action:none}
+.eqband .fader{position:relative;width:16px;height:132px;display:flex;flex-direction:column-reverse;gap:2px;justify-content:flex-start}
+.eqband .seg{width:100%;flex:none;height:8px;border-radius:1.5px;background:#232A2E;transition:background .12s}
+.eqband .seg.lit{background:var(--accent)}
+.eqband .seg.neglit{background:var(--dim2)}
+.eqband .zero{width:100%;height:2px;background:var(--line2);margin:2px 0;flex:none}
+.eqband .flabel{font-size:8.5px;color:var(--dim2);font-family:var(--mono);letter-spacing:.04em}
+.eqband .fval{font-size:8.5px;color:var(--dim);font-family:var(--mono);min-height:11px}
+.eqband:hover .fval{color:var(--cream)}
+.eqsel{background:var(--bg);border:1px solid var(--line2);color:var(--cream);font-size:10px;padding:4px 8px;border-radius:var(--r-l);font-family:var(--mono)}
+.eqname{width:110px;background:var(--bg);border:1px solid var(--line2);color:var(--cream);font-size:10px;padding:4px 8px;border-radius:var(--r-l);font-family:var(--mono)}
+.tbtn.wide{width:auto;padding:0 10px;font-size:9px;letter-spacing:.12em;font-family:var(--mono)}
+.tbtn.wide.on{border-color:var(--accent);color:var(--accent)}
+.eqprofile{font-size:9px;letter-spacing:.14em;color:var(--accent);font-family:var(--mono)}
+#eqFile{display:none!important}
+
 /* misc */
 .empty{
   display:flex;flex-direction:column;gap:var(--sp2);align-items:flex-start;
@@ -235,6 +277,9 @@ body{background:transparent}
 
       <div class="main">
         <div class="topbar" id="dragTop">
+          <button class="tbtn" id="btnEq" data-tip="EQUALIZER" aria-label="Equalizer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 4v6M5 14v6M12 4v10M12 18v2M19 4v2M19 10v10"/><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="16" r="1.8"/><circle cx="19" cy="8" r="1.8"/></svg>
+          </button>
           <button class="tbtn" id="btnSide" data-tip="LIBRARY &#183; MENU" aria-label="Toggle sidebar">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
           </button>
@@ -314,6 +359,51 @@ body{background:transparent}
         <!-- library views -->
         <div class="content" id="content" style="display:none"></div>
 
+        <!-- EQ / OUTPUT / SLEEP sheet — LED ladders in the halftone language -->
+        <div class="eqpanel" id="eqPanel">
+          <div class="eqhead">
+            <div style="display:flex;align-items:center">
+              <div class="dotrow"><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="h-caps mono">EQUALIZER</div>
+            </div>
+            <button class="tbtn" id="eqClose" data-tip="CLOSE" aria-label="Close EQ"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+          </div>
+          <div class="eqrow">
+            <button class="tbtn wide" id="eqBypass" data-tip="TRUE BYPASS">BYPASS</button>
+            <div class="eqpre">
+              <span class="h-caps mono">PRE</span>
+              <div class="leds" id="eqPreLeds"></div>
+              <span class="eqdb mono" id="eqPreDb">0.0dB</span>
+            </div>
+            <div class="eqclip mono" id="eqClip"></div>
+          </div>
+          <div class="eqbands" id="eqBands"></div>
+          <div class="eqrow">
+            <span class="h-caps mono">PRESETS</span>
+            <select id="eqPresetSel" class="eqsel"></select>
+            <input id="eqPresetName" class="eqname" placeholder="NAME" spellcheck="false">
+            <button class="tbtn wide" id="eqSave" data-tip="SAVE USER PRESET">SAVE</button>
+            <button class="tbtn wide" id="eqDelete" data-tip="DELETE USER PRESET">DEL</button>
+            <button class="tbtn wide" id="eqImport" data-tip="AUTOEQ PARAMETRICEQ.TXT">AUTOEQ</button>
+            <input type="file" id="eqFile" accept=".txt" hidden>
+            <span class="eqprofile mono" id="eqProfile"></span>
+          </div>
+          <div class="eqrow" style="border-top:1px solid var(--line);padding-top:var(--sp2)">
+            <span class="h-caps mono">OUTPUT</span>
+            <select id="sinkSel" class="eqsel" style="flex:1"></select>
+            <span class="h-caps mono" id="sinkNote">SHARED MIXER</span>
+          </div>
+          <div class="eqrow">
+            <span class="h-caps mono">SLEEP</span>
+            <button class="tbtn wide" data-sleep="15">15M</button>
+            <button class="tbtn wide" data-sleep="30">30M</button>
+            <button class="tbtn wide" data-sleep="60">60M</button>
+            <button class="tbtn wide" data-sleep="track">END OF TRACK</button>
+            <button class="tbtn wide" data-sleep="off">OFF</button>
+            <span class="eqdb mono" id="sleepLeft"></span>
+          </div>
+        </div>
+
         <div class="npbar" id="npbar" title="Open Now Playing">
           <img class="np-art" id="npArt" alt="cover">
           <div class="np-meta">
@@ -353,8 +443,10 @@ body{background:transparent}
  "content","viewCap","search","npbar","npArt","nbTitle","nbSub","nbCur","nbTot",
  "seek2","seekCv2","nbPrev","nbPlay","nbNext","nbIcoPlay","nbIcoPause",
  "icoPlay","icoPause","btnPlay","btnPrev","btnNext","btnShuf","btnRep","leds",
- "btnMin","btnClose","btnWidget","btnSide","logoCv","dragLogo","dragTop","libpath","libscan",
- "libstat","aud","npLyr"].forEach(k=>el[k]=document.getElementById(k));
+ "btnMin","btnClose","btnWidget","btnSide","btnEq","logoCv","dragLogo","dragTop","libpath","libscan",
+ "libstat","aud","npLyr",
+ "eqPanel","eqClose","eqBypass","eqPreDb","eqClip","eqBands","eqPresetSel","eqPresetName",
+ "eqSave","eqDelete","eqImport","eqFile","eqProfile","sinkSel","sinkNote","sleepLeft","eqPreLeds"].forEach(k=>el[k]=document.getElementById(k));
 
 const Q=new URLSearchParams(location.search);
 if(Q.get("view"))S.view=Q.get("view");
@@ -693,6 +785,8 @@ document.body.addEventListener("wheel",e=>{
   e.preventDefault();
   nudgeVol(e.deltaY<0?.05:-.05);
 },{passive:false});
+/* viewer-mode timeupdate for the lyric follow + clock text */
+document.addEventListener("halftone:tick",()=>{el.tCur.textContent=fmt(posSec());el.nbCur.textContent=fmt(posSec())});
 
 /* lrc fetch */
 el.lrcGet.onclick=async e=>{
@@ -701,7 +795,9 @@ el.lrcGet.onclick=async e=>{
   openExternal("https://lrclib.net/search?q="+encodeURIComponent(t.artist+" "+t.title));
 };
 
-/* window controls — main hides; only the widget's close ends the app */
+/* window controls. LOAD-BEARING: main is the sole audio owner, so
+   this window's close button only HIDES - destroying it would kill
+   the app's audio. Only the widget's close or tray quit terminates. */
 el.btnMin.onclick=async()=>{try{await curWin.minimize()}catch(e){console.warn(e)}};
 el.btnClose.onclick=async()=>{try{await curWin.hide()}catch(e){console.warn(e)}};
 try{curWin.onCloseRequested(async e=>{e.preventDefault();try{await curWin.hide()}catch(_){}})}catch(_){}
@@ -780,6 +876,244 @@ function setCfgM(k,v){
   if(!["nowplaying"].includes(S.view)&&["art"].includes(k))render();
 }
 
+/* ============ EQ / OUTPUT / SLEEP panel wiring ============ */
+const EQ_PRESETS={
+  "FLAT":[0,0,0,0,0,0,0,0,0,0],
+  "ROCK":[5,4,3,1,-1.5,-1,1,3,4,4.5],
+  "POP":[-1.5,2,4,4.5,2.5,-1,-1.5,-1,1,2],
+  "JAZZ":[4,3,1.5,2,-2,-1.5,0,1.5,3,4],
+  "VOCAL":[-3,-2,0,3,4.5,4,2,0,-1,-2],
+  "ELECTRONIC":[6,5,2,0,-2,1,2,4,5,5.5],
+  "ACOUSTIC":[4,3.5,2,1,1.5,1,2.5,3.5,4,3]};
+function eqUserPresets(){try{return JSON.parse(localStorage.getItem("halftone.eqpresets")||"{}")}catch(e){return {}}}
+function eqSaveUser(name,g){
+  const all=eqUserPresets();all[name]=g;
+  localStorage.setItem("halftone.eqpresets",JSON.stringify(all));
+  refreshPresetList();
+}
+function eqDelUser(name){
+  const all=eqUserPresets();delete all[name];
+  localStorage.setItem("halftone.eqpresets",JSON.stringify(all));
+  refreshPresetList();
+}
+function refreshPresetList(){
+  const sel=el.eqPresetSel;sel.innerHTML="";
+  Object.keys(EQ_PRESETS).forEach(k=>{const o=document.createElement("option");o.value="b:"+k;o.textContent=k;sel.appendChild(o)});
+  Object.keys(eqUserPresets()).forEach(k=>{const o=document.createElement("option");o.value="u:"+k;o.textContent=k+" *";sel.appendChild(o)});
+  const o=document.createElement("option");o.value="";o.textContent="\u2014";sel.appendChild(o);
+}
+function eqActiveProfileName(){return S.cfg.eq.profile||null}
+/* band LED ladder: 12 segments of 2dB; 0dB = gap row in the middle */
+const EQ_SEGS=12; /* per side (negative half mirrors) */
+function paintEq(){
+  const eq=S.cfg.eq;
+  el.eqBypass.classList.toggle("on",!!eq.on);
+  el.eqBypass.textContent=eq.on?"ON":"BYPASS";
+  /* preamp ladder is a horizontal LED strip: LEDs 1..6 left of center =
+     -6..-1dB, LED 7 = 0dB, LEDs 8..13 right = +1..+6dB (halved scale) */
+  const pre=eq.pre||0;
+  const step=pre/2;                     /* 2dB per LED for range reach */
+  [...el.eqPreLeds.children].forEach((seg,k)=>{
+    const idx=k+1;                      /* 1..12 */
+    const center=6.5;                   /* LED 6/7 straddle zero */
+    const d=idx-center;                 /* -5.5..+5.5 */
+    let lit=false,neg=false;
+    if(pre<0)lit=d<0&&Math.abs(d)<=Math.abs(step);
+    if(pre>0)lit=d>0&&d<=step;
+    if(pre===0&&Math.abs(d)<=0.5)lit=true;
+    neg=pre<0;
+    seg.classList.toggle("lit",lit);
+    seg.classList.toggle("neglit",lit&&neg);
+  });
+  el.eqPreDb.textContent=(pre>=0?"+":"")+pre.toFixed(1)+"dB"+(rgLabel());
+  const rgV=(S.meta&&S.meta.replaygain&&S.cfg.rg!=="off")?
+    (S.cfg.rg==="album"?parseFloat(S.meta.replaygain.album_gain)||0:parseFloat(S.meta.replaygain.track_gain)||0):0;
+  const posSum=(pre||0)+Math.max(0,rgV)+eq.bands.reduce((a,b)=>a+Math.max(0,b),0);
+  el.eqClip.textContent=posSum>0?"TRIM "+(-posSum).toFixed(1)+"dB":"";
+  el.eqProfile.textContent=eqActiveProfileName()?("AUTOEQ \u00B7 "+eqActiveProfileName().toUpperCase()):"";
+  [...el.eqBands.children].forEach((band,k)=>{
+    const v=eq.bands[k]||0;
+    const litN=Math.min(6,Math.round(Math.abs(v)/2));  /* 6 segs per side, 2dB each */
+    band.querySelectorAll(".seg").forEach(seg=>{
+      const idx=+seg.dataset.k;      /* 1..6 from zero outward */
+      const neg=seg.dataset.side==="n";
+      const on=seg.classList.contains("zero")?false:(neg?(v<0&&idx<=litN):(v>0&&idx<=litN));
+      seg.classList.toggle("lit",on);
+      seg.classList.toggle("neglit",on&&neg);
+    });
+    band.querySelector(".fval").textContent=v===0?"":((v>0?"+":"")+v.toFixed(1));
+  });
+}
+function rgLabel(){
+  if(S.cfg.rg==="off"||!S.meta||!S.meta.replaygain)return "";
+  const v=S.cfg.rg==="album"?parseFloat(S.meta.replaygain.album_gain)||0:parseFloat(S.meta.replaygain.track_gain)||0;
+  return " / RG"+(v>=0?"+":"")+v.toFixed(1);
+}
+function buildEqBands(){
+  el.eqBands.innerHTML="";
+  EQ_BANDS.forEach((b,k)=>{
+    const d=document.createElement("div");d.className="eqband";
+    /* LED ladder: 6 negative segs, zero bar, 6 positive segs (bottom = +12dB) */
+    let segs="";
+    for(let i=6;i>=1;i--)segs+=`<div class="seg" data-side="n" data-k="${i}"></div>`;
+    segs+=`<div class="seg zero"></div>`;
+    for(let i=1;i<=6;i++)segs+=`<div class="seg" data-side="p" data-k="${i}"></div>`;
+    d.innerHTML=`<span class="fval mono"></span>
+      <div class="fader">${segs}</div>
+      <span class="flabel mono">${b.f>=1000?(b.f/1000)+"k":b.f}</span>`;
+    const fader=d.querySelector(".fader");
+    const drag=ev=>{
+      const r=fader.getBoundingClientRect();
+      const y=ev.clientY-r.top;
+      /* zero at middle; up = positive (louder up like a fader) */
+      const half=r.height/2;
+      let v;
+      if(y<=half)v=Math.round((1-y/half)*12*2)/2;
+      else v=-Math.round(((y-half)/half)*12*2)/2;
+      v=Math.max(-12,Math.min(12,v));
+      S.cfg.eq.bands[k]=v;S.cfg.eq.profile=null;
+      paintEq();pushEq(false);
+    };
+    let down=false;
+    fader.addEventListener("pointerdown",e=>{down=true;fader.setPointerCapture(e.pointerId);drag(e)});
+    fader.addEventListener("pointermove",e=>{if(down)drag(e)});
+    const up=()=>down=false;
+    fader.addEventListener("pointerup",up);fader.addEventListener("pointercancel",up);
+    /* wheel = fine trim 0.5dB */
+    fader.addEventListener("wheel",e=>{e.preventDefault();
+      let v=(S.cfg.eq.bands[k]||0)+(e.deltaY<0?0.5:-0.5);
+      S.cfg.eq.bands[k]=Math.max(-12,Math.min(12,v));S.cfg.eq.profile=null;
+      paintEq();pushEq(false);
+    },{passive:false});
+    el.eqBands.appendChild(d);
+  });
+  /* preamp LED ladder (12 horizontal steps, center-zero) */
+  el.eqPreLeds.innerHTML="";
+  for(let k=0;k<12;k++){
+    const seg=document.createElement("div");seg.className="led ledseg";seg.dataset.k=k+1;
+    if(k===5||k===6)seg.classList.add("zmark");
+    el.eqPreLeds.appendChild(seg);
+  }
+}
+function pushEq(rebuild){
+  const eq={on:!!S.cfg.eq.on,pre:S.cfg.eq.pre||0,bands:[...S.cfg.eq.bands],rebuild:!!rebuild};
+  if(IS_OWNER){if(rebuild)reconnectEq();else applyEqGains();emitSync()}
+  else emitCmd({cmd:"eq",eq,rebuild:!!rebuild});
+}
+/* AutoEQ ParametricEQ.txt import:
+     Preamp: -6.4 dB
+     Filter 1: ON LSC Fc 105 Hz Gain 5.5 dB Q 0.68
+     Filter 2: ON PK Fc 1000 Hz Gain -2.0 dB Q 1.10 ...  */
+function parseAutoEq(text){
+  const lines=text.split(/\r?\n/);
+  const out={pre:0,filters:[]};
+  for(const line of lines){
+    const mPre=line.match(/Preamp:\s*(-?[\d.]+)\s*dB/i);
+    if(mPre){out.pre=parseFloat(mPre[1]);continue}
+    const m=line.match(/Filter\s*\d+:\s*ON\s+(LSC|HSC|PK|LSQ|HSQ|LP|HP|NO|PEQ)\s+Fc\s+([\d.]+)\s*Hz\s+Gain\s+(-?[\d.]+)\s*dB\s+Q\s+([\d.]+)/i);
+    if(m){out.filters.push({type:m[1].toUpperCase(),fc:parseFloat(m[2]),gain:parseFloat(m[3]),q:parseFloat(m[4])})}
+  }
+  return out;
+}
+function applyAutoEq(parsed,name){
+  /* map AutoEQ filters onto our 10-band chain: closest band per filter,
+     leftover bands zeroed; shelving types map onto the edge bands. */
+  const bands=EQ_BANDS.map(()=>0);
+  parsed.filters.forEach(f=>{
+    let best=0,bd=1e9;
+    EQ_BANDS.forEach((b,k)=>{const d=Math.abs(Math.log(b.f/f.fc));if(d<bd){bd=d;best=k}});
+    bands[best]+=f.gain;
+  });
+  S.cfg.eq.bands=bands.map(v=>Math.max(-12,Math.min(12,Math.round(v*2)/2)));
+  S.cfg.eq.pre=Math.max(-12,Math.min(12,parsed.pre));
+  S.cfg.eq.on=true;S.cfg.eq.profile=name;
+  paintEq();pushEq(true);
+}
+el.eqImport.onclick=()=>el.eqFile.click();
+el.eqFile.onchange=async()=>{
+  const f=el.eqFile.files[0];if(!f)return;
+  const text=await f.text();
+  const parsed=parseAutoEq(text);
+  if(parsed.filters.length)applyAutoEq(parsed,f.name.replace(/\.txt$/i,""));
+  el.eqFile.value="";
+};
+el.eqBypass.onclick=()=>{S.cfg.eq.on=!S.cfg.eq.on;paintEq();pushEq(true)};
+/* preamp ladder: click/drag sets -12..+12 (left half = cut, right = boost) */
+(()=>{const box=el.eqPreLeds;
+  const set=ev=>{
+    const r=box.getBoundingClientRect();
+    const x=Math.max(0,Math.min(r.width,ev.clientX-r.left));
+    /* center-zero horizontal: left half = cut (up to -12), right = boost */
+    const half=r.width/2;
+    let v;
+    if(x<=half)v=-Math.round((1-x/half)*12*2)/2;
+    else v=Math.round(((x-half)/half)*12*2)/2;
+    S.cfg.eq.pre=v;S.cfg.eq.profile=null;paintEq();pushEq(false);
+  };
+  let down=false;
+  box.addEventListener("pointerdown",e=>{down=true;box.setPointerCapture(e.pointerId);set(e)});
+  box.addEventListener("pointermove",e=>{if(down)set(e)});
+  const up=()=>down=false;
+  box.addEventListener("pointerup",up);box.addEventListener("pointercancel",up);
+})();
+el.eqPresetSel.onchange=()=>{
+  const v=el.eqPresetSel.value;if(!v)return;
+  const [kind,...rest]=v.split(":");const name=rest.join(":");
+  const g=kind==="b"?EQ_PRESETS[name]:eqUserPresets()[name];
+  if(g){S.cfg.eq.bands=[...g];S.cfg.eq.profile=kind==="u"?name:null;
+    if(kind==="b")S.cfg.eq.profile=null;
+    paintEq();pushEq(false)}
+};
+el.eqSave.onclick=()=>{
+  const name=(el.eqPresetName.value||"").trim();
+  if(name){eqSaveUser(name,[...S.cfg.eq.bands]);el.eqPresetName.value=""}
+};
+el.eqDelete.onclick=()=>{
+  const v=el.eqPresetSel.value;
+  if(v.startsWith("u:"))eqDelUser(v.slice(2));
+};
+/* open/close */
+function toggleEqPanel(force){
+  const show=force!=null?force:!el.eqPanel.classList.contains("open");
+  el.eqPanel.classList.toggle("open",show);
+  el.btnEq.classList.toggle("on",show);
+  if(show){if(!el.eqBands.children.length)buildEqBands();
+    refreshPresetList();paintEq();refreshSinks()}
+}
+el.btnEq.onclick=()=>toggleEqPanel();
+el.eqClose.onclick=()=>toggleEqPanel(false);
+
+/* output devices */
+async function refreshSinks(){
+  if(!el.sinkSel)return;
+  const ds=IS_OWNER?await listSinks():[];
+  el.sinkSel.innerHTML="";
+  const o=document.createElement("option");o.value="";o.textContent="SYSTEM DEFAULT";el.sinkSel.appendChild(o);
+  ds.filter(d=>d.id).forEach(d=>{const o=document.createElement("option");o.value=d.id;o.textContent=d.label.slice(0,60);el.sinkSel.appendChild(o)});
+  el.sinkSel.value=S.cfg.sink||"";
+  el.sinkNote.textContent=IS_OWNER?"SHARED MIXER":"OWNER WINDOW ONLY";
+}
+el.sinkSel.onchange=async()=>{
+  const id=el.sinkSel.value;
+  if(IS_OWNER)setSink(id);else emitCmd({cmd:"sink",id});
+};
+
+/* sleep timer */
+document.querySelectorAll("[data-sleep]").forEach(b=>{
+  b.onclick=()=>{
+    const v=b.dataset.sleep;
+    if(IS_OWNER){if(v==="track")sleepEndOfTrack();else if(v==="off")sleepCancel();else sleepSet(+v)}
+    else emitCmd({cmd:"sleep",mode:v==="track"||v==="off"?v:"min",mins:+v});
+  };
+});
+setInterval(()=>{
+  if(!el.sleepLeft)return;
+  if(IS_OWNER){const left=SLEEP.until?SLEEP.until-Date.now():0;
+    el.sleepLeft.textContent=left?("STOPS IN "+Math.ceil(left/60000)+"M "+Math.floor(left%60000/1000)+"S"):(SLEEP.stopAfterTrack?"AFTER THIS TRACK":"");
+  }else el.sleepLeft.textContent=S._sleepLeft?"STOPS IN "+Math.ceil(S._sleepLeft/60000)+"M":"";
+},1000);
+/* viewer: sleepLeft comes via halftone:sync T event (applySync stores it) */
+
 /* logo dither */
 function drawLogo(){const g=el.logoCv.getContext("2d");g.clearRect(0,0,20,20);const [ar,ag,ab]=ACC.hex;
   const lit=[[1,2],[2,1],[2,3],[3,2],[0,2],[4,2]];
@@ -844,6 +1178,7 @@ window.__qa={
               dur:+(el.aud.duration||0).toFixed(2),vol:S.vol,liked:S.liked.size,
               playlists:S.playlists.length,search:searchStr,npLyrics:S._npLyrics}),
   meter:()=>({maxBar:+Math.max(...EMA).toFixed(3),alive:EMA.some(v=>v>.02),ctx:AC?AC.state:"none"}),
+  owner:()=>({owner:IS_OWNER,hasAC:!!AC,hasAud:!!el.aud,pump:"interval"}),
   sweepState:()=>({t:+SWEEP.t.toFixed(2),dir:SWEEP.dir,v:+SWEEP.v.toFixed(3),drag:S.drag!=null}),
   albums:()=>{const set=new Set(S.lib.map(t=>t.album));return set.size},
   nav(v){S.view=v;render();return {view:S.view,npShown:el.np.style.display!== "none",
@@ -876,6 +1211,19 @@ window.__qa={
     gridCols:getComputedStyle(document.querySelector(".np-grid")).gridTemplateColumns.split(" ").length}},
   sideSet(v){setCfgM("side",v);return {side:S.cfg.side,
     cols:getComputedStyle(document.querySelector(".app")).gridTemplateColumns.split(" ").length}},
+  eq:()=>({on:S.cfg.eq.on,pre:S.cfg.eq.pre,bands:[...S.cfg.eq.bands],profile:S.cfg.eq.profile||null,
+    nodes:EQ_NODES.filter(Boolean).length,connected:!!eqIn,rg:S.cfg.rg}),
+  async eqSet(k,v){if(k==="on"){S.cfg.eq.on=v;pushEq(true)}else if(k==="band"){S.cfg.eq.bands[2]=v;pushEq(false)}
+    else if(k==="pre"){S.cfg.eq.pre=v;pushEq(false)}else if(k==="preset"){S.cfg.eq.bands=[...EQ_PRESETS[v]];pushEq(false)}
+    paintEq();return this.eq()},
+  async eqImportText(text,name){const p=parseAutoEq(text);applyAutoEq(p,name||"imported");return this.eq()},
+  async sinks(){await refreshSinks();return {n:el.sinkSel.options.length,cur:S.cfg.sink||"default"}},
+  async sinkSet(id){if(IS_OWNER)await setSink(id);else emitCmd({cmd:"sink",id});return S.cfg.sink||"default"},
+  sleepSet(m){if(m==="track")sleepEndOfTrack();else if(m==="off")sleepCancel();else sleepSet(+m);
+    return {until:SLEEP.until,stopAfterTrack:SLEEP.stopAfterTrack}},
+  eqPanel:()=>({open:el.eqPanel.classList.contains("open"),
+    bands:el.eqBands.children.length,presets:el.eqPresetSel.options.length,
+    clip:el.eqClip.textContent}),
   ctx(x,y){document.body.dispatchEvent(new MouseEvent("contextmenu",{clientX:x||300,clientY:200,bubbles:true,cancelable:true}));
     return {root:document.querySelectorAll(".ctxmenu>.ctxitem,.ctxmenu>.ctxwrap").length,
             subs:document.querySelectorAll(".ctxsub").length}},
@@ -898,8 +1246,53 @@ window.__qa={
     return {w:+(s.width/sf).toFixed(0),h:+(s.height/sf).toFixed(0)}}catch(e){return {err:""+e}}},
 };
 
+/* folder watcher: backend emits halftone:lib-changed -> auto-rescan (owner) */
+if(T&&T.event&&T.event.listen&&IS_OWNER){
+  let rescanning=false;
+  try{T.event.listen("halftone:lib-changed",()=>{
+    if(rescanning||!S.root)return;
+    rescanning=true;
+    scanLibrary(S.root).then(()=>{rescanning=false;render();emitSync()});
+  }).catch(()=>{})}catch(_){}
+}
+
+/* SMTC bridge (owner): metadata + cover from the ALREADY-PARSED TrackMeta.
+   UpdateMediaPropertiesAsync wants a stream; we hand the embedded PICTURE
+   bytes straight over (base64 -> bytes in Rust). No re-read, no network. */
+async function smtcPush(){
+  if(!IS_OWNER||!invoke)return;
+  try{
+    const m=S.meta;if(!m)return;
+    await invoke("smtc_update",{title:m.title||"",artist:m.artist||"",album:m.album||"",
+      coverB64:m.cover?m.cover.data_b64:null,playing:!!S.playing});
+  }catch(e){console.warn("smtc",e)}
+}
+document.addEventListener("halftone:track",smtcPush);
+document.addEventListener("halftone:state",smtcPush);
+if(T&&T.event&&T.event.listen&&IS_OWNER){
+  try{T.event.listen("smtc-button",e=>{
+    const ev=e.payload;
+    (async()=>{
+      try{
+        if(ev==="play")await setPlaying(true);
+        else if(ev==="pause")await setPlaying(false);
+        else if(ev==="toggle")await setPlaying(!S.playing);
+        else if(ev==="next")await nextTrack();
+        else if(ev==="prev"){if(posSec()>3)el.aud.currentTime=0;else await loadTrack(S.i-1)}
+      }catch(err){console.warn("smtc-button",err)}
+    })();
+  }).catch(()=>{})}catch(_){}
+}
+
 /* boot */
 initAccent();drawLogo();
+/* owner announces to any viewer that boots later (and vice versa) */
+if(T&&T.event&&T.event.emit){
+  try{T.event.emit("halftone:hello",{}).catch(()=>{})}catch(_){}
+}
+if(!IS_OWNER){
+  try{T.event.listen("halftone:hello",()=>emitCmd({cmd:"hello"})).catch(()=>{})}catch(_){}
+}
 requestAnimationFrame(loop);
 render();
 paintNP();
@@ -918,8 +1311,7 @@ paintNP();
     }
   }
   if(qTrack!=null&&qTrack!==""){S.view="nowplaying";render()}
-  S._syncReady=true;
-  try{if(T&&T.event&&T.event.emit)T.event.emit("halftone:sync-req",{})}catch(_){}
+  S._syncReady=true;          /* owner alive: viewers may hello */
 })();
 </script>
 </body>
