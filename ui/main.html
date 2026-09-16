@@ -269,6 +269,9 @@ body{background:transparent}
         <div class="libzone">
           <div class="librow">
             <input id="libpath" type="text" spellcheck="false" placeholder="C:\Users\you\Music">
+            <button id="libbrowse" class="mono" title="Browse for folder" aria-label="Browse for music folder" style="display:flex;align-items:center;padding:6px 9px">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+            </button>
             <button id="libscan" class="mono">SCAN</button>
           </div>
           <div class="libstat" id="libstat">no scan yet</div>
@@ -402,6 +405,11 @@ body{background:transparent}
             <button class="tbtn wide" data-sleep="off">OFF</button>
             <span class="eqdb mono" id="sleepLeft"></span>
           </div>
+          <div class="eqrow" style="border-top:1px solid var(--line);padding-top:var(--sp2)">
+            <span class="h-caps mono">UPDATES</span>
+            <button class="tbtn wide" id="otaBtn">CHECK</button>
+            <span class="eqclip mono" id="otaNote" style="min-width:0;flex:1;text-align:left"></span>
+          </div>
         </div>
 
         <div class="npbar" id="npbar" title="Open Now Playing">
@@ -443,8 +451,9 @@ body{background:transparent}
  "content","viewCap","search","npbar","npArt","nbTitle","nbSub","nbCur","nbTot",
  "seek2","seekCv2","nbPrev","nbPlay","nbNext","nbIcoPlay","nbIcoPause",
  "icoPlay","icoPause","btnPlay","btnPrev","btnNext","btnShuf","btnRep","leds",
- "btnMin","btnClose","btnWidget","btnSide","btnEq","logoCv","dragLogo","dragTop","libpath","libscan",
+ "btnMin","btnClose","btnWidget","btnSide","btnEq","logoCv","dragLogo","dragTop","libpath","libbrowse","libscan",
  "libstat","aud","npLyr",
+ "otaBtn","otaNote",
  "eqPanel","eqClose","eqBypass","eqPreDb","eqClip","eqBands","eqPresetSel","eqPresetName",
  "eqSave","eqDelete","eqImport","eqFile","eqProfile","sinkSel","sinkNote","sleepLeft","eqPreLeds"].forEach(k=>el[k]=document.getElementById(k));
 
@@ -493,12 +502,20 @@ function render(){
       FLAC files are read directly \u2014 no import, no copies, no transcode.
       <div class="librow" style="max-width:420px;margin-top:8px">
         <input id="mLib" type="text" placeholder="C:\\Users\\you\\Music" spellcheck="false">
+        <button id="mBrowse" class="mono" title="Browse for folder" aria-label="Browse for music folder" style="display:flex;align-items:center;padding:6px 9px">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        </button>
         <button id="mScan" class="mono">SCAN</button>
       </div>
     </div>`;
     const inp=document.getElementById("mLib");
     if(S.root)inp.value=S.root;
     document.getElementById("mScan").onclick=async()=>{await scanLibrary(inp.value.trim());render()};
+    document.getElementById("mBrowse").onclick=async()=>{
+      try{const dir=await invoke("pick_folder");
+        if(dir){inp.value=dir;await scanLibrary(dir);render()}}
+      catch(e){console.warn("pick_folder",e)}
+    };
     return;
   }
   if(searchStr&&!["playlists"].includes(S.view)){
@@ -815,6 +832,14 @@ el.btnWidget.onclick=async()=>{
 wireDrag(el.dragTop);wireDrag(el.dragLogo);
 el.btnSide.onclick=()=>setCfgM("side",S.cfg.side===false?true:false);
 
+/* library folder browse (owner scans natively; viewer forwards via scanLibrary) */
+el.libbrowse.onclick=async()=>{
+  try{const dir=await invoke("pick_folder");
+    if(dir){el.libpath.value=dir;await scanLibrary(dir);}}
+  catch(e){console.warn("pick_folder",e)}
+};
+el.libpath.addEventListener("keydown",e=>{if(e.key==="Enter")el.libscan.click()});
+
 /* widget -> open on now playing */
 function takeNP(req){
   S._npReq=req;
@@ -1100,6 +1125,29 @@ el.sinkSel.onchange=async()=>{
   const id=el.sinkSel.value;
   if(IS_OWNER)setSink(id);else emitCmd({cmd:"sink",id});
 };
+
+/* ============ OTA updates ============ */
+function otaShow(st){
+  if(!el.otaBtn)return;
+  if(st.error){el.otaNote.textContent=st.error.toUpperCase();el.otaBtn.textContent="RETRY";return}
+  if(st.ready){el.otaNote.textContent="V"+st.available+" STAGED \u2014 APPLIES ON RESTART";el.otaBtn.textContent="INSTALL + RESTART";return}
+  if(st.available){el.otaNote.textContent="V"+st.available+" AVAILABLE ("+st.current+" \u2192 "+st.available+")";el.otaBtn.textContent="DOWNLOAD";return}
+  el.otaNote.textContent=st.disabled?"OTA DISABLED (DEV BUILD)":"UP TO DATE \u2014 V"+st.current;
+  el.otaBtn.textContent="CHECK";
+}
+el.otaBtn.onclick=async()=>{
+  try{
+    let st=await invoke("ota_check");
+    otaShow(st);
+    if(st.ready){await invoke("ota_apply");return}          /* staged: swap + relaunch */
+    if(st.disabled||st.available)return;                     /* nothing to download */
+    el.otaBtn.textContent="DOWNLOADING...";
+    st=await invoke("ota_download");                         /* blocking, ~9MB */
+    otaShow(st);
+  }catch(e){console.warn("ota",e);if(el.otaNote)el.otaNote.textContent="UPDATE CHECK FAILED"}
+};
+/* paint staged-update state at boot so the panel reflects reality */
+invoke("ota_check").then(otaShow).catch(()=>{});
 
 /* sleep timer */
 document.querySelectorAll("[data-sleep]").forEach(b=>{

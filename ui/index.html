@@ -190,6 +190,9 @@ canvas.art,.art{width:96px;height:96px;border-radius:var(--r-b);border:1px solid
       <div class="cap mono">LIBRARY FOLDER</div>
       <div class="librow">
         <input id="libpath" type="text" spellcheck="false" placeholder="C:\Users\you\Music">
+        <button id="libbrowse" class="mono" title="Browse for folder" aria-label="Browse for music folder" style="display:flex;align-items:center;padding:6px 9px">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        </button>
         <button id="libscan" class="mono">SCAN</button>
       </div>
       <div class="libstat mono" id="libstat">no scan yet</div>
@@ -201,7 +204,7 @@ canvas.art,.art{width:96px;height:96px;border-radius:var(--r-b);border:1px solid
 <script>
 /* ============ widget page wiring ============ */
 ["widget","wbody","head","edgeCv","artCv","artImg","trkNo","tTitle","tTech","seek","seekCv","tip","tCur","tTot",
- "lyrics","lyrWrap","lyrView","lrcHint","lrcGet","qrows","queue","libpath","libscan","libstat","leds",
+ "lyrics","lyrWrap","lyrView","lrcHint","lrcGet","qrows","queue","libpath","libbrowse","libscan","libstat","leds",
  "icoPlay","icoPause","btnPlay","btnLyrics","btnQueue","btnShuf","btnRep","btnPrev","btnNext",
  "btnMax","btnClose"].forEach(k=>el[k]=document.getElementById(k));
 wireSeek(el.seek);
@@ -277,6 +280,13 @@ document.addEventListener("click",e=>{
 });
 el.libscan.onclick=()=>scanLibrary(el.libpath.value.trim()).then(()=>{buildQueue()});  /* viewer: forwards cmd to owner; state returns via sync */
 el.libpath.addEventListener("keydown",e=>{if(e.key==="Enter")el.libscan.click()});
+el.libbrowse.onclick=async()=>{
+  try{const dir=await invoke("pick_folder");
+    if(dir){el.libpath.value=dir;await scanLibrary(dir);buildQueue()}}
+  catch(e){console.warn("pick_folder",e)}
+};
+/* owner re-pointed the library -> keep the widget input in lockstep */
+document.addEventListener("halftone:root",()=>{el.libpath.value=S.root||""});
 
 /* ============ right-click configurator ============
    NATIVE OS menu (Tauri menu API): renders past the window

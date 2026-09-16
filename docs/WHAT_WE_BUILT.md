@@ -259,7 +259,24 @@ this stays verifiable.
 Phase 0 (verification gap) is closed and committed `4b86404`; see sections 2–3 above. Phases
 1–6 (robustness, scale, first-run, distribution, accessibility, and the settled spec decisions
 listed above) are being implemented phase-by-phase, each with a hard CDP gate before the next
-begins. Status will be recorded here per phase as gates pass.
+begins. Status will be recorded here as gates pass.
+
+## Pass: folder picker + OTA self-update (2026-09-16, v0.1.1)
+
+Two distribution/UX gaps closed in one pass:
+
+1. **Native folder picker** — `pick_folder` (rfd) command + a folder icon button next to every
+   library path input (main sidebar, main empty-state, widget settings). Picking a folder fills
+   the input and scans immediately; pasting "Copy as path" quoted paths also works now
+   (`sanitize_dir` strips Explorer's quotes and trailing slashes before scanning).
+
+2. **OTA self-update channel** — Halftone checks `latest.json` (a release asset) and can update
+   itself: `ota_check` (compare versions), `ota_download` (blocking, staged as
+   `Halftone.update.next` next to the exe, MZ-magic sanity check), `ota_apply` (detached helper
+   waits for exit, copies, relaunches). UI lives in the EQ/OUTPUT panel as an UPDATES row:
+   CHECK → DOWNLOAD → INSTALL + RESTART, with staged-update state painted at boot. Override
+   with `HALFTONE_OTA_URL`, disable with `HALFTONE_NO_OTA`. No admin, no installer — the exe
+   replaces itself in place.
 
 ## Known limits / next ideas
 

@@ -1,6 +1,6 @@
 [package]
 name = "halftone"
-version = "0.1.0"
+version = "0.1.1"
 description = "Floating desktop mini-player widget for a local music library"
 license = "MIT"
 edition = "2021"
@@ -13,6 +13,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
+rfd = "0.15"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 notify = "7"

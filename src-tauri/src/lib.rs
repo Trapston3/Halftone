@@ -13,6 +13,21 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+// OTA update channel: latest.json published as a release asset. Override the
+// source for QA with HALFTONE_OTA_URL; disable the check with HALFTONE_NO_OTA.
+const OTA_LATEST_URL: &str =
+    "https://github.com/Trapston3/Halftone/releases/latest/download/latest.json";
+
+/// Normalize a user-pasted folder path: trim whitespace, then strip the
+/// surrounding quotes Explorer's "Copy as path" adds when the path contains
+/// spaces ("C:\Users\Sashankar J\..."). A plain drive root "C:\" survives.
+fn sanitize_dir(dir: &str) -> String {
+    let t = dir.trim();
+    let t = t.trim_matches('"').trim_matches('\'').trim();
+    let t = if t.chars().count() > 3 { t.trim_end_matches(['\\', '/']) } else { t };
+    t.trim().to_string()
+}
+
 pub fn base64_decode_pub(s: &str) -> Option<Vec<u8>> {
     base64_decode(s)
 }
@@ -374,7 +389,11 @@ const UNSUPPORTED_AUDIO: &[&str] = &["mp3", "m4a", "aac", "wav", "ogg", "oga", "
 fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> {
     use tauri::Emitter;
 
-    if !Path::new(dir).is_dir() {
+    let dir = sanitize_dir(dir);
+    if dir.is_empty() {
+        return Err("folder not found: (empty path)".into());
+    }
+    if !Path::new(&dir).is_dir() {
         return Err(format!("folder not found: {}", dir));
     }
     let mut tracks = Vec::new();
@@ -382,7 +401,7 @@ fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> 
     let mut unsupported = 0usize;
     let mut flac_seen = 0usize;
     let t0 = std::time::Instant::now();
-    let cancel = CANCEL_SCAN.load(std::sync::atomic::Ordering::Relaxed);
+    let _ = CANCEL_SCAN.swap(false, std::sync::atomic::Ordering::Relaxed);
 
     // RECURSIVE walk (Artist/Album/ layouts) with progress events.
     fn walk(
@@ -436,7 +455,7 @@ fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> 
         Ok(())
     }
 
-    walk(Path::new(dir), 0, &mut tracks, &mut skipped, &mut unsupported, &mut flac_seen, &app)
+    walk(Path::new(&dir), 0, &mut tracks, &mut skipped, &mut unsupported, &mut flac_seen, &app)
         .map_err(|e| format!("scan failed: {}", e))?;
     CANCEL_SCAN.store(false, std::sync::atomic::Ordering::Relaxed);
     tracks.sort_by(|a, b| a.path.cmp(&b.path));
@@ -448,10 +467,217 @@ fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> 
                            "ms": t0.elapsed().as_millis()}),
     );
     if let Some(app) = APP.get() {
-        watch_folder(app.clone(), dir);
+        watch_folder(app.clone(), &dir);
     }
     Ok(ScanResult { tracks, skipped, unsupported })
 }
+
+// ---------------------------------------------------------------------------
+// Native folder picker (no plugin — one dialog, returns an owned String)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn pick_folder() -> Option<String> {
+    let picked = rfd::FileDialog::new()
+        .set_title("Choose your music folder")
+        .pick_folder();
+    picked.and_then(|p| p.to_str().map(|s| s.to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// OTA self-update — download a new exe, then replace after clean exit.
+// Cannot touch the running image on Windows, so the new binary is staged as
+// Halftone.update.next to the exe's folder and swap_install() finishes the
+// job from a detached helper process once this one is gone.
+// ---------------------------------------------------------------------------
+
+fn ota_url() -> String {
+    std::env::var("HALFTONE_OTA_URL").unwrap_or_else(|_| OTA_LATEST_URL.to_string())
+}
+
+/// Fetch + parse latest.json -> (version, exe url)
+fn ota_latest() -> Result<(String, String), String> {
+    let b = ota_fetch(&ota_url())?;
+    let v: serde_json::Value = serde_json::from_slice(&b).map_err(|e| format!("bad latest.json: {e}"))?;
+    let ver = v["version"].as_str().unwrap_or("").to_string();
+    let url = v["url"].as_str().unwrap_or("").to_string();
+    if ver.is_empty() || url.is_empty() {
+        return Err("bad latest.json (missing version/url)".into());
+    }
+    Ok((ver, url))
+}
+
+#[derive(Serialize, Clone)]
+struct OtaStatus {
+    supported: bool,
+    checking: bool,
+    disabled: bool,
+    current: String,
+    available: Option<String>, // new version when one is found
+    downloading: bool,
+    ready: bool,       // staged, applied on next start
+    error: Option<String>,
+}
+
+fn ota_paths() -> Result<(PathBuf, PathBuf), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let dir = exe.parent().ok_or("no parent dir")?.to_path_buf();
+    Ok((exe, dir.join("Halftone.update.next")))
+}
+
+#[tauri::command]
+fn ota_check() -> OtaStatus {
+    let mut st = OtaStatus {
+        supported: true,
+        checking: false,
+        disabled: std::env::var("HALFTONE_NO_OTA").is_ok(),
+        current: env!("CARGO_PKG_VERSION").to_string(),
+        available: None,
+        downloading: false,
+        ready: ota_paths().map(|(_, s)| s.exists()).unwrap_or(false),
+        error: None,
+    };
+    if st.disabled || st.ready {
+        return st; // update already staged or check disabled (QA/dev)
+    }
+    match ota_latest() {
+        Ok((ver, _url)) => {
+            if ver != env!("CARGO_PKG_VERSION") {
+                st.available = Some(ver);
+            }
+        }
+        Err(e) => st.error = Some(e),
+    }
+    st
+}
+
+/// Fetch a URL over HTTPS with a 30s timeout and a UA. Small redirect
+/// follower (github release links redirect to objects.githubusercontent).
+fn http_get(url: &str, max_redirects: usize) -> Result<reqwest::blocking::Response, String> {
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("halftone-ota")
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut resp = client.get(url).send().map_err(|e| e.to_string())?;
+    // reqwest follows redirects by default; this loop is a safety net.
+    if resp.status().is_redirection() && max_redirects > 0 {
+        if let Some(loc) = resp.headers().get(reqwest::header::LOCATION) {
+            let loc = loc.to_str().map_err(|e| e.to_string())?.to_string();
+            resp = http_get(&loc, max_redirects - 1)?;
+        }
+    }
+    resp.error_for_status().map_err(|e| e.to_string())
+}
+
+fn ota_fetch(url: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read as _;
+    let resp = http_get(url, 5)?;
+    let mut out = Vec::new();
+    resp.take(64 * 1024 * 1024)
+        .read_to_end(&mut out)
+        .map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+#[tauri::command]
+fn ota_download() -> OtaStatus {
+    let mut st = ota_check();
+    if st.disabled || st.available.is_none() || st.ready {
+        return st;
+    }
+    let ver = st.available.clone().unwrap_or_default();
+    let url = match ota_latest() {
+        Ok((v, u)) if v == ver => u,
+        Ok(_) => {
+            st.error = Some("latest.json changed mid-update".into());
+            return st;
+        }
+        Err(e) => {
+            st.error = Some(e);
+            return st;
+        }
+    };
+    let (_exe_path, stage) = match ota_paths() {
+        Ok(p) => p,
+        Err(e) => {
+            st.error = Some(e);
+            return st;
+        }
+    };
+    match ota_fetch(&url) {
+        Ok(bytes) => {
+            if bytes.len() < 1_000_000 {
+                st.error = Some(format!("downloaded exe too small ({} B)", bytes.len()));
+                return st;
+            }
+            if std::fs::write(&stage, &bytes).is_err() {
+                st.error = Some("cannot write update next to the exe".into());
+                return st;
+            }
+            // sanity: PE images start with "MZ"
+            if !bytes.starts_with(b"MZ") {
+                let _ = std::fs::remove_file(&stage);
+                st.error = Some("downloaded file is not a Windows exe".into());
+                return st;
+            }
+            st.downloading = false;
+            st.ready = true;
+            st.available = Some(ver);
+            st
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&stage);
+            st.error = Some(format!("download failed: {e}"));
+            st
+        }
+    }
+}
+
+#[tauri::command]
+fn ota_apply() -> Result<String, String> {
+    let (exe_path, stage) = ota_paths()?;
+    if !stage.exists() {
+        return Err("no update staged".into());
+    }
+    // sanity: PE images start with "MZ"
+    let mut f = fs::File::open(&stage).map_err(|e| e.to_string())?;
+    let mut magic = [0u8; 2];
+    f.read_exact(&mut magic).map_err(|e| e.to_string())?;
+    drop(f);
+    if &magic != b"MZ" {
+        let _ = std::fs::remove_file(&stage);
+        return Err("staged file is not a Windows exe".into());
+    }
+    let exe = exe_path.to_string_lossy().to_string();
+    let stage_s = stage.to_string_lossy().to_string();
+    /* Helper as a generated .cmd file — nested cmd /C start /C "..." quoting is
+       fragile (cmd's quote stripping mangles it); a batch file is deterministic.
+       %~f0 self-deletes the script; the app must be gone before copy, hence the
+       2s wait (process::exit below takes effect immediately). */
+    let bat = exe_path.parent().ok_or("no parent dir")?.join("Halftone.update.cmd");
+    let script = format!(
+        "@echo off\r\ntimeout /T 2 /NOBREAK >NUL\r\ncopy /Y \"{st}\" \"{ex}\" >NUL\r\nif errorlevel 1 exit 1\r\ndel /Q \"{st}\"\r\nstart \"\" \"{ex}\"\r\ndel /Q \"%~f0\"\r\n",
+        st = stage_s,
+        ex = exe
+    );
+    fs::write(&bat, script).map_err(|e| format!("cannot write update helper: {e}"))?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        std::process::Command::new("cmd")
+            .arg("/C")
+            .arg(&bat)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(windows))]
+    std::process::Command::new("sh").arg("-c").arg(&script).spawn().map_err(|e| e.to_string())?;
+    std::process::exit(0);
+}
+
 
 static CANCEL_SCAN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -713,7 +939,11 @@ pub fn run() {
             scan_cancel,
             open_track,
             read_lyrics,
-            flac_url
+            flac_url,
+            pick_folder,
+            ota_check,
+            ota_download,
+            ota_apply
         ])
         .run(tauri::generate_context!())
         .expect("halftone widget failed to start");

@@ -142,7 +142,9 @@ function applySync(d){
                                :clampAccent(ACC_HUES[d.acc]))}
   if(d.liked)S.liked=new Set(d.liked);
   if(d.playlists)S.playlists=d.playlists.map(pl=>({name:pl.name,paths:new Set(pl.paths)}));
-  if(d.lib){S.lib=d.lib;S.root=d.root||S.root}
+  if(d.lib){S.lib=d.lib;
+    if(d.root&&d.root!==S.root){S.root=d.root;
+      document.dispatchEvent(new CustomEvent("halftone:root"))}}
   if(d.vol!=null&&Math.abs(d.vol-S.vol)>.001){S.vol=d.vol;
     document.dispatchEvent(new CustomEvent("halftone:vol"))}
   if(d.shuffle!=null)S.shuffle=d.shuffle;
