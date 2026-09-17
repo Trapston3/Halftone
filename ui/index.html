@@ -263,6 +263,8 @@ el.lrcGet.onclick=async e=>{
   e.preventDefault();
   const t=trk()||{title:"",artist:""};
   openExternal("https://lrclib.net/search?q="+encodeURIComponent(t.artist+" "+t.title));
+  /* viewer: forward the fetch to the owner; it saves the .lrc and re-syncs */
+  if(t.path)try{await emitCmd({cmd:"lrcfetch",path:t.path,artist:t.artist,title:t.title})}catch(_){}
 };
 
 /* ============ queue / library ============ */
@@ -287,6 +289,7 @@ el.libbrowse.onclick=async()=>{
 };
 /* owner re-pointed the library -> keep the widget input in lockstep */
 document.addEventListener("halftone:root",()=>{el.libpath.value=S.root||""});
+wireDropZone(el.widget);
 
 /* ============ right-click configurator ============
    NATIVE OS menu (Tauri menu API): renders past the window

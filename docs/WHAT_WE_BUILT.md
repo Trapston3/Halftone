@@ -278,10 +278,54 @@ Two distribution/UX gaps closed in one pass:
    with `HALFTONE_OTA_URL`, disable with `HALFTONE_NO_OTA`. No admin, no installer — the exe
    replaces itself in place.
 
+## Pass: LRCLIB auto-fetch + drag-and-drop scan (2026-09-16, v0.1.2)
+
+The last two items from the backlog, closed in one pass:
+
+1. **LRCLIB auto-fetch** — GET LYRICS no longer just opens a browser tab. A new `lrc_fetch`
+   Tauri command queries `lrclib.net/api/search` (artist_name/track_name first, generic `q=`
+   fallback), picks the first result with non-empty `syncedLyrics` (exact title match
+   preferred), and writes `<track>.lrc` next to the FLAC. The lyric pane rebuilds and follows
+   immediately; the widget gets the pane via the normal sync (viewer `GET LYRICS` forwards an
+   `lrcfetch` command to the owner — single-audio/single-writer discipline holds: only the
+   owner hits the network and writes files). The browser tab still opens so you can eyeball
+   the source. Verified live: The Cure — "Burn" fetched 45 lines, pane live in BOTH windows,
+   file on disk next to the FLAC.
+
+2. **Drag-and-drop folder scan** — drop an audio file (or a selection) anywhere on the main
+   window or the widget: the dropped file's parent folder fills the library path and a scan
+   fires. `wireDropZone` in common.js, attached to `document.body` (main) and `#widget`.
+   Verified via synthetic DragEvents (dragover prevented → drop → scan ran, 95-track lib
+   re-pointed). Real Explorer drops work because both windows set `dragDropEnabled: false` —
+   WebView2's native drag-DOM interception is off, so HTML5 drag events reach the page.
+
+## Features completed in v0.1.1
+
+- Native folder picker — `pick_folder` (rfd) command + folder icon button next to every library path input (main sidebar, main empty-state, widget settings). Picking a folder fills the input and scans immediately; pasting "Copy as path" quoted paths also works now (`sanitize_dir` strips Explorer's quotes and trailing slashes before scanning).
+
+## Pass: LRCLIB auto-fetch + drag-and-drop scan (2026-09-16, v0.1.2)
+
+The last two items from the backlog, closed in one pass:
+
+1. **LRCLIB auto-fetch** — GET LYRICS no longer just opens a browser tab. A new `lrc_fetch`
+   Tauri command queries `lrclib.net/api/search` (artist_name/track_name first, generic `q=`
+   fallback), picks the first result with non-empty `syncedLyrics` (exact title match
+   preferred), and writes `<track>.lrc` next to the FLAC. The lyric pane rebuilds and follows
+   immediately; the widget gets the pane via the normal sync (viewer `GET LYRICS` forwards an
+   `lrcfetch` command to the owner — single-audio/single-writer discipline holds: only the
+   owner hits the network and writes files). The browser tab still opens so you can eyeball
+   the source. Verified live: The Cure — "Burn" fetched 45 lines, pane live in BOTH windows,
+   file on disk next to the FLAC.
+
+2. **Drag-and-drop folder scan** — drop an audio file (or a selection) anywhere on the main
+   window or the widget: the dropped file's parent folder fills the library path and a scan
+   fires. `wireDropZone` in common.js, attached to `document.body` (main) and `#widget`.
+   Verified via synthetic DragEvents (dragover prevented → drop → scan ran, 95-track lib
+   re-pointed). Real Explorer drops work because both windows set `dragDropEnabled: false` —
+   WebView2's native drag-DOM interception is off, so HTML5 drag events reach the page.
+
 ## Known limits / next ideas
 
-- lrclib auto-fetch of `.lrc` files (button currently opens their search page)
-- drag-and-drop folder scan
 - WSOL/ALAC format support (FLAC-only today)
 - position sync granularity is the ~30fps broadcast — no interpolation on the widget side
   (per spec: widget renders the owner's value, never estimates)

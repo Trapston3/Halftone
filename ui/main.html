@@ -811,8 +811,21 @@ document.addEventListener("halftone:tick",()=>{el.tCur.textContent=fmt(posSec())
 /* lrc fetch */
 el.lrcGet.onclick=async e=>{
   e.preventDefault();
-  const t=trk()||{title:"",artist:""};
+  const t=trk()||{title:"",artist:"",path:""};
+  /* first open lrclib.net search in the default browser */
   openExternal("https://lrclib.net/search?q="+encodeURIComponent(t.artist+" "+t.title));
+  /* then fetch the .lrc directly: if one exists on lrclib, save it next to the FLAC
+     and load it into the lyric pane without switching tabs */
+  if(t.path){
+    try{
+      const lrcPath=await invoke("lrc_fetch",{path:t.path,artist:t.artist,title:t.title});
+      toast("Lyrics saved: "+lrcPath,"ok");
+      /* reload lyrics for current track */
+      S.lyrics=await invoke("read_lyrics",{path:t.path});
+      if(el.lyrWrap)el.lyrWrap.classList.toggle("show",!!S.lyrics.length);
+      buildLyrics();updateLyrics();emitSync();
+    }catch(e){toast("Lyrics fetch failed: "+e,"error")}
+  }
 };
 
 /* window controls. LOAD-BEARING: main is the sole audio owner, so
@@ -830,6 +843,7 @@ el.btnWidget.onclick=async()=>{
   }catch(e){console.warn(e)}
 };
 wireDrag(el.dragTop);wireDrag(el.dragLogo);
+wireDropZone(document.body);
 el.btnSide.onclick=()=>setCfgM("side",S.cfg.side===false?true:false);
 
 /* library folder browse (owner scans natively; viewer forwards via scanLibrary) */

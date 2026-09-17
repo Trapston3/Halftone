@@ -736,6 +736,59 @@ fn pct_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).to_string()
 }
 
+// LRCLIB auto-fetch: search for a track, download its synced .lrc if present,
+// and save it next to the FLAC so the normal read_lyrics path picks it up.
+#[tauri::command]
+async fn lrc_fetch(path: String, artist: String, title: String) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("halftone-lrc/0.1.1")
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    // lrclib GET /api/search — docs: https://lrclib.net/docs (also supports
+    // track_name/artist_name params; q= full-text works for odd tags).
+    let search_url = "https://lrclib.net/api/search".to_string();
+    let resp = client.get(&search_url)
+        .query(&[("artist_name", artist.as_str()), ("track_name", title.as_str())])
+        .send().await.map_err(|e| e.to_string())?;
+    let resp = if !resp.status().is_success() {
+        // fallback: generic q= search
+        client.get(&search_url)
+            .query(&[("q", format!("{} {}", artist, title).as_str())])
+            .send().await.map_err(|e| e.to_string())?
+    } else { resp };
+
+    if !resp.status().is_success() {
+        return Err(format!("lrclib search failed ({})", resp.status()));
+    }
+    let results: Vec<serde_json::Value> = resp.json().await.map_err(|e| e.to_string())?;
+    if results.is_empty() {
+        return Err("no lyrics found on lrclib".into());
+    }
+
+    // prefer an exact-ish match with synced lyrics; fall back to any synced result
+    let pick = results.iter().find(|r| {
+        r["syncedLyrics"].as_str().map_or(false, |s: &str| !s.trim().is_empty())
+            && r["trackName"].as_str().map_or(false, |n: &str| n.eq_ignore_ascii_case(&title))
+    }).or_else(|| results.iter().find(|r| {
+        r["syncedLyrics"].as_str().map_or(false, |s: &str| !s.trim().is_empty())
+    }));
+    let lrc_text = match pick.and_then(|r| r["syncedLyrics"].as_str()) {
+        Some(t) if !t.trim().is_empty() => t,
+        _ => return Err("no synced lyrics available".into()),
+    };
+
+    // write <audio-basename>.lrc next to the FLAC
+    let src = Path::new(&path);
+    if !src.exists() {
+        return Err("track file not found".into());
+    }
+    let lrc_path = src.with_extension("lrc");
+    fs::write(&lrc_path, lrc_text).map_err(|e| format!("cannot write {}: {e}", lrc_path.display()))?;
+    Ok(lrc_path.to_string_lossy().to_string())
+}
+
 // ---------------------------------------------------------------------------
 // SMTC bridge commands (owner/UI only)
 // ---------------------------------------------------------------------------
@@ -941,6 +994,7 @@ pub fn run() {
             read_lyrics,
             flac_url,
             pick_folder,
+            lrc_fetch,
             ota_check,
             ota_download,
             ota_apply

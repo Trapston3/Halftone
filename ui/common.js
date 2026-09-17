@@ -205,6 +205,14 @@ if(T&&T.event&&T.event.listen&&curWin){
           else if(c.cmd==="vol")setVol(c.v);
           else if(c.cmd==="load"&&c.i!=null)await loadTrack(c.i,true);
           else if(c.cmd==="scan")await scanLibrary(c.dir||S.root||"");
+          else if(c.cmd==="lrcfetch"&&c.path){
+            try{await invoke("lrc_fetch",{path:c.path,artist:c.artist,title:c.title});
+              if(S.i!=null&&S.lib[S.i]&&S.lib[S.i].path===c.path){
+                S.lyrics=await invoke("read_lyrics",{path:c.path});
+                if(el.lyrWrap)el.lyrWrap.classList.toggle("show",!!S.lyrics.length);
+                S.lidx=-1;updateLyrics();buildLyrics&&buildLyrics()}
+              toast("Lyrics fetched from LRCLIB.","ok");emitSync()}
+            catch(e){toast("Lyrics fetch failed: "+e,"error")}}
           else if(c.cmd==="repeat")cycleRepeat();
           else if(c.cmd==="shuffle"){S.shuffle=!S.shuffle;saveStore();updTransportAll();emitSync({shuffle:S.shuffle})}
           else if(c.cmd==="like"&&c.path){toggleLike(c.path);emitSync()}
@@ -785,6 +793,34 @@ function wireDrag(zone){
   const done=()=>armed=false;
   zone.addEventListener("pointerup",done);
   zone.addEventListener("pointercancel",done);
+}
+
+/* ============ drag-and-drop folder scan ============ */
+function wireDropZone(zone){
+  if(!zone)return;
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', async (e) => {
+    e.preventDefault(); zone.classList.remove('drag-over');
+    const items = e.dataTransfer?.files;
+    if(!items?.length)return;
+    for(const f of items){
+      // if user drops an audio file, treat its parent folder as the music library
+      if(f.name.match(/\.(flac|m4a|mp3|wav|ogg)$/i)){
+        const parent = f.webkitRelativePath?.split(/[/\\]/).slice(0,-1).join('/') || f.path?.split(/[/\\]/).slice(0,-1).join('/');
+        if(parent){
+          // main library empty-state
+          if(el.libpath && el.libpath.value){
+            el.libpath.value = parent; await scanLibrary(parent); render();
+          }
+          // widget settings (index.html)
+          if(el.libbrowse && el.libpath){
+            el.libpath.value = parent; await scanLibrary(parent);
+          }
+        }
+      }
+    }
+  });
 }
 
 /* ============ collections ============ */
