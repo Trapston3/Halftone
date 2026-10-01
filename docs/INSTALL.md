@@ -110,11 +110,28 @@ Removes the launcher, menu entry, icon and AppImage. If you installed the
 
 ## Troubleshooting
 
-- **Windows: "download failed after retries"** — GitHub is unreachable from
-  your network (proxy/corporate firewalls are the usual cause). Download
+- **Windows: "download failed (last HTTP status: 504…)" / "download failed
+  after retries"** — GitHub's release CDN (or your network) hiccuped. The
+  installer already retries every URL 4× with backoff and falls back between
+  `curl.exe`, `Invoke-WebRequest`, `WebClient` and BITS; transient **504
+  Gateway Timeout / 502 / timeouts** usually clear on their own — **rerun the
+  same one-liner after a minute** before doing anything else.
+- **Corporate proxy / firewall** — the installers use the system's `curl`
+  first (Windows 10+ ships `curl.exe`), which honors `HTTP_PROXY` /
+  `HTTPS_PROXY` environment variables. If GitHub is blocked at the proxy, ask
+  IT to allow `github.com` and `*.githubusercontent.com`, or download
   [`Halftone.exe`](https://github.com/Trapston3/Halftone/releases/latest/download/Halftone.exe)
   manually in a browser and run it; the one-liner's only extras are
   PATH/shortcuts.
+- **Manual download (any platform)** — everything is on
+  [Releases](https://github.com/Trapston3/Halftone/releases): grab the asset
+  for your platform, optionally verify it against the sibling
+  `<asset>.sha256` (`sha256sum -c` / `Get-FileHash`), and see the Manual
+  install section above.
+- **Testing an installer without installing** — run the download + checksum
+  pipeline only: `install.ps1 -DryRun` (or `HALFTONE_DRYRUN=1`) on Windows,
+  `HALFTONE_DRYRUN=1 sh install.sh` on Linux. It fetches and verifies the
+  release assets, then stops before touching PATH, shortcuts or binaries.
 - **Windows: `halftone` not found in a shell** — PATH changes apply to *new*
   shells only; reopen the terminal, or use `Win+R` → `halftone`.
 - **Windows: "checksum mismatch"** — the downloaded exe didn't match the
