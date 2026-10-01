@@ -87,12 +87,23 @@ Lists: `.list` > `.row(.cur,.playing)` > `.row-art`, `.row-title`,
 
 Now playing: `.np` > `.np-art` (`canvas.art-dither` or `img.art-real`),
 `.np-title`, `.np-artist`, `.np-meta`, `.np-transport`, `.lyrics` >
-`.lyric-line(.active,.past)`; `.lyrics.plain` for unsynced text;
+`.lyric-line(.active,.past,.future)`; `.past` = already sung, `.future` =
+upcoming (dimmed); `.lyrics.plain` for unsynced text;
 `.lyrics-status` (searching / none found / source label).
 
 Overlays: `.sheet` (bottom sheet) > `.sheet-handle`, `.sheet-head`,
 `.sheet-row`; `.menu` > `.menu-item(.on)`, `.menu-sep`, nested `.menu.sub`;
 `.toast(.ok,.warn,.error)`; `.tooltip`.
+
+Cover art (context menu + sheets): any song `.row`, album `.card`,
+now-playing `.np-art` and widget `.w-art` right-clicks open `.menu`
+with a `CHANGE COVER ART` submenu (`IMPORT IMAGE…` / `SEARCH THE
+WEB…` / `RESET TO DEFAULT`); the row "more" sheet exposes the same
+via `CHANGE COVER ART…` (touch/keyboard path). Cover search sheet:
+`.cover-grid` > `button.cover-cell` (`img` + `.cover-src` source
+badge); click applies, Esc closes. Source caption (EMBEDDED / YOUR
+CHOICE / WEB / NONE) from `cover_info` renders as `.h-caps.mono` in
+the change-cover sheet.
 
 Decor layer (first child of `body`, pointer-events none):
 ```html

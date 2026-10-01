@@ -1,513 +1,465 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="analogue" data-mode="dark" data-motion="full" data-density="cozy" data-surface="main" data-nav="left" data-nav-labels="icons">
 <head>
 <meta charset="utf-8">
 <title>Halftone</title>
-<link rel="stylesheet" href="style.css">
+<script>
+/* boot-error reporter: last uncaught error + stack into __HT_BOOT_ERR
+   (read by the test harness; harmless in production) */
+window.onerror=function(msg,src,line,col,err){
+  window.__HT_BOOT_ERR={msg:String(msg),line:line,
+    stack:err&&err.stack?String(err.stack).split("\n").slice(0,24).join("\n"):null};
+  if(window.__HT_BOOT_ERR.stack)console.error("HT-ERR",msg,"@"+line+"\n"+window.__HT_BOOT_ERR.stack);
+  return false;
+};
+window.addEventListener("unhandledrejection",function(ev){
+  var r=ev.reason;
+  window.__HT_BOOT_ERR={msg:"unhandledrejection: "+(r&&r.message||String(r)),
+    line:0,stack:r&&r.stack?String(r.stack).split("\n").slice(0,24).join("\n"):null};
+});
+</script>
+<link rel="stylesheet" href="themes/base.css">
+<link rel="stylesheet" href="themes/analogue.css">
+<link rel="stylesheet" href="themes/digital.css">
 <style>
-/* ============ TUI shell — same frame language as the widget ============ */
+/* ============ main-window page styles (token-driven) ============ */
 body{background:transparent}
-.tui{
-  position:fixed;inset:0;border-radius:var(--r-w);
-  background:var(--bg);border:1px solid var(--accent);
-  display:flex;flex-direction:column;overflow:visible;
-}
-.tui-body{position:relative;border-radius:calc(var(--r-w) - 1px);overflow:hidden;flex:1;display:flex;flex-direction:column;background:var(--bg)}
+.shell{border-color:var(--accent)}
 #edgeCv{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:40}
 
-.app{display:grid;grid-template-columns:212px 1fr;grid-template-rows:minmax(0,1fr);flex:1;min-height:0}
-.side{border-right:1px solid var(--line);display:flex;flex-direction:column;background:var(--bg2)}
-.side .logo{display:flex;align-items:center;gap:var(--sp2);padding:var(--sp3);cursor:grab}
-.side .logo:active{cursor:grabbing}
-.side .logo .dotgrid{width:20px;height:20px}
-.side .logo .nm{font-size:11px;font-weight:700;letter-spacing:.3em;color:var(--cream)}
-.side .logo .nm em{color:var(--accent);font-style:normal}
-.side nav{flex:1;padding:var(--sp1)}
-.side .libzone{border-top:1px solid var(--line);padding:var(--sp2);display:flex;flex-direction:column;gap:var(--sp1)}
-.side .libzone .libstat{font-size:9px;letter-spacing:.1em;color:var(--dim2);font-family:var(--mono);padding:0 2px}
+/* titlebar center: search + caption */
+.titlebar .tb-title{min-width:150px;font-size:.625rem;letter-spacing:.18em;color:var(--fg-3);font-family:var(--font-mono)}
+.titlebar .search{flex:0 1 380px;display:flex;align-items:center;gap:var(--sp2);
+  border:1px solid var(--line);border-radius:var(--R-m);padding:5px 10px;background:var(--bg-2)}
+.titlebar .search svg{width:13px;height:13px;color:var(--fg-3)}
+.titlebar .search input{flex:1;min-width:0;background:none;border:0;color:var(--fg);font-size:.75rem;outline:none}
 
-.nav{display:flex;align-items:center;gap:var(--sp2);width:100%;padding:var(--sp2);border-radius:var(--r-m);
-  font-size:10px;font-weight:600;letter-spacing:.16em;color:var(--dim);border:1px solid transparent;text-align:left}
-.nav svg{width:14px;height:14px}
-.nav:hover{color:var(--cream);border-color:var(--line)}
-.nav.on{color:var(--accent);border-color:var(--accent);background:var(--accent-12)}
+/* nav rail extras: logo + library zone */
+.nav .logo{display:flex;align-items:center;gap:var(--sp2);padding:var(--sp2);cursor:grab}
+.nav .logo:active{cursor:grabbing}
+.nav .logo .dotgrid{width:20px;height:20px}
+.nav .logo .nm{font-size:.6875rem;font-weight:700;letter-spacing:.3em;color:var(--fg);font-family:var(--font-mono)}
+.nav .logo .nm em{color:var(--accent);font-style:normal}
+.nav .libzone{border-top:1px solid var(--line);padding:var(--sp2);display:flex;flex-direction:column;gap:var(--sp1);margin-top:auto}
+[data-nav="top"] .nav .libzone,[data-nav="bottom"] .nav .libzone{display:none}
+[data-nav-labels="icons"] .nav .libzone{display:none}
+.librow input{flex:1;min-width:0;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--R-l);
+  color:var(--fg);font-size:.6875rem;font-family:var(--font-mono);padding:6px 8px}
+.librow input:focus{outline:none;border-color:var(--accent)}
+.librow .btn{padding:6px 9px}
 
-.main{display:flex;flex-direction:column;min-width:0}
-.topbar{
-  display:flex;align-items:center;gap:var(--sp3);padding:var(--sp2) var(--sp4);
-  border-bottom:1px solid var(--line);cursor:grab;
-}
-.topbar:active{cursor:grabbing}
-.topbar .h-caps{min-width:150px}
-.search{
-  flex:0 1 380px;display:flex;align-items:center;gap:var(--sp2);
-  border:1px solid var(--line);border-radius:var(--r-m);padding:6px 10px;background:var(--bg2);
-}
-.search svg{width:13px;height:13px;color:var(--dim2)}
-.search input{flex:1;min-width:0;background:none;border:0;color:var(--cream);font:12px var(--sans);outline:none}
-.topbar .spacer{flex:1}
-.back2widget{margin-left:auto}
+/* view inner scroll region */
+.view>.vscroll{flex:1;min-height:0;overflow-y:auto;padding:var(--sp6);display:flex;flex-direction:column;gap:var(--sp3);position:relative}
 
-.content{flex:1;overflow-y:auto;padding:var(--sp4);display:flex;flex-direction:column;gap:var(--sp3);position:relative;z-index:1}
-.content .h1{margin-bottom:var(--sp1)}
+/* now playing specifics */
+.np .np-art{margin-left:var(--sp2)}
+.np.np-stacked .np-left{align-items:center;text-align:center}
+.np.np-stacked .np-art{margin-left:0}
+.np.np-stacked .np-transport,.np.np-stacked .np-seek{width:min(600px,82%);margin:0 auto}
+.np.np-stacked .np-transport{justify-content:center}
+.np.np-stacked .np-transport .vol{margin-left:0}
+.np.np-stacked .np-times{width:min(600px,82%);margin:0 auto}
 
-/* ============ library table ============ */
-.thead{display:grid;grid-template-columns:34px 1fr 1fr 130px 56px 70px 34px 34px;
-  gap:var(--sp2);padding:var(--sp1) var(--sp2);color:var(--dim2);
-  font-size:9px;letter-spacing:.16em;font-family:var(--mono);border-bottom:1px solid var(--line)}
-.thead span:nth-child(4),.thead span:nth-child(5){text-align:right}
-.tlist{display:flex;flex-direction:column;gap:2px;overflow-y:auto;padding-right:var(--sp1)}
-.trow{
-  display:grid;grid-template-columns:34px 1fr 1fr 130px 56px 70px 34px 34px;
-  align-items:center;gap:var(--sp2);padding:var(--sp1) var(--sp2);
-  border-radius:var(--r-l);color:var(--dim);
-}
-.trow:hover{background:var(--bg2)}
-.trow.cur .t-title{color:var(--accent)}
-.trow.cur .idx{color:var(--accent)}
-.trow .idx{font-size:10px;color:var(--dim2);font-family:var(--mono);text-align:right;padding-right:2px}
-.trow .t-title{font-size:12.5px;color:var(--cream);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
-.trow .t-sub{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
-.trow .t-dur{font-size:10.5px;font-family:var(--mono);color:var(--dim2);text-align:right}
-.trow .ibtn{width:24px;height:24px;display:grid;place-items:center;border:1px solid transparent;border-radius:var(--r-l);color:var(--dim2)}
-.trow .ibtn:hover{border-color:var(--line2);color:var(--cream)}
-.trow .ibtn.on{color:var(--accent)}
-.trow .ibtn svg{width:13px;height:13px}
-
-/* ============ album grid + hero ============ */
-.agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:var(--sp3);overflow-y:auto;padding:var(--sp1)}
-.acard{display:flex;flex-direction:column;gap:var(--sp2);padding:var(--sp2);border:1px solid transparent;border-radius:var(--r-b);text-align:left}
-.acard:hover{border-color:var(--line2);background:var(--bg2)}
-.acard .cover{width:100%;aspect-ratio:1;border-radius:var(--r-m);border:1px solid var(--line);background:#12171A;display:block;object-fit:cover}
-.acard .a-name{font-size:12px;font-weight:600;color:var(--cream);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.acard .a-sub{font-size:10px;color:var(--dim2);letter-spacing:.08em;font-family:var(--mono)}
-
-.ahero{display:flex;gap:var(--sp6);align-items:flex-end;margin-bottom:var(--sp4)}
-.ahero .cover{width:220px;height:220px;border-radius:var(--r-b);border:1px solid var(--line);background:#12171A;display:block;object-fit:cover}
-.ahero canvas.cover{object-fit:initial}
-.ahero .info{display:flex;flex-direction:column;gap:var(--sp2)}
-.ahero .h1{font-size:26px}
-.ahero .meta{font-size:10px;color:var(--dim2);letter-spacing:.14em;font-family:var(--mono)}
-.ahero .actions{display:flex;gap:var(--sp2);margin-top:var(--sp2)}
-.ahero .big{
-  display:inline-flex;align-items:center;gap:var(--sp2);padding:8px 16px;
-  border:1px solid var(--accent);border-radius:var(--r-m);color:var(--accent);
-  font-size:10px;letter-spacing:.16em;font-family:var(--mono);
-}
-.ahero .big:hover{background:var(--accent-12)}
-
-/* ============ now playing (Apple-Music-style maximize) ============ */
-.np{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;z-index:1}
-#ambient{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
-.np.hidden #ambient{display:none}
-.np.noambient #ambient{display:none}
-.np-grid{position:relative;z-index:1;flex:1;min-height:0;display:grid;grid-template-columns:400px 1fr;grid-template-rows:minmax(0,1fr);gap:var(--sp8);padding:var(--sp8) var(--sp8) var(--sp4)}
-.np-left{display:flex;flex-direction:column;gap:var(--sp4);min-width:0}
-.np-coverwrap{position:relative;width:min(340px,100%);aspect-ratio:1;flex:none}
-.np-coverwrap .np-cover{width:100%;height:100%;border-radius:var(--r-w);border:1px solid var(--line2);display:block;background:#12171A;object-fit:cover;
-  transition:transform .5s cubic-bezier(.2,.9,.2,1),box-shadow .5s}
-.np.playing .np-cover{transform:scale(1.045);box-shadow:0 24px 64px rgba(0,0,0,.5)}
-.np-info{display:flex;flex-direction:column;gap:var(--sp1);min-width:0}
-.np-kicker{font-size:10px;letter-spacing:.22em;color:var(--accent);font-family:var(--mono)}
-.np-title{font-size:26px;font-weight:600;color:var(--cream);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.np-artist{font-size:15px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.np-tech{font-size:10px;letter-spacing:.14em;color:var(--dim2);font-family:var(--mono)}
-.np-seek{display:flex;flex-direction:column;gap:var(--sp2)}
-.np-seek .seek{height:22px}
-.np-seek .seek.open{height:56px}
-.np-times{display:flex;justify-content:space-between;font-size:11px;font-variant-numeric:tabular-nums;color:var(--dim2);font-family:var(--mono)}
-.np-ctl{display:flex;align-items:center;gap:var(--sp2);padding-top:var(--sp2)}
-.np-ctl .vol{margin-left:auto;display:flex;align-items:center;gap:var(--sp2)}
-.np-ctl .vol svg{width:14px;height:14px;color:var(--dim)}
-
-/* right column: big lyrics */
-.np-lyr{
-  position:relative;min-height:0;display:flex;flex-direction:column;gap:var(--sp3);
-  padding-right:var(--sp2);
-}
-.np-lyr .h-caps{padding-left:4px}
-.np-lyrview{
-  flex:1;min-height:0;overflow-y:auto;padding:0 var(--sp2);
-  -webkit-mask-image:linear-gradient(transparent,#000 12%,#000 88%,transparent);
-          mask-image:linear-gradient(transparent,#000 12%,#000 88%,transparent);
-}
-.np-lyrwrap{position:relative}
-.np-lyrwrap .line{padding:15px 0;font-size:28px;line-height:1.4;color:rgba(242,232,207,.30);transition:color .3s ease;cursor:pointer;border-radius:var(--r-m)}
-.np-lyrwrap .line:hover{color:rgba(242,232,207,.55)}
-.np-lyrwrap .line.active{color:var(--cream);transform:translateX(10px)}
-.np-lyrwrap .line.active::before{content:"\25B8  ";color:var(--accent)}
-.np-nolrc{
-  flex:1;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:var(--sp2);
-  padding:0 var(--sp2);color:var(--dim);font-size:13px;line-height:1.7;
-}
-.np-nolrc a{
-  font-size:10px;letter-spacing:.14em;color:var(--accent);text-decoration:none;
-  border:1px solid var(--accent);border-radius:var(--r-l);padding:6px 12px;font-family:var(--mono);margin-top:var(--sp2);
-}
-.np-nolrc a:hover{background:var(--accent-12)}
-
-/* lyrics-off mode: big centered hero, transport under the art */
-.np.nolyr .np-grid{grid-template-columns:1fr;place-items:center}
-.np.nolyr .np-lyr{display:none}
-.np.nolyr .np-left{align-items:center;text-align:center;justify-content:center;gap:var(--sp3)}
-.np.nolyr .np-coverwrap{width:min(430px,56vh)}
-.np.nolyr .np-info{align-items:center}
-.np.nolyr .np-seek{width:min(600px,82%);margin:0 auto}
-.np.nolyr .np-times{width:min(600px,82%);margin:0 auto}
-.np.nolyr .np-ctl{width:min(600px,82%);margin:0 auto;justify-content:center;padding-top:var(--sp1)}
-.np.nolyr .np-ctl .vol{margin-left:0}
-
-/* collapsible sidebar */
-.app.noside{grid-template-columns:0 1fr}
-.app.noside .side{border-right:0;opacity:0;pointer-events:none}
-.side{transition:opacity .18s ease}
-.app{transition:grid-template-columns .18s ease}
-
-/* ============ bottom mini-bar (library views) ============ */
-.npbar{
-  display:flex;align-items:center;gap:var(--sp3);padding:var(--sp2) var(--sp4);
-  border-top:1px solid var(--line);background:var(--bg2);z-index:2;
-}
-.npbar:hover{cursor:pointer}
-.npbar .np-art{width:44px;height:44px;border-radius:var(--r-b);border:1px solid var(--line);background:#12171A;flex:none;object-fit:cover;display:block}
-.npbar .np-meta{width:210px;min-width:110px;display:flex;flex-direction:column;gap:2px}
-.npbar .np-title{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--cream)}
-.npbar .np-sub{font-size:9.5px;color:var(--dim2);letter-spacing:.08em;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.npbar .seekwrap{flex:1;max-width:520px}
-.npbar .np-ctl{display:flex;align-items:center;gap:var(--sp2);margin-left:auto}
-.npbar .vol{display:flex;align-items:center;gap:var(--sp2)}
-.npbar .vol svg{width:14px;height:14px;color:var(--dim)}
-
-/* ============ EQ panel — same dither/LED language as the player ============
-   Bands are LED ladders (same segment rhythm as the volume LEDs and the
-   spectrum meter); the header carries the dotgrid cap; panel is an in-place
-   sheet over the ambient field, not a floating dialog. */
-.eqpanel{
-  position:absolute;inset:var(--sp8) var(--sp8) var(--sp4) auto;z-index:45;
-  width:540px;max-width:calc(100% - 40px);max-height:calc(100% - 90px);overflow-y:auto;
-  background:rgba(22,24,26,.92);backdrop-filter:blur(6px);
-  border:1px solid var(--accent);border-radius:var(--r-b);
-  padding:var(--sp3) var(--sp4);display:none;flex-direction:column;gap:var(--sp3)}
-.eqpanel.open{display:flex;animation:eqin .22s cubic-bezier(.2,.9,.2,1)}
-@keyframes eqin{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
-.eqhead{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:var(--sp2)}
-.eqhead .dotrow{display:flex;gap:3px;margin-right:var(--sp2)}
-.eqhead .dotrow i{width:3px;height:3px;background:var(--accent);opacity:.6}
-.eqrow{display:flex;align-items:center;gap:var(--sp2);flex-wrap:wrap}
-.eqpre{display:flex;align-items:center;gap:var(--sp2);flex:1;min-width:200px}
-/* preamp = horizontal LED ladder, same .led rhythm as volume */
-.eqpre .leds{flex:1;padding:4px 6px}
-.eqpre .leds .ledseg{height:10px;width:14px;flex:1}
-.eqpre .leds .ledseg.zmark{opacity:.55}
-.eqpre .leds .ledseg.lit.neglit{background:var(--dim2)}
-.eqdb{font-size:10px;color:var(--dim2);min-width:64px;text-align:right;font-variant-numeric:tabular-nums}
-.eqclip{font-size:9px;color:#E06666;letter-spacing:.1em;min-width:110px;text-align:right}
-/* bands: vertical LED ladders — 12 quantized steps of 2dB */
-.eqbands{display:flex;gap:var(--sp3);align-items:flex-end;padding:var(--sp1) 2px 0}
-.eqband{display:flex;flex-direction:column;align-items:center;gap:5px;flex:1;cursor:pointer;touch-action:none}
-.eqband .fader{position:relative;width:16px;height:132px;display:flex;flex-direction:column-reverse;gap:2px;justify-content:flex-start}
-.eqband .seg{width:100%;flex:none;height:8px;border-radius:1.5px;background:#232A2E;transition:background .12s}
-.eqband .seg.lit{background:var(--accent)}
-.eqband .seg.neglit{background:var(--dim2)}
-.eqband .zero{width:100%;height:2px;background:var(--line2);margin:2px 0;flex:none}
-.eqband .flabel{font-size:8.5px;color:var(--dim2);font-family:var(--mono);letter-spacing:.04em}
-.eqband .fval{font-size:8.5px;color:var(--dim);font-family:var(--mono);min-height:11px}
-.eqband:hover .fval{color:var(--cream)}
-.eqsel{background:var(--bg);border:1px solid var(--line2);color:var(--cream);font-size:10px;padding:4px 8px;border-radius:var(--r-l);font-family:var(--mono)}
-.eqname{width:110px;background:var(--bg);border:1px solid var(--line2);color:var(--cream);font-size:10px;padding:4px 8px;border-radius:var(--r-l);font-family:var(--mono)}
-.tbtn.wide{width:auto;padding:0 10px;font-size:9px;letter-spacing:.12em;font-family:var(--mono)}
-.tbtn.wide.on{border-color:var(--accent);color:var(--accent)}
-.eqprofile{font-size:9px;letter-spacing:.14em;color:var(--accent);font-family:var(--mono)}
+/* EQ view */
+.eq-view .leds{flex:1;padding:4px 6px}
+.eq-view .leds .led{height:10px;width:14px;flex:1}
+.eq-view .leds .led.on.neglit{background:var(--fg-3)}
+.eq-view .eqname{width:110px;background:var(--bg-2);border:1px solid var(--line-2);color:var(--fg);
+  font-size:.625rem;padding:4px 8px;border-radius:var(--R-l);font-family:var(--font-mono)}
 #eqFile{display:none!important}
 
-/* misc */
-.empty{
-  display:flex;flex-direction:column;gap:var(--sp2);align-items:flex-start;
-  padding:var(--sp6);color:var(--dim);font-size:12px;line-height:1.7;
-}
-.empty .h-caps{margin-bottom:var(--sp1)}
-.librow{display:flex;gap:var(--sp1)}
-.librow input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-l);color:var(--cream);font:11px var(--mono);padding:6px 8px}
-.librow input:focus{outline:none;border-color:var(--accent)}
-.librow button{padding:6px 12px;border:1px solid var(--line2);border-radius:var(--r-l);font-size:10px;letter-spacing:.14em;color:var(--cream)}
-.librow button:hover{border-color:var(--accent);color:var(--accent)}
+/* settings page */
+.set-view{max-width:820px}
 
-.pl-item{display:flex;align-items:center;gap:var(--sp2);width:100%;padding:var(--sp2);border-radius:var(--r-m);text-align:left;color:var(--dim);border:1px solid transparent}
-.pl-item:hover{border-color:var(--line2);color:var(--cream)}
-.pl-item .pl-name{font-size:12px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pl-item .pl-n{font-size:10px;color:var(--dim2);font-family:var(--mono)}
+/* empty state */
+.empty .h-caps{margin-bottom:var(--sp1)}
+
+/* sheet variants (settings in-sheet for widget parity, playlists sub-sheet) */
+.sheet .sheet-body{display:flex;flex-direction:column;gap:var(--sp1)}
+.sheet .sheet-body .set-wrap{max-width:none}
+
+/* playlists list */
+.pl-item{display:flex;align-items:center;gap:var(--sp2);width:100%;padding:var(--sp2);border-radius:var(--R-m);
+  text-align:left;color:var(--fg-2);border:1px solid transparent}
+.pl-item:hover{border-color:var(--line-2);color:var(--fg)}
+.pl-item .pl-name{font-size:.75rem;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-item .pl-n{font-size:.625rem;color:var(--fg-3);font-family:var(--font-mono)}
+
+/* cover art search results grid (task 10) */
+.cover-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--sp2);padding:0 10px;max-height:300px;overflow-y:auto}
+.cover-cell{position:relative;padding:0;border:1px solid var(--line);border-radius:var(--R-m);overflow:hidden;
+  aspect-ratio:1;cursor:pointer;background:var(--bg-3);transition:border-color var(--dur-1),transform var(--dur-1)}
+.cover-cell:hover{border-color:var(--accent);transform:scale(1.03)}
+.cover-cell img{width:100%;height:100%;object-fit:cover;display:block}
+.cover-cell .cover-src{position:absolute;left:4px;bottom:4px;font-size:.5rem;letter-spacing:.1em;
+  font-family:var(--font-mono);color:var(--fg);background:rgba(0,0,0,.55);padding:1px 5px;border-radius:var(--r-s)}
 </style>
 </head>
-<body class="scanlines">
-<div class="tui" id="tui">
-  <div class="tui-body">
+<body data-surface="main">
+<div class="fx-layer" data-ambient="dither"><div class="fx-aurora"></div><div class="fx-bokeh"></div><canvas class="fx-ambient"></canvas></div>
+
+<div class="shell" id="shell">
+  <div class="shell-body">
     <canvas id="edgeCv"></canvas>
 
-    <div class="app">
-      <aside class="side">
-        <div class="logo" id="dragLogo">
-          <canvas class="dotgrid" id="logoCv" width="20" height="20"></canvas>
-          <div class="nm">HALF<em>TONE</em></div>
-        </div>
-        <nav class="sidebar" id="nav">
-          <button class="nav on" data-view="nowplaying">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2"/></svg>
-            NOW PLAYING</button>
-          <button class="nav" data-view="tracks">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.3"/><circle cx="16.5" cy="15" r="2.3"/></svg>
-            TRACKS</button>
-          <button class="nav" data-view="albums">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-            ALBUMS</button>
-          <button class="nav" data-view="liked">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 20s-7-4.3-9.3-8.6C.9 8 3 4.5 6.4 4.5c2 0 3.6 1.1 4.4 2.7l1.2 2 1.2-2c.8-1.6 2.4-2.7 4.4-2.7 3.4 0 5.5 3.5 3.7 6.9C19 15.7 12 20 12 20z"/></svg>
-            LIKED</button>
-          <button class="nav" data-view="playlists">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 6h16M4 11h10"/><circle cx="18" cy="16" r="2.5"/><path d="M4 16h9"/></svg>
-            PLAYLISTS</button>
-        </nav>
-        <div class="libzone">
-          <div class="librow">
-            <input id="libpath" type="text" spellcheck="false" placeholder="C:\Users\you\Music">
-            <button id="libbrowse" class="mono" title="Browse for folder" aria-label="Browse for music folder" style="display:flex;align-items:center;padding:6px 9px">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-            </button>
-            <button id="libscan" class="mono">SCAN</button>
+    <!-- ============ custom titlebar (frameless) ============ -->
+    <div class="titlebar" id="dragTop">
+      <div class="logo" id="dragLogo">
+        <canvas class="dotgrid" id="logoCv" width="20" height="20"></canvas>
+        <div class="nm">HALF<em>TONE</em></div>
+      </div>
+      <div class="tb-title" id="viewCap">NOW PLAYING</div>
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
+        <input id="search" type="text" placeholder="search" spellcheck="false">
+      </div>
+      <div class="tb-spacer" id="tbDrag"></div>
+      <div class="win-btns">
+        <button class="win-btn" id="btnEq" data-tip="EQUALIZER" aria-label="Equalizer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 4v6M5 14v6M12 4v10M12 18v2M19 4v2M19 10v10"/><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="16" r="1.8"/><circle cx="19" cy="8" r="1.8"/></svg>
+        </button>
+        <button class="win-btn" id="btnPalette" data-tip="COMMANDS \u00b7 CTRL+K" aria-label="Command palette">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
+        </button>
+        <button class="win-btn" id="btnWidget" data-tip="TOGGLE WIDGET" aria-label="Show widget">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.7 2 6 4.7 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.3-2.7-6-6-6z"/><circle cx="12" cy="8" r="2.2"/></svg>
+        </button>
+        <button class="win-btn" id="btnMin" data-tip="MINIMIZE" aria-label="Minimize">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 12h14"/></svg>
+        </button>
+        <button class="win-btn danger" id="btnClose" data-tip="HIDE WINDOW" aria-label="Hide main window">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ============ app shell: nav + views ============ -->
+    <div class="app-shell" id="appShell">
+      <nav class="nav" id="nav"></nav>
+      <div class="views" id="views" style="display:flex;flex-direction:column;min-height:0;min-width:0;flex:1">
+
+        <!-- NOW PLAYING -->
+        <div class="view" id="v-nowplaying">
+          <div class="np" id="np">
+            <div class="np-grid">
+              <div class="np-left">
+                <div class="np-art art-swap-host" id="npArt">
+                  <img id="npCover" alt="album art">
+                  <canvas class="art-dither" id="npDither"></canvas>
+                </div>
+                <div class="np-info">
+                  <div class="np-kicker" id="npKick">HALFTONE / &#8212;</div>
+                  <div class="np-title" id="npTitle">&#8212;</div>
+                  <div class="np-artist" id="npArtist">&#8212;</div>
+                  <div class="np-meta" id="npTech">&#8212;</div>
+                </div>
+                <div class="np-seek">
+                  <div class="seek" id="seek">
+                    <canvas class="seek-led"></canvas>
+                    <div class="seek-gel"><div class="track"><div class="fill"></div><div class="knob"></div></div></div>
+                    <div class="seek-tip mono" id="tip">00:00 / 00:00</div>
+                  </div>
+                  <div class="np-times"><span id="tCur">00:00</span><span id="tTot">00:00</span></div>
+                </div>
+                <div class="np-transport">
+                  <button class="btn-icon" id="btnShuf" data-tip="SHUFFLE" aria-label="Shuffle">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M21 3l-7.5 7.5"/><path d="M3 21l7.5-7.5"/><path d="M16 21h5v-5"/><path d="M15 15l6 6"/><path d="M3 3l6 6"/></svg>
+                  </button>
+                  <button class="btn-icon" id="btnRep" data-tip="REPEAT" aria-label="Repeat">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+                    <span class="r1">1</span>
+                  </button>
+                  <button class="btn-orb" id="btnPrev" title="Previous">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2.2v14H6z"/><path d="M20 5.4v13.2c0 .8-.9 1.3-1.6.9L9.5 12.7a1 1 0 0 1 0-1.7l8.9-5.9c.7-.4 1.6.1 1.6.9z"/></svg>
+                  </button>
+                  <button class="btn-orb lg" id="btnPlay" title="Play / pause">
+                    <svg id="icoPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.2v13.6c0 .8.9 1.3 1.6.9l10.4-6.8a1 1 0 0 0 0-1.7L9.8 4.3c-.7-.4-1.6.1-1.6.9z"/></svg>
+                    <svg id="icoPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z"/></svg>
+                  </button>
+                  <button class="btn-orb" id="btnNext" title="Next">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.8 5H18v14h-2.2z"/><path d="M4 5.4v13.2c0 .8.9 1.3 1.6.9l8.9-5.8a1 1 0 0 0 0-1.7L5.6 4.5c-.7-.4-1.6.1-1.6.9z"/></svg>
+                  </button>
+                  <div class="vol" id="vol"></div>
+                </div>
+              </div>
+              <div class="np-lyr lyrics" id="npLyr">
+                <div class="h-caps mono" id="lyrCap">LYRICS</div>
+                <div class="lyrics-status" id="lyrStatus"></div>
+                <div class="lyr-view" id="npLyrView"><div class="lyr-wrap mono" id="lyrWrap"></div></div>
+                <div class="np-nolrc" id="npNoLrc" style="display:none">
+                  <div class="h-caps mono">NO LYRICS FOUND</div>
+                  <div>Nothing on disk or LRCLIB for this track.</div>
+                  <div style="display:flex;gap:var(--sp2)">
+                    <button class="btn" id="lrcSearch">SEARCH LRCLIB</button>
+                    <button class="btn" id="lrcRetry">RETRY</button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="libstat" id="libstat">no scan yet</div>
         </div>
+
+        <!-- library views (content injected by the router) -->
+        <div class="view" id="v-content">
+          <div class="vscroll" id="content"></div>
+        </div>
+
+        <!-- EQ -->
+        <div class="view" id="v-eq">
+          <div class="eq-view">
+            <div class="eqrow">
+              <button class="btn" id="eqBypass">BYPASS</button>
+              <div class="eqpre">
+                <span class="h-caps mono">PRE</span>
+                <div class="leds" id="eqPreLeds"></div>
+                <span class="eqdb mono" id="eqPreDb">0.0dB</span>
+              </div>
+              <span class="eqclip mono" id="eqClip"></span>
+            </div>
+            <div class="eqbands" id="eqBands"></div>
+            <div class="eqrow">
+              <span class="h-caps mono">PRESETS</span>
+              <select id="eqPresetSel" class="field" style="flex:0 1 160px"></select>
+              <input id="eqPresetName" class="eqname" placeholder="NAME" spellcheck="false">
+              <button class="btn" id="eqSave">SAVE</button>
+              <button class="btn" id="eqDelete">DEL</button>
+              <button class="btn" id="eqImport">AUTOEQ</button>
+              <input type="file" id="eqFile" accept=".txt" hidden>
+              <span class="eqprofile mono" id="eqProfile"></span>
+            </div>
+            <div class="eqrow">
+              <span class="h-caps mono">OUTPUT</span>
+              <select id="sinkSel" class="field" style="flex:0 1 260px"></select>
+              <span class="h-caps mono" id="sinkNote">SHARED MIXER</span>
+            </div>
+            <div class="eqrow">
+              <span class="h-caps mono">SLEEP</span>
+              <button class="btn" data-sleep="15">15M</button>
+              <button class="btn" data-sleep="30">30M</button>
+              <button class="btn" data-sleep="60">60M</button>
+              <button class="btn" data-sleep="track">END OF TRACK</button>
+              <button class="btn" data-sleep="off">OFF</button>
+              <span class="eqdb mono" id="sleepLeft"></span>
+            </div>
+            <div class="eqrow">
+              <span class="h-caps mono">UPDATES</span>
+              <button class="btn" id="otaBtn">CHECK</button>
+              <span class="eqclip mono" id="otaNote" style="min-width:0;flex:1;text-align:left"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- QUEUE -->
+        <div class="view" id="v-queue">
+          <div class="vscroll" id="queueView"></div>
+        </div>
+
+      </div>
+      <!-- right queue panel (setting queueSide=right) -->
+      <aside class="queue-panel" id="queuePanel" style="display:none">
+        <div class="qh"><span class="h-caps mono">QUEUE</span><span style="flex:1"></span>
+          <button class="btn-icon" id="qClear" title="Clear queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg></button>
+        </div>
+        <div class="qrows" id="qRows"></div>
       </aside>
+    </div>
 
-      <div class="main">
-        <div class="topbar" id="dragTop">
-          <button class="tbtn" id="btnEq" data-tip="EQUALIZER" aria-label="Equalizer">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 4v6M5 14v6M12 4v10M12 18v2M19 4v2M19 10v10"/><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="16" r="1.8"/><circle cx="19" cy="8" r="1.8"/></svg>
-          </button>
-          <button class="tbtn" id="btnSide" data-tip="LIBRARY &#183; MENU" aria-label="Toggle sidebar">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-          </button>
-          <div class="h-caps mono" id="viewCap">NOW PLAYING</div>
-          <div class="search">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
-            <input id="search" type="text" placeholder="search" spellcheck="false">
-          </div>
-          <div class="spacer"></div>
-          <button class="tbtn back2widget" id="btnWidget" data-tip="TOGGLE WIDGET &#183; MINIPLAYER" aria-label="Show widget">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.7 2 6 4.7 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.3-2.7-6-6-6z"/><circle cx="12" cy="8" r="2.2"/></svg>
-          </button>
-          <button class="tbtn" id="btnMin" data-tip="MINIMIZE" aria-label="Minimize">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 12h14"/></svg>
-          </button>
-          <button class="tbtn danger" id="btnClose" data-tip="HIDE MAIN" aria-label="Hide main window">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
-          </button>
+    <!-- mini-bar (position per setting) -->
+    <div class="mini-bar" id="npbar" title="Open Now Playing">
+      <img class="mb-art" id="npArtMb" alt="cover">
+      <div class="mb-meta">
+        <div class="mb-title" id="nbTitle">&#8212;</div>
+        <div class="mb-sub" id="nbSub">&#8212;</div>
+      </div>
+      <div class="mb-seek">
+        <div class="seek" id="seek2">
+          <canvas class="seek-led"></canvas>
+          <div class="seek-gel"><div class="track"><div class="fill"></div><div class="knob"></div></div></div>
         </div>
-
-        <!-- NOW PLAYING view -->
-        <div class="np" id="np">
-          <canvas id="ambient"></canvas>
-          <div class="np-grid">
-            <div class="np-left">
-              <div class="np-coverwrap"><img class="np-cover" id="npCover" alt="album art"></div>
-              <div class="np-info">
-                <div class="np-kicker" id="npKick">HALFTONE / 01 / 95</div>
-                <div class="np-title" id="npTitle">&#8212;</div>
-                <div class="np-artist" id="npArtist">&#8212;</div>
-                <div class="np-tech" id="npTech">&#8212;</div>
-              </div>
-              <div class="np-seek">
-                <div class="seek" id="seek">
-                  <canvas id="seekCv"></canvas>
-                  <div class="tip mono" id="tip">00:00 / 00:00</div>
-                </div>
-                <div class="np-times"><span id="tCur">00:00</span><span id="tTot">00:00</span></div>
-              </div>
-              <div class="np-ctl">
-                <button class="tbtn" id="btnShuf" data-tip="SHUFFLE" aria-label="Shuffle">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M21 3l-7.5 7.5"/><path d="M3 21l7.5-7.5"/><path d="M16 21h5v-5"/><path d="M15 15l6 6"/><path d="M3 3l6 6"/></svg>
-                </button>
-                <button class="tbtn" id="btnRep" data-tip="REPEAT" aria-label="Repeat">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
-                  <span class="r1">1</span>
-                </button>
-                <button class="cbtn" id="btnPrev" title="Previous">
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2.2v14H6z"/><path d="M20 5.4v13.2c0 .8-.9 1.3-1.6.9L9.5 12.7a1 1 0 0 1 0-1.7l8.9-5.9c.7-.4 1.6.1 1.6.9z"/></svg>
-                </button>
-                <button class="cbtn play" id="btnPlay" title="Play / pause">
-                  <svg id="icoPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.2v13.6c0 .8.9 1.3 1.6.9l10.4-6.8a1 1 0 0 0 0-1.7L9.8 4.3c-.7-.4-1.6.1-1.6.9z"/></svg>
-                  <svg id="icoPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z"/></svg>
-                </button>
-                <button class="cbtn" id="btnNext" title="Next">
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.8 5H18v14h-2.2z"/><path d="M4 5.4v13.2c0 .8.9 1.3 1.6.9l8.9-5.8a1 1 0 0 0 0-1.7L5.6 4.5c-.7-.4-1.6.1-1.6.9z"/></svg>
-                </button>
-                <div class="vol">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" stroke="none"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6"/></svg>
-                  <div class="leds" id="leds" role="slider" aria-label="Volume" tabindex="0"></div>
-                </div>
-              </div>
-            </div>
-            <div class="np-lyr" id="npLyr">
-              <div class="h-caps mono">LYRICS &#183; SYNCED</div>
-              <div class="np-lyrview" id="npLyrView"><div class="np-lyrwrap mono" id="lyrWrap"></div></div>
-              <div class="np-nolrc" id="npNoLrc" style="display:none">
-                <div class="h-caps mono">LYRICS</div>
-                <div>No .lrc file found for this track.<br>
-                  Halftone reads a synced .lrc sidecar next to the FLAC.</div>
-                <a href="#" id="lrcGet">GET SYNCED LYRICS &#183; LRCLIB.NET</a>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- library views -->
-        <div class="content" id="content" style="display:none"></div>
-
-        <!-- EQ / OUTPUT / SLEEP sheet — LED ladders in the halftone language -->
-        <div class="eqpanel" id="eqPanel">
-          <div class="eqhead">
-            <div style="display:flex;align-items:center">
-              <div class="dotrow"><i></i><i></i><i></i><i></i><i></i></div>
-              <div class="h-caps mono">EQUALIZER</div>
-            </div>
-            <button class="tbtn" id="eqClose" data-tip="CLOSE" aria-label="Close EQ"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-          </div>
-          <div class="eqrow">
-            <button class="tbtn wide" id="eqBypass" data-tip="TRUE BYPASS">BYPASS</button>
-            <div class="eqpre">
-              <span class="h-caps mono">PRE</span>
-              <div class="leds" id="eqPreLeds"></div>
-              <span class="eqdb mono" id="eqPreDb">0.0dB</span>
-            </div>
-            <div class="eqclip mono" id="eqClip"></div>
-          </div>
-          <div class="eqbands" id="eqBands"></div>
-          <div class="eqrow">
-            <span class="h-caps mono">PRESETS</span>
-            <select id="eqPresetSel" class="eqsel"></select>
-            <input id="eqPresetName" class="eqname" placeholder="NAME" spellcheck="false">
-            <button class="tbtn wide" id="eqSave" data-tip="SAVE USER PRESET">SAVE</button>
-            <button class="tbtn wide" id="eqDelete" data-tip="DELETE USER PRESET">DEL</button>
-            <button class="tbtn wide" id="eqImport" data-tip="AUTOEQ PARAMETRICEQ.TXT">AUTOEQ</button>
-            <input type="file" id="eqFile" accept=".txt" hidden>
-            <span class="eqprofile mono" id="eqProfile"></span>
-          </div>
-          <div class="eqrow" style="border-top:1px solid var(--line);padding-top:var(--sp2)">
-            <span class="h-caps mono">OUTPUT</span>
-            <select id="sinkSel" class="eqsel" style="flex:1"></select>
-            <span class="h-caps mono" id="sinkNote">SHARED MIXER</span>
-          </div>
-          <div class="eqrow">
-            <span class="h-caps mono">SLEEP</span>
-            <button class="tbtn wide" data-sleep="15">15M</button>
-            <button class="tbtn wide" data-sleep="30">30M</button>
-            <button class="tbtn wide" data-sleep="60">60M</button>
-            <button class="tbtn wide" data-sleep="track">END OF TRACK</button>
-            <button class="tbtn wide" data-sleep="off">OFF</button>
-            <span class="eqdb mono" id="sleepLeft"></span>
-          </div>
-          <div class="eqrow" style="border-top:1px solid var(--line);padding-top:var(--sp2)">
-            <span class="h-caps mono">UPDATES</span>
-            <button class="tbtn wide" id="otaBtn">CHECK</button>
-            <span class="eqclip mono" id="otaNote" style="min-width:0;flex:1;text-align:left"></span>
-          </div>
-        </div>
-
-        <div class="npbar" id="npbar" title="Open Now Playing">
-          <img class="np-art" id="npArt" alt="cover">
-          <div class="np-meta">
-            <div class="np-title" id="nbTitle">&#8212;</div>
-            <div class="np-sub" id="nbSub">&#8212;</div>
-          </div>
-          <div class="seekwrap">
-            <div class="seek" id="seek2">
-              <canvas id="seekCv2"></canvas>
-            </div>
-            <div class="times mono"><span id="nbCur">00:00</span><span id="nbTot">00:00</span></div>
-          </div>
-          <div class="np-ctl">
-            <button class="cbtn" id="nbPrev" title="Previous">
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2.2v14H6z"/><path d="M20 5.4v13.2c0 .8-.9 1.3-1.6.9L9.5 12.7a1 1 0 0 1 0-1.7l8.9-5.9c.7-.4 1.6.1 1.6.9z"/></svg>
-            </button>
-            <button class="cbtn play" id="nbPlay" title="Play / pause">
-              <svg id="nbIcoPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.2v13.6c0 .8.9 1.3 1.6.9l10.4-6.8a1 1 0 0 0 0-1.7L9.8 4.3c-.7-.4-1.6.1-1.6.9z"/></svg>
-              <svg id="nbIcoPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z"/></svg>
-            </button>
-            <button class="cbtn" id="nbNext" title="Next">
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.8 5H18v14h-2.2z"/><path d="M4 5.4v13.2c0 .8.9 1.3 1.6.9l8.9-5.8a1 1 0 0 0 0-1.7L5.6 4.5c-.7-.4-1.6.1-1.6.9z"/></svg>
-            </button>
-          </div>
-        </div>
+        <div class="np-times mono" style="display:flex;justify-content:space-between"><span id="nbCur">00:00</span><span id="nbTot">00:00</span></div>
+      </div>
+      <div class="mb-ctl">
+        <button class="btn-orb" id="nbPrev" title="Previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2.2v14H6z"/><path d="M20 5.4v13.2c0 .8-.9 1.3-1.6.9L9.5 12.7a1 1 0 0 1 0-1.7l8.9-5.9c.7-.4 1.6.1 1.6.9z"/></svg></button>
+        <button class="btn-orb lg" id="nbPlay" title="Play / pause">
+          <svg id="nbIcoPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.2v13.6c0 .8.9 1.3 1.6.9l10.4-6.8a1 1 0 0 0 0-1.7L9.8 4.3c-.7-.4-1.6.1-1.6.9z"/></svg>
+          <svg id="nbIcoPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z"/></svg>
+        </button>
+        <button class="btn-orb" id="nbNext" title="Next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.8 5H18v14h-2.2z"/><path d="M4 5.4v13.2c0 .8.9 1.3 1.6.9l8.9-5.8a1 1 0 0 0 0-1.7L5.6 4.5c-.7-.4-1.6.1-1.6.9z"/></svg></button>
+        <div class="vol" id="volMb"></div>
       </div>
     </div>
   </div>
 </div>
 
+<!-- sheets -->
+<div class="sheet-backdrop" id="sheetBk"></div>
+<div class="sheet" id="sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-head"><div class="h1" id="sheetTitle">TRACK</div>
+    <button class="btn-icon" id="sheetClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="sheet-body" id="sheetBody"></div>
+</div>
+
+<!-- command palette -->
+<div class="cmdk" id="cmdk">
+  <div class="cmdk-box">
+    <input id="cmdkInput" type="text" placeholder="Type a command or view…" spellcheck="false">
+    <div class="cmdk-list" id="cmdkList"></div>
+  </div>
+</div>
+
 <audio id="aud" preload="metadata" crossorigin="anonymous"></audio>
+<script src="test/loader.js"></script>
 <script src="common.js"></script>
+<script src="smoothing.js"></script>
+<script src="theme.js"></script>
+<script src="settings.js"></script>
 <script>
 /* ============ main player wiring ============ */
-["tui","edgeCv","np","ambient","npCover","npKick","npTitle","npArtist","npTech",
- "seek","seekCv","tip","tCur","tTot","lyrWrap","npLyrView","npNoLrc","lrcGet",
- "content","viewCap","search","npbar","npArt","nbTitle","nbSub","nbCur","nbTot",
- "seek2","seekCv2","nbPrev","nbPlay","nbNext","nbIcoPlay","nbIcoPause",
- "icoPlay","icoPause","btnPlay","btnPrev","btnNext","btnShuf","btnRep","leds",
- "btnMin","btnClose","btnWidget","btnSide","btnEq","logoCv","dragLogo","dragTop","libpath","libbrowse","libscan",
- "libstat","aud","npLyr",
+["shell","edgeCv","np","npArt","npCover","npDither","npKick","npTitle","npArtist","npTech",
+ "seek","tip","tCur","tTot","lyrWrap","npLyrView","npNoLrc","lrcSearch","lrcRetry","lyrStatus","lyrCap","npLyr",
+ "content","viewCap","search","npbar","npArtMb","nbTitle","nbSub","nbCur","nbTot","nav",
+ "seek2","nbPrev","nbPlay","nbNext","nbIcoPlay","nbIcoPause",
+ "icoPlay","icoPause","btnPlay","btnPrev","btnNext","btnShuf","btnRep","vol","volMb",
+ "btnMin","btnClose","btnWidget","btnEq","btnPalette","logoCv","dragLogo","dragTop",
+ "queuePanel","qRows","qClear","queueView",
  "otaBtn","otaNote",
- "eqPanel","eqClose","eqBypass","eqPreDb","eqClip","eqBands","eqPresetSel","eqPresetName",
- "eqSave","eqDelete","eqImport","eqFile","eqProfile","sinkSel","sinkNote","sleepLeft","eqPreLeds"].forEach(k=>el[k]=document.getElementById(k));
+ "eqBypass","eqPreDb","eqClip","eqBands","eqPresetSel","eqPresetName",
+ "eqSave","eqDelete","eqImport","eqFile","eqProfile","sinkSel","sinkNote","sleepLeft","eqPreLeds",
+ "sheet","sheetTitle","sheetBody","sheetClose","sheetBk","cmdk","cmdkInput","cmdkList","appShell","views","aud"
+].forEach(k=>el[k]=document.getElementById(k));
 
-const Q=new URLSearchParams(location.search);
-if(Q.get("view"))S.view=Q.get("view");
-const qTrack=Q.get("track");
-if(qTrack!=null&&qTrack!=="")S._npReq={track:+qTrack};
+/* 10-band EQ (standard ISO octaves) — band faders ±12dB in 0.5dB steps */
+const EQ_BANDS=[32,64,125,250,500,1000,2000,4000,8000,16000].map(f=>({f}));
+const EQ_ZERO_IDX=5;   /* seg index of 0dB in the 13-seg fader (6 below + zero) */
 
-/* which surface is visible */
-function showView(v){
-  const np=v==="nowplaying";
-  S._npLyrics=np;   /* lyrics pane follows playback exactly while this view is up */
-  el.np.style.display=np?"flex":"none";
-  el.content.style.display=np?"none":"flex";
-  el.npbar.style.display=np?"none":"flex";
-  document.querySelectorAll(".nav").forEach(n=>n.classList.toggle("on",n.dataset.view===v));
-  const caps={nowplaying:"NOW PLAYING",tracks:"TRACKS",albums:"ALBUMS",liked:"LIKED",playlists:"PLAYLISTS",search:"SEARCH"};
-  el.viewCap.textContent=caps[v]||(v.startsWith("album:")?"ALBUM":v.startsWith("playlist:")?"PLAYLIST":"LIBRARY");
+const VIEWS=[
+  ["nowplaying","NOW PLAYING",'<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2"/>'],
+  ["tracks","SONGS",'<path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.3"/><circle cx="16.5" cy="15" r="2.3"/>'],
+  ["albums","ALBUMS",'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>'],
+  ["liked","LIKED",'<path d="M12 20s-7-4.3-9.3-8.6C.9 8 3 4.5 6.4 4.5c2 0 3.6 1.1 4.4 2.7l1.2 2 1.2-2c.8-1.6 2.4-2.7 4.4-2.7 3.4 0 5.5 3.5 3.7 6.9C19 15.7 12 20 12 20z"/>'],
+  ["playlists","PLAYLISTS",'<path d="M4 6h16M4 11h10"/><circle cx="18" cy="16" r="2.5"/><path d="M4 16h9"/>'],
+  ["queue","QUEUE",'<path d="M4 6h16M4 11h16M4 16h7"/><path d="M14 14.5l6 2.5-6 2.5z" fill="currentColor" stroke="none"/>'],
+  ["eq","EQUALIZER",'<path d="M5 4v6M5 14v6M12 4v10M12 18v2M19 4v2M19 10v10"/><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="16" r="1.8"/><circle cx="19" cy="8" r="1.8"/>'],
+  ["settings","SETTINGS",'<circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/>'],
+];
+function navSVG(inner){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`}
+
+/* ============ NAV (rebuilt per position/labels) ============ */
+function buildNav(){
+  const nav=el.nav;
+  nav.innerHTML="";
+  const ind=document.createElement("div");ind.className="nav-ind";nav.appendChild(ind);
+  VIEWS.forEach(([id,label,icon])=>{
+    const b=document.createElement("button");
+    b.className="nav-item";b.dataset.view=id;
+    b.innerHTML=navSVG(icon)+`<span class="nav-label">${label}</span>`;
+    b.onclick=()=>{S.view=id;render()};
+    nav.appendChild(b);
+  });
+  /* library zone (left/right rails with labels) */
+  if(["left","right"].includes(S.cfg.nav)&&S.cfg.navLabels!=="icons"){
+    const lz=document.createElement("div");lz.className="libzone";
+    lz.innerHTML=`<div class="librow">
+      <input id="libpath" type="text" spellcheck="false" placeholder="C:\\Users\\you\\Music">
+      <button id="libbrowse" class="btn" title="Browse for folder" aria-label="Browse for music folder">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+      </button>
+      <button id="libscan" class="btn">SCAN</button></div>
+      <div class="libstat" id="libstat">no scan yet</div>`;
+    nav.appendChild(lz);
+    setTimeout(()=>{
+      const lp=document.getElementById("libpath"),lb=document.getElementById("libbrowse"),ls=document.getElementById("libscan");
+      if(lp){lp.value=S.root||"";lp.addEventListener("keydown",e=>{if(e.key==="Enter")ls.click()})}
+      if(lb)lb.onclick=async()=>{try{const dir=await invoke("pick_folder");if(dir){lp.value=dir;await scanLibrary(dir);render()}}catch(e){console.warn(e)}};
+      if(ls)ls.onclick=()=>scanLibrary(lp.value.trim()).then(()=>render());
+    });
+  }
+  paintNav();
+}
+function paintNav(){
+  const nav=el.nav;
+  nav.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===S.view||
+    (S.view.startsWith("album:")&&n.dataset.view==="albums")||(S.view.startsWith("playlist:")&&n.dataset.view==="playlists")));
+  const cur=nav.querySelector(".nav-item.active");
+  const ind=nav.querySelector(".nav-ind");
+  if(cur&&ind&&window.getComputedStyle(ind).display!=="none"){
+    const vertical=!["top","bottom"].includes(S.cfg.nav);
+    if(vertical){ind.style.width="3px";ind.style.height=cur.offsetHeight+"px";
+      ind.style.left=(S.cfg.nav==="right"?("-3px"):(cur.offsetLeft<10?"0":"auto"));
+      ind.style.right=(S.cfg.nav==="right"?"0":"auto");
+      if(S.cfg.nav==="left"){ind.style.left="0";ind.style.right="auto"}
+      ind.style.transform=`translateY(${cur.offsetTop}px)`;ind.style.top="0";
+    }else{
+      ind.style.height="3px";ind.style.width=cur.offsetWidth+"px";
+      ind.style.top=(S.cfg.nav==="top"?"auto":"0");
+      ind.style.bottom=(S.cfg.nav==="top"?"0":"auto");
+      ind.style.left="0";ind.style.transform=`translateX(${cur.offsetLeft}px)`;
+    }
+    ind.style.opacity="1";
+  }else if(ind)ind.style.opacity="0";
+  /* caption */
+  const names={nowplaying:"NOW PLAYING",tracks:"SONGS",albums:"ALBUMS",liked:"LIKED",playlists:"PLAYLISTS",queue:"QUEUE",eq:"EQUALIZER",settings:"SETTINGS"};
+  el.viewCap.textContent=names[S.view]||(S.view.startsWith("album:")?"ALBUM":S.view.startsWith("playlist:")?"PLAYLIST":"HALFTONE");
 }
 
-/* nav */
-document.querySelectorAll(".nav").forEach(n=>{
-  n.onclick=()=>{S.view=n.dataset.view;render();};
-});
-el.npbar.onclick=e=>{
-  if(e.target.closest("button"))return;
-  S.view="nowplaying";render();
-};
-
-/* search */
-let searchStr="";
-el.search.addEventListener("input",()=>{searchStr=el.search.value.toLowerCase();
-  if(!searchStr&&S.view==="search"){S.view="tracks";render();return}
-  if(searchStr&&S.view==="nowplaying")S.view="search";
-  if(["tracks","albums","liked","search"].includes(S.view)||searchStr)render()});
-
-/* ============ views ============ */
+/* ============ ROUTER ============ */
+function showView(v){
+  const isNP=v==="nowplaying",isEq=v==="eq",isSet=v==="settings";
+  el.views.querySelectorAll(".view").forEach(x=>x.classList.remove("shown","view-enter"));
+  let cont;
+  if(isNP)cont=document.getElementById("v-nowplaying");
+  else if(isEq)cont=document.getElementById("v-eq");
+  else if(isSet)cont=document.getElementById("v-content");
+  else cont=document.getElementById("v-content");
+  cont.classList.add("shown");
+  requestAnimationFrame(()=>cont.classList.add("view-enter"));
+  /* mini-bar visibility */
+  applyMiniBarDom();
+  /* queue panel visibility */
+  applyQueueSideDom();
+  paintNav();
+}
+function applyMiniBarDom(){
+  const np=S.view==="nowplaying";
+  const pos=S.cfg.miniBar||"bottom";
+  el.npbar.style.display=(np||pos==="off")?"none":"flex";
+  el.npbar.classList.toggle("top",pos==="top");
+  /* mini-bar is a FLEX sibling of .app-shell inside .shell-body — NOT a
+     grid child of appShell. Inserting it into appShell (views' parent)
+     made it a grid item in the nav column: its content width inflated
+     the auto column (the "~90px dead band" bug) and it rendered as a
+     phantom bottom-dock row. Keep it outside the grid. */
+  const body=el.appShell.parentElement;
+  if(pos==="top"){body.insertBefore(el.npbar,el.appShell)}
+  else{body.appendChild(el.npbar)}
+}
+function applyQueueSideDom(){
+  const side=S.cfg.queueSide||"off";
+  const show=side!=="off"&&["tracks","albums","liked","playlists","queue"].includes(S.view);
+  el.queuePanel.style.display=show?"flex":"none";
+  el.queuePanel.classList.toggle("left",side==="left");
+  if(show)buildQueuePanel();
+}
 function render(){
+  /* page-level router: overrides common.js no-op render */
   showView(S.view);
-  if(S.view==="nowplaying")return;      /* np is static DOM, updated by events */
+  if(S.view==="nowplaying")return;
+  if(S.view==="eq")return paintEqView&&paintEqView();
+  if(S.view==="settings"){htSettings.render(el.content,"");return}
   const c=el.content;
   if(!S.lib.length){
     c.innerHTML=`<div class="empty">
       <div class="h-caps mono">LIBRARY</div>
       Scan your music folder to populate Halftone.<br>
-      FLAC files are read directly \u2014 no import, no copies, no transcode.
+      FLAC / WAV / MP3 / AAC / ALAC / OGG / OPUS are read directly \u2014 no import, no copies, no transcode.
       <div class="librow" style="max-width:420px;margin-top:8px">
-        <input id="mLib" type="text" placeholder="C:\\Users\\you\\Music" spellcheck="false">
-        <button id="mBrowse" class="mono" title="Browse for folder" aria-label="Browse for music folder" style="display:flex;align-items:center;padding:6px 9px">
+        <input id="mLib" class="field" type="text" placeholder="C:\\Users\\you\\Music" spellcheck="false">
+        <button id="mBrowse" class="btn" title="Browse for folder" aria-label="Browse for music folder">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
         </button>
-        <button id="mScan" class="mono">SCAN</button>
-      </div>
-    </div>`;
+        <button id="mScan" class="btn">SCAN</button>
+      </div></div>`;
     const inp=document.getElementById("mLib");
     if(S.root)inp.value=S.root;
     document.getElementById("mScan").onclick=async()=>{await scanLibrary(inp.value.trim());render()};
@@ -518,163 +470,190 @@ function render(){
     };
     return;
   }
-  if(searchStr&&!["playlists"].includes(S.view)){
-    c.innerHTML=`<div class="h1">Search</div>
-      <div class="thead"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>
-      <div class="tlist" id="list"></div>`;
-    const list=document.getElementById("list");
-    S.lib.map((t,i)=>({t,i})).filter(x=>(x.t.title+" "+x.t.artist+" "+x.t.album).toLowerCase().includes(searchStr))
-      .forEach(x=>list.appendChild(trackRow(x.t,x.i,"row")));
-    return;
-  }
+  if(searchStr&&!["playlists"].includes(S.view)){renderSearch();return}
   if(S.view==="tracks")renderTracks();
   else if(S.view==="albums")renderAlbums();
   else if(S.view==="liked")renderLiked();
   else if(S.view==="playlists")renderPlaylists();
+  else if(S.view==="queue")renderQueue();
   else renderTracks();
 }
 
-function trackRow(t,i,ctx){
+/* ============ virtualized track list ============ */
+const ROWH={compact:34,cozy:42,comfy:50};
+function rowH(){return ROWH[S.cfg.density]||42}
+function listHead(){return `<div class="list-head"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>`}
+function renderVirtualList(list,items){
+  const st={rows:[],top:0};
+  list.style.position="relative";
+  const build=()=>{
+    const H=list.clientHeight||400;
+    const from=Math.max(0,Math.floor(list.scrollTop/rowH())-8);
+    const to=Math.min(items.length,Math.ceil((list.scrollTop+H)/rowH())+8);
+    list.innerHTML="";
+    const sp=document.createElement("div");
+    sp.style.height=items.length*rowH()+"px";
+    list.appendChild(sp);
+    for(let k=from;k<to;k++){
+      const r=trackRow(items[k].t,items[k].i);
+      r.style.position="absolute";r.style.top=k*rowH()+"px";r.style.height=rowH()+"px";r.style.left="0";r.style.right="0";
+      list.appendChild(r);
+    }
+  };
+  build();
+  if(!list._vlist){list._vlist=true;list.addEventListener("scroll",()=>build(),{passive:true});
+    new ResizeObserver(()=>build()).observe(list)}
+  else build();
+}
+function trackRow(t,i){
+  coverAutoMaybe(t);   /* no art? queue auto-fetch (task 10, throttled) */
   const liked=S.liked.has(t.path);
   const b=document.createElement("button");
-  b.className="trow"+(ctx==="row"&&i===S.i?" cur":"");
+  b.className="row"+(i===S.i?" cur":"")+(i===S.i&&S.playing?" playing":"");
   b.innerHTML=`
-    <span class="idx">${String(i+1).padStart(2,"0")}</span>
-    <span class="t-title">${t.title}</span>
-    <span class="t-sub">${t.artist}</span>
-    <span class="t-sub" style="text-align:right">${t.album}</span>
-    <span class="t-dur">${fmt(t.duration_s)}</span>
-    <span class="t-dur mono" style="letter-spacing:.05em">${t.streaminfo.sample_rate/1000}k/${t.streaminfo.bits}</span>
-    <button class="ibtn ${liked?"on":""}" data-like title="Like">
+    <span class="row-dur" style="text-align:right">${String(i+1).padStart(2,"0")}</span>
+    <span class="row-title">${esc(t.title)}</span>
+    <span class="row-sub">${esc(t.artist)}</span>
+    <span class="row-sub" style="text-align:right">${esc(t.album)}</span>
+    <span class="row-dur">${fmt(t.duration_s)}</span>
+    <span class="row-dur mono" style="letter-spacing:.05em">${t.streaminfo.sample_rate/1000}k/${t.streaminfo.bits}</span>
+    <button class="row-more" data-like title="Like">
       <svg viewBox="0 0 24 24" fill="${liked?"currentColor":"none"}" stroke="currentColor" stroke-width="1.7"><path d="M12 20s-7-4.3-9.3-8.6C.9 8 3 4.5 6.4 4.5c2 0 3.6 1.1 4.4 2.7l1.2 2 1.2-2c.8-1.6 2.4-2.7 4.4-2.7 3.4 0 5.5 3.5 3.7 6.9C19 15.7 12 20 12 20z"/></svg>
     </button>
-    <button class="ibtn" data-pl title="Add to playlist">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 6h16M4 11h10"/><path d="M18 11v6M15 14h6"/></svg>
+    <button class="row-more" data-more title="More">
+      <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
     </button>`;
   b.onclick=e=>{
-    const lb=e.target.closest("[data-like]");const pb=e.target.closest("[data-pl]");
+    const lb=e.target.closest("[data-like]");
+    const mb=e.target.closest("[data-more]");
     if(lb){toggleLike(t.path);render();return}
-    if(pb){makePlaylistFrom([t.path]);return}
+    if(mb){openTrackSheet(t,i);return}
     loadTrack(i);
   };
   return b;
 }
-
 function renderTracks(){
-  el.content.innerHTML=`<div class="h1">Tracks</div>
-    <div class="thead"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>
-    <div class="tlist" id="list"></div>`;
-  const list=document.getElementById("list");
-  S.lib.forEach((t,i)=>list.appendChild(trackRow(t,i,"row")));
+  el.content.innerHTML=`<div class="h1">Songs</div>${listHead()}<div class="list" id="list"></div>`;
+  renderVirtualList(document.getElementById("list"),S.lib.map((t,i)=>({t,i})));
+}
+function renderSearch(){
+  el.content.innerHTML=`<div class="h1">Search</div>${listHead()}<div class="list" id="list"></div>`;
+  const flt=S.lib.map((t,i)=>({t,i})).filter(x=>(x.t.title+" "+x.t.artist+" "+x.t.album).toLowerCase().includes(searchStr));
+  renderVirtualList(document.getElementById("list"),flt);
 }
 
-/* real-art card / dither canvas per cfg */
-function mkCover(imgEl,track){
-  if(S.cfg.art==="real"&&track.cover){
-    imgEl.src="data:"+track.cover.mime+";base64,"+track.cover.data_b64;
-    return imgEl;
+/* ============ album grid (lazy art) ============ */
+function mkCover(holder,track){
+  const mode=S.cfg.art==="theme"?themeArtDefault:S.cfg.art;
+  if(mode==="real"){
+    const img=document.createElement("img");
+    img.className="card-art";img.alt="";
+    img.loading="lazy";
+    trackCoverUrl(track).then(u=>{if(u)img.src=u});
+    return img;
   }
-  const cv=document.createElement("canvas");cv.className=imgEl.className;
-  cv.width=cv.height=340;
-  if(track.cover){
-    const im=new Image();
-    im.onload=()=>drawDither(cv,im);
-    im.src="data:"+track.cover.mime+";base64,"+track.cover.data_b64;
-  }
+  const cv=document.createElement("canvas");cv.className="art-dither";
+  lazyDither(cv,track);
   return cv;
 }
-
+const lazySeen=new WeakSet();
+function lazyDither(cv,track){
+  const io=new IntersectionObserver(es=>{
+    es.forEach(x=>{
+      if(!x.isIntersecting)return;
+      io.disconnect();
+      trackCoverUrl(track).then(u=>{
+        if(!u)return;
+        const im=new Image();im.crossOrigin="anonymous";
+        im.onload=()=>{cv._img=im;drawDither(cv,im)};
+        im.src=u;
+      });
+    });
+  },{rootMargin:"120px"});
+  io.observe(cv);
+}
 function renderAlbums(){
-  el.content.innerHTML=`<div class="h1">Albums</div><div class="agrid" id="grid"></div>`;
+  el.content.innerHTML=`<div class="h1">Albums</div><div class="grid" id="grid"></div>`;
   const grid=document.getElementById("grid");
   const byAlbum=new Map();
   S.lib.forEach((t,i)=>{if(!byAlbum.has(t.album))byAlbum.set(t.album,[]);byAlbum.get(t.album).push({t,i})});
   byAlbum.forEach((tracks,album)=>{
+    coverAutoMaybe(tracks[0].t);   /* album tiles fetch too (task 10) */
     const first=tracks[0].t;
     const card=document.createElement("button");
-    card.className="acard";
-    card.innerHTML=`<img class="cover" alt="">
-      <span class="a-name">${album}</span>
-      <span class="a-sub">${tracks.length} TRACKS \u00B7 ${first.artist.toUpperCase()}</span>`;
+    card.className="card";
+    card.innerHTML=`<div class="card-art"></div>
+      <span class="card-title">${esc(album)}</span>
+      <span class="card-sub">${tracks.length} TRACKS \u00b7 ${esc(first.artist.toUpperCase())}</span>`;
     card.onclick=()=>{S.view="album:"+album;render()};
     grid.appendChild(card);
-    const holder=card.querySelector("img.cover");
+    const holder=card.querySelector(".card-art");
     holder.replaceWith(mkCover(holder,first));
   });
 }
-
 function renderAlbumDetail(album){
   const tracks=S.lib.map((t,i)=>({t,i})).filter(x=>x.t.album===album);
   if(!tracks.length){S.view="albums";render();return}
   const first=tracks[0].t;
-  el.content.innerHTML=`<div class="ahero">
-      <img class="cover" id="heroArt" alt="">
-      <div class="info">
+  el.content.innerHTML=`<div class="panel" style="display:flex;gap:var(--sp6);align-items:flex-end;padding:var(--sp4)">
+      <div class="card-art" id="heroArt" style="width:180px;height:180px;flex:none"></div>
+      <div style="display:flex;flex-direction:column;gap:var(--sp2)">
         <div class="h-caps mono">ALBUM</div>
-        <div class="h1">${album}</div>
-        <div class="meta">${first.artist.toUpperCase()} \u00B7 ${tracks.length} TRACKS</div>
-        <div class="actions">
-          <button class="big" id="playAlbum">\u25B8 PLAY ALBUM</button>
+        <div class="h1">${esc(album)}</div>
+        <div class="h-caps mono">${esc(first.artist.toUpperCase())} \u00b7 ${tracks.length} TRACKS</div>
+        <div style="display:flex;gap:var(--sp2);margin-top:var(--sp2)">
+          <button class="btn primary" id="playAlbum">\u25B8 PLAY ALBUM</button>
         </div>
       </div>
-    </div>
-    <div class="thead"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>
-    <div class="tlist" id="list"></div>`;
+    </div>${listHead()}<div class="list" id="list"></div>`;
   const hero=el.content.querySelector("#heroArt");
-  const repl=mkCover(hero,first);
-  hero.replaceWith(repl);
-  if(S.cfg.art!=="real"&&first.cover){
-    const im=new Image();
-    im.onload=()=>{tweenAccent(clampAccent(extractAccent(im)))};
-    im.src="data:"+first.cover.mime+";base64,"+first.cover.data_b64;
-  }
+  hero.replaceWith(mkCover(hero,first));
   document.getElementById("playAlbum").onclick=()=>loadTrack(tracks[0].i);
-  const list=document.getElementById("list");
-  tracks.forEach(x=>list.appendChild(trackRow(x.t,x.i,"row")));
+  renderVirtualList(document.getElementById("list"),tracks);
 }
-
 function renderLiked(){
-  el.content.innerHTML=`<div class="h1">Liked</div>
-    <div class="thead"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>
-    <div class="tlist" id="list"></div>`;
-  const list=document.getElementById("list");
+  el.content.innerHTML=`<div class="h1">Liked</div>${listHead()}<div class="list" id="list"></div>`;
   const flt=S.lib.map((t,i)=>({t,i})).filter(x=>S.liked.has(x.t.path));
-  if(!flt.length){list.innerHTML=`<div class="empty"><div class="h-caps mono">EMPTY</div>Like tracks with the heart icon \u2014 they collect here.</div>`;return}
-  flt.forEach(x=>list.appendChild(trackRow(x.t,x.i,"row")));
+  if(!flt.length){document.getElementById("list").innerHTML=`<div class="empty"><div class="h-caps mono">EMPTY</div>Like tracks with the heart icon \u2014 they collect here.</div>`;return}
+  renderVirtualList(document.getElementById("list"),flt);
 }
-
 function renderPlaylists(){
   el.content.innerHTML=`<div class="h1">Playlists</div><div id="pls" style="display:flex;flex-direction:column;gap:8px;max-width:420px"></div>`;
   const box=document.getElementById("pls");
   if(!S.playlists.length){
     box.innerHTML=`<div class="empty"><div class="h-caps mono">EMPTY</div>
-      Create playlists with the + icon on any track.</div>`;
+      Create playlists with the \u22ee menu on any track.</div>`;
   }
   S.playlists.forEach(p=>{
     const b=document.createElement("button");
     b.className="pl-item";
-    b.innerHTML=`<span class="pl-name">${p.name}</span><span class="pl-n">${p.paths.size}</span>`;
+    b.innerHTML=`<span class="pl-name">${esc(p.name)}</span><span class="pl-n">${p.paths.size}</span>`;
     b.onclick=()=>{S.view="playlist:"+p.name;render()};
     box.appendChild(b);
   });
 }
-function makePlaylistFrom(paths){
-  const name="PL-"+String(S.playlists.length+1).padStart(2,"0");
-  makePlaylist(name,paths);
-  S.view="playlist:"+name;render();
+function renderQueue(){
+  el.content.innerHTML=`<div class="h1">Play queue</div>
+    <div style="display:flex;gap:var(--sp2);margin-bottom:var(--sp2)">
+      <button class="btn" id="qClear2">CLEAR</button>
+      <span class="h-caps mono" style="align-self:center">${S.queue.length} UPCOMING</span></div>
+    <div class="list" id="list"></div>`;
+  document.getElementById("qClear2").onclick=()=>{queueClear();render()};
+  const items=S.queue.map((q,k)=>{
+    const i=findIdxByPath(q.path);
+    return {t:S.lib[i]||{title:q.path,artist:"",album:"",duration_s:0,streaminfo:{sample_rate:0,bits:0}},i:i};
+  });
+  renderVirtualList(document.getElementById("list"),items);
 }
 function renderPlaylistDetail(name){
   const p=S.playlists.find(x=>x.name===name);
   if(!p){S.view="playlists";render();return}
-  el.content.innerHTML=`<div class="h1">${name}</div>
-    <div class="thead"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>
-    <div class="tlist" id="list"></div>`;
-  const list=document.getElementById("list");
+  el.content.innerHTML=`<div class="h1">${esc(name)}</div>${listHead()}<div class="list" id="list"></div>`;
   const flt=S.lib.map((t,i)=>({t,i})).filter(x=>p.paths.has(x.t.path));
-  flt.forEach(x=>list.appendChild(trackRow(x.t,x.i,"row")));
+  renderVirtualList(document.getElementById("list"),flt);
 }
 
-/* view dispatch */
+/* detail views (album:/playlist:) wrap the page router */
 const _render=render;
 render=function(){
   if(S.view.startsWith("album:")){showView(S.view);renderAlbumDetail(S.view.slice(6));return}
@@ -682,243 +661,320 @@ render=function(){
   _render();
 };
 
+/* ============ track sheet (more menu) ============ */
+function openTrackSheet(t,i){
+  el.sheetTitle.textContent=(t.title||"TRACK").toUpperCase();
+  const liked=S.liked.has(t.path);
+  el.sheetBody.innerHTML="";
+  const add=(label,fn,icon)=>{
+    const b=document.createElement("button");b.className="sheet-row";
+    b.innerHTML=(icon||"")+`<span style="flex:1">${label}</span>`;
+    b.onclick=()=>{closeSheet();fn&&fn()};
+    el.sheetBody.appendChild(b);
+    return b;
+  };
+  add("Play next",()=>queueAdd([t.path],"next"));
+  add("Add to queue",()=>queueAdd([t.path],"add"));
+  add(liked?"\u2665 Liked":"\u2661 Like",()=>{toggleLike(t.path);render()});
+  add("Add to playlist…",()=>openPlaylistPicker(t));
+  add("Change cover art…",()=>openCoverSheet(t));
+  openSheet();
+}
+/* ============ cover art sheet (task 10) ============ */
+function openCoverSheet(t){
+  openSheet();
+  el.sheetTitle.textContent="CHANGE COVER ART";
+  el.sheetBody.innerHTML="";
+  const cap=document.createElement("div");
+  cap.className="h-caps mono";
+  cap.style.cssText="padding:2px 10px 6px;color:var(--fg-3)";
+  cap.textContent="SOURCE: …";
+  el.sheetBody.appendChild(cap);
+  coverInfoFor(t).then(info=>{
+    cap.textContent="SOURCE: "+({embedded:"EMBEDDED",user:"YOUR CHOICE",web:"WEB",none:"NONE"}[info&&info.source]||(info&&info.source)||"NONE").toUpperCase();
+  });
+  const add=(label,fn)=>{const b=document.createElement("button");b.className="sheet-row";
+    b.innerHTML=`<span style="flex:1">${label}</span>`;b.onclick=()=>{closeSheet();fn&&fn()};el.sheetBody.appendChild(b);return b};
+  add("Import image…",()=>coverImportFor(t));
+  add("Search the web…",()=>openCoverSearch(t));
+  add("Reset to default",()=>coverResetFor(t));
+}
+/* web search sheet: artist+album fields -> results grid -> click applies */
+function openCoverSearch(t){
+  openSheet();
+  el.sheetTitle.textContent="SEARCH COVER ART";
+  el.sheetBody.innerHTML="";
+  const frow=document.createElement("div");
+  frow.style.cssText="display:flex;gap:6px;padding:0 10px 8px";
+  frow.innerHTML=`<input id="cvA" class="field" placeholder="Artist" value="${esc(t.artist||"")}" spellcheck="false">
+    <input id="cvL" class="field" placeholder="Album" value="${esc(t.album||"")}" spellcheck="false">`;
+  el.sheetBody.appendChild(frow);
+  const grid=document.createElement("div");
+  grid.className="cover-grid";
+  el.sheetBody.appendChild(grid);
+  const cap=document.createElement("div");
+  cap.className="h-caps mono";
+  cap.style.cssText="padding:4px 10px;color:var(--fg-3)";
+  cap.textContent="SEARCHING…";
+  el.sheetBody.appendChild(cap);
+  const run=()=>{
+    const artist=frow.querySelector("#cvA").value, album=frow.querySelector("#cvL").value;
+    grid.innerHTML="";cap.textContent="SEARCHING…";
+    invoke("cover_search",{artist,album,limit:12}).then(cands=>{
+      grid.innerHTML="";cap.textContent=cands.length?`${cands.length} RESULTS \u00b7 CLICK TO APPLY`:"NO RESULTS";
+      (cands||[]).forEach(cand=>{
+        const cell=document.createElement("button");
+        cell.className="cover-cell";
+        cell.innerHTML=`<img loading="lazy" alt="" src="${esc(cand.thumb||cand.url)}">
+          <span class="cover-src">${esc((cand.source||"").toUpperCase())}</span>`;
+        cell.title=`${cand.title||""} \u2014 ${cand.artist||""} (${cand.source})`;
+        cell.onclick=async()=>{
+          cell.style.outline="2px solid var(--accent)";
+          await coverApplyFor(t,cand.url);
+          closeSheet();
+        };
+        grid.appendChild(cell);
+      });
+    }).catch(e=>{cap.textContent="SEARCH FAILED: "+e});
+  };
+  frow.querySelectorAll("input").forEach(inp=>inp.addEventListener("change",run));
+  run();
+}
+function openPlaylistPicker(t){
+  el.sheetTitle.textContent="ADD TO PLAYLIST";
+  el.sheetBody.innerHTML="";
+  const mk=document.createElement("button");mk.className="sheet-row";
+  mk.innerHTML='<span style="flex:1">+ Create new playlist</span>';
+  mk.onclick=()=>{
+    const name="PL-"+String(S.playlists.length+1).padStart(2,"0");
+    makePlaylist(name,[t.path]);
+    closeSheet();S.view="playlist:"+name;render();
+  };
+  el.sheetBody.appendChild(mk);
+  S.playlists.forEach(p=>{
+    const b=document.createElement("button");b.className="sheet-row";
+    b.innerHTML=`<span style="flex:1">${esc(p.name)}</span><span class="h-caps mono">${p.paths.size}</span>`;
+    b.onclick=()=>{p.paths.add(t.path);savePlaylists();closeSheet();toast("Added to "+p.name,"ok")};
+    el.sheetBody.appendChild(b);
+  });
+}
+function openSheet(){el.sheet.classList.add("open");el.sheetBk.classList.add("open")}
+function closeSheet(){el.sheet.classList.remove("open");el.sheetBk.classList.remove("open")}
+el.sheetClose.onclick=closeSheet;
+el.sheetBk.onclick=closeSheet;
+
+/* ============ likes / playlists (owner-authoritative) ============ */
+function toggleLike(path){
+  if(S.liked.has(path))S.liked.delete(path);else S.liked.add(path);
+  saveStore();emitSync();
+}
+window.toggleLike=toggleLike;
+function makePlaylist(name,paths){
+  S.playlists.push({name,paths:new Set(paths)});
+  savePlaylists();
+}
+window.makePlaylist=makePlaylist;
+function savePlaylists(){
+  saveStore();emitSync();
+}
+
+/* ============ search ============ */
+let searchStr="";
+el.search.addEventListener("input",()=>{searchStr=el.search.value.toLowerCase();
+  if(!searchStr&&["queue","settings"].includes(S.view)){S.view="tracks";render();return}
+  if(searchStr&&S.view==="nowplaying")S.view="tracks";
+  if(["tracks","albums","liked","search"].includes(S.view)||searchStr)render()});
+
+/* ============ npbar (mini-bar) ============ */
+el.npbar.onclick=e=>{
+  if(e.target.closest("button")||e.target.closest(".seek"))return;
+  S.view="nowplaying";render();
+};
+
 /* ============ now-playing surface updates ============ */
 function paintNP(){
   const m=S.meta;
   el.npTitle.textContent=m?m.title:"\u2014";
   el.npArtist.textContent=m?m.artist+"\u2002/\u2002"+m.album:"\u2014";
-  el.npTech.textContent=m?`${m.streaminfo.sample_rate/1000} kHz / ${m.streaminfo.bits}-BIT / ${m.streaminfo.channels===2?"STEREO":m.streaminfo.channels+"CH"} / ${m.format||"FLAC"} \u00b7 ${(m.lossless===false)?"LOSSY":"LOSSLESS"}`:"\u2014";
+  el.npTech.textContent=m?`${m.streaminfo.sample_rate/1000} kHz / ${m.streaminfo.bits}-BIT / ${m.streaminfo.channels===2?"STEREO":m.streaminfo.channels+"CH"}`:"\u2014";
+  const badge=m?`<span class="badge ${(m.lossless===false)?"lossy":"lossless"}">${(m.lossless===false)?"LOSSY":"LOSSLESS"}</span>`:"";
+  el.npTech.innerHTML=(m?esc(`${m.streaminfo.sample_rate/1000} kHz / ${m.streaminfo.bits}-BIT / ${m.streaminfo.channels===2?"STEREO":m.streaminfo.channels+"CH"} / ${(m.format||"FLAC").toUpperCase()}`):"\u2014")+" "+badge;
   el.npKick.textContent="HALFTONE / "+String(S.i+1).padStart(2,"0")+" / "+String(S.lib.length).padStart(2,"0");
   el.tTot.textContent=fmt(m?m.duration_s:0);
   el.nbTot.textContent=fmt(m?m.duration_s:0);
   el.nbTitle.textContent=m?m.title:"\u2014";
   el.nbSub.textContent=m?(m.artist+" / "+m.album).toUpperCase():"\u2014";
-  /* big cover: real photo or dither */
-  if(S.cfg.art==="real"&&m&&m.cover){
-    el.npCover.src="data:"+m.cover.mime+";base64,"+m.cover.data_b64;
-    el.npCover.style.display="";el.npCover.classList.remove("dithered");
-    if(el.npDither)el.npDither.style.display="none";
-  }else if(m&&m.cover){
-    el.npCover.classList.add("dithered");el.npCover.style.display="none";
-    /* draw onto a hidden canvas swapped in behind */
-    drawDither(el.npDither,m&&S._img);
-    el.npDither.style.display="";
-  }else{el.npCover.style.display="none";if(el.npDither)el.npDither.style.display="none"}
-  /* lyrics visibility — auto-centered hero when the track has no lyrics */
-  const has=S.lyrics.length>0;
-  el.npNoLrc.style.display=has?"none":"flex";
-  el.npLyrView.style.display=has?"":"none";
-  const wantLyrics=has&&S.cfg.lyrics!==false;
-  el.np.classList.toggle("nolyr",!wantLyrics);
-  S._autoNolyr=!has;   /* remember why (user-off vs no-lyrics) for the menu checkmarks */
+  /* big cover: real photo or dither canvas (coverUrl, never base64) */
+  const mode=S.cfg.art==="theme"?themeArtDefault:S.cfg.art;
+  const showReal=mode==="real"&&S._artUrl;
+  el.npCover.style.display=showReal?"":"none";
+  el.npDither.style.display=showReal?"none":"";
+  if(showReal){if(el.npCover.src!==S._artUrl)el.npCover.src=S._artUrl}
+  else if(S._img)drawDither(el.npDither,S._img);
+  else if(!S._img)g_clear(el.npDither);
+  /* tech line visibility */
+  el.npTech.parentElement.style.display=(S.cfg.tech===false)?"none":"";
+  /* mini-bar art */
+  if(S._artUrl)el.npArtMb.src=S._artUrl;
+  /* art swap animation */
+  const art=el.npArt;art.classList.remove("art-swap");void art.offsetWidth;art.classList.add("art-swap");
 }
-document.addEventListener("halftone:track",()=>{
-  paintNP();
-  S._npLyrics=(S.view==="nowplaying");
-});
+document.addEventListener("halftone:track",()=>{paintNP();updTransport()});
+document.addEventListener("halftone:art",()=>{paintNP()});
 
-/* big lyric pane: NATIVE scrolling + smooth follow.
-   (common.js's transform-follow remains the widget's variant) */
-function updateLyrics(){
-  if(!S._npLyrics||S.cfg.lyrics===false)return;
-  const view=el.npLyrView,lines=[...el.lyrWrap.children];
-  if(!lines.length)return;
-  const t=el.aud.currentTime;
-  let idx=-1;for(let i=0;i<lines.length;i++){if(t>=+lines[i].dataset.t)idx=i}
-  if(idx!==S.lidx){S.lidx=idx;
-    lines.forEach((l,i)=>l.classList.toggle("active",i===idx));
-    if(idx>=0&&!S._lyrManual){
-      const ln=lines[idx];
-      const top=ln.offsetTop-view.clientHeight/2+ln.offsetHeight/2;
-      view.scrollTo({top:Math.max(0,top),behavior:"smooth"});
-    }}
+/* ============ lyrics pane (follow / status / offset) ============ */
+function paintLyrStatus(){
+  const st=S.lyricsStatus;
+  const m=S.meta;
+  if(S.lyrics.length){
+    const label={sidecar:"SIDECAR .LRC",embedded:"EMBEDDED",cache:"CACHED",lrclib:"LRCLIB.NET"}[st]||st.toUpperCase();
+    el.lyrStatus.innerHTML=`<span class="badge ${S._lyricsSynced===false?"":"lossless"}">${label}${S._lyricsSynced===false?" \u00b7 PLAIN":""}</span>`;
+    el.npNoLrc.style.display="none";
+    el.npLyrView.style.display="";
+    el.lyrCap.textContent="LYRICS \u00b7 "+(S._lyricsSynced===false?"PLAIN":"SYNCED");
+  }else if(st==="searching"){
+    el.lyrStatus.innerHTML=`<span class="h-caps mono">SEARCHING…</span>`;
+    el.npNoLrc.style.display="none";el.npLyrView.style.display="";
+    el.lyrCap.textContent="LYRICS";
+  }else{
+    el.lyrStatus.innerHTML="";
+    el.npNoLrc.style.display="flex";el.npLyrView.style.display="none";
+    el.lyrCap.textContent="LYRICS";
+  }
 }
-/* manual scroll pauses follow; clicking a line or changing track resumes it */
+document.addEventListener("halftone:lyrics",()=>{paintLyrStatus();paintNP()});
+document.addEventListener("halftone:lyrics-status",()=>paintLyrStatus());
+el.lrcSearch.onclick=()=>openLrcSearch();
+el.lrcRetry.onclick=()=>retryLyrics();
+
+/* main lyric follow is in common.js (lyricFollow); wire manual-scroll pause */
 el.npLyrView.addEventListener("wheel",()=>{S._lyrManual=true},{passive:true});
-document.addEventListener("halftone:state",()=>updTransport());
+document.addEventListener("halftone:seeked",()=>{S._lyrManual=false});
+
+/* ============ state/transport ============ */
 document.addEventListener("halftone:state",()=>{
   el.np.classList.toggle("playing",S.playing);
-  const p=S.playing&&!el.aud.paused;
-  el.npIcoP.style.display=p?"none":"block";
-  el.npIcoPa.style.display=p?"block":"none";
+  const p=S.playing;
+  el.icoPlay.style.display=p?"none":"block";
+  el.icoPause.style.display=p?"block":"none";
   el.nbIcoPlay.style.display=p?"none":"block";
   el.nbIcoPause.style.display=p?"block":"none";
+  updTransport();
 });
-
-el.aud.addEventListener("timeupdate",()=>{el.tCur.textContent=fmt(el.aud.currentTime);el.nbCur.textContent=fmt(el.aud.currentTime)});
-
-/* seeks: main + minibar meters share wiring */
-wireSeek(el.seek);
-(function(){ /* minibar meter (no tip element) */
-  const seek=el.seek2;
-  seek.addEventListener("pointerdown",e=>{
-    try{seek.setPointerCapture(e.pointerId)}catch(_){}
-    const r=seek.getBoundingClientRect();
-    S.drag={p:Math.min(1,Math.max(0,(e.clientX-r.left)/r.width))};
-    seek.classList.add("open","dragging");
-  });
-  seek.addEventListener("pointermove",e=>{
-    if(S.drag==null)return;
-    const r=seek.getBoundingClientRect();
-    S.drag.p=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width));
-  });
-  const end=()=>{if(S.drag==null)return;
-    el.aud.currentTime=S.drag.p*(el.aud.duration||0);S.drag=null;S.lidx=-1;
-    seek.classList.remove("dragging")};
-  seek.addEventListener("pointerup",end);seek.addEventListener("pointercancel",end);
-  seek.addEventListener("wheel",e=>{e.preventDefault();
-    if(el.aud.duration)el.aud.currentTime=Math.max(0,Math.min(el.aud.duration,el.aud.currentTime+(e.deltaY<0?5:-5)))},{passive:false});
-})();
-
-/* transport (both surfaces) */
-el.btnPlay.onclick=()=>setPlaying(!S.playing);
-el.nbPlay.onclick=()=>setPlaying(!S.playing);
-el.btnNext.onclick=el.nbNext.onclick=()=>nextTrack();
-el.btnPrev.onclick=el.nbPrev.onclick=()=>{if(!S.lib.length)return;
-  if(el.aud.currentTime>3)el.aud.currentTime=0;else loadTrack(S.i-1)};
-el.aud.addEventListener("ended",()=>nextTrack(true));
-
 function updTransport(){
   el.btnShuf.classList.toggle("on",S.shuffle);
   el.btnRep.classList.toggle("on",S.repeat!=="off");
   el.btnRep.classList.toggle("rep-one",S.repeat==="one");
 }
-el.btnShuf.onclick=()=>{S.shuffle=!S.shuffle;saveStore();updTransport();emitSync({shuffle:S.shuffle})};
-el.btnRep.onclick=()=>{cycleRepeat();updTransport()};
-updTransport();
+window.updTransport=updTransport;
+el.btnPlay.onclick=()=>setPlaying(!S.playing);
+el.nbPlay.onclick=()=>setPlaying(!S.playing);
+el.btnNext.onclick=el.nbNext.onclick=()=>nextTrack();
+el.btnPrev.onclick=el.nbPrev.onclick=()=>{if(!S.lib.length)return;
+  if(posSec()>3)seekTo(0);else loadTrack(S.i-1)};
+el.aud.addEventListener("ended",()=>nextTrack(true));
+el.btnShuf.onclick=()=>{S.shuffle=!S.shuffle;saveStore();updTransport();emitSync()};
+el.btnRep.onclick=()=>{cycleRepeat();updTransport();saveStore();emitSync()};
+/* nextTrack: queue-aware (common.js provides nextIndex) */
+async function nextTrack(auto){
+  const n=nextIndex();
+  if(n===S.i&&!S.queue.length){if(!auto)setPlaying(false);return}
+  await loadTrack(n);
+}
+window.nextTrack=nextTrack;
 
-/* volume */
-const LEDN=5,leds=[];
-for(let i=0;i<LEDN;i++){
-  const d=document.createElement("div");d.className="led";
-  d.onclick=()=>setVol((i+1)/LEDN);
-  el.leds.appendChild(d);leds.push(d)}
-function paintLeds(){leds.forEach((l,i)=>l.classList.toggle("on",S.vol>=(i+1)/LEDN-.01))}
-paintLeds();el.aud.volume=S.vol;
-document.addEventListener("halftone:vol",paintLeds);
-el.leds.addEventListener("keydown",e=>{
-  if(e.key==="ArrowRight")setVol(S.vol+1/LEDN);
-  if(e.key==="ArrowLeft")setVol(S.vol-1/LEDN)});
-/* wheel anywhere = volume, except inside scrollable regions */
-document.body.addEventListener("wheel",e=>{
-  if(e.target.closest(".np-lyrview,.tlist,.agrid,.qscroll,.content,.ctxmenu"))return;
-  e.preventDefault();
-  nudgeVol(e.deltaY<0?.05:-.05);
-},{passive:false});
-/* viewer-mode timeupdate for the lyric follow + clock text */
-document.addEventListener("halftone:tick",()=>{el.tCur.textContent=fmt(posSec());el.nbCur.textContent=fmt(posSec())});
+/* ============ volume (LED ladder + gel slider) ============ */
+function buildVolBoth(){
+  buildVol(el.vol);buildVol(el.volMb);
+}
+document.addEventListener("halftone:vol",()=>{paintVolAll()});
+function paintVolAll(){
+  document.querySelectorAll(".vol-leds").forEach(c=>{const box=c.parentElement;if(box._paintLeds)box._paintLeds()});
+  document.querySelectorAll(".vol").forEach(vb=>{
+    const gel=vb.querySelector(".vol-gel");
+    if(gel)paintGel(vb,S.vol);
+  });
+}
 
-/* lrc fetch */
-el.lrcGet.onclick=async e=>{
-  e.preventDefault();
-  const t=trk()||{title:"",artist:"",path:""};
-  /* first open lrclib.net search in the default browser */
-  openExternal("https://lrclib.net/search?q="+encodeURIComponent(t.artist+" "+t.title));
-  /* then fetch the .lrc directly: if one exists on lrclib, save it next to the FLAC
-     and load it into the lyric pane without switching tabs */
-  if(t.path){
-    try{
-      const lrcPath=await invoke("lrc_fetch",{path:t.path,artist:t.artist,title:t.title});
-      toast("Lyrics saved: "+lrcPath,"ok");
-      /* reload lyrics for current track */
-      S.lyrics=await invoke("read_lyrics",{path:t.path});
-      if(el.lyrWrap)el.lyrWrap.classList.toggle("show",!!S.lyrics.length);
-      buildLyrics();updateLyrics();emitSync();
-    }catch(e){toast("Lyrics fetch failed: "+e,"error")}
+/* ============ keyboard ============ */
+addEventListener("keydown",e=>{
+  if(e.target.tagName==="INPUT"||e.target.tagName==="SELECT")return;
+  if(e.code==="Space"){e.preventDefault();setPlaying(!S.playing)}
+  if(e.code==="ArrowRight"&&durSec())seekTo(Math.min(durSec(),posSec()+5));
+  if(e.code==="ArrowLeft")seekTo(Math.max(0,posSec()-5));
+  if((e.ctrlKey||e.metaKey)&&e.code==="KeyK"){e.preventDefault();openCmdk()}
+  if(e.code==="Escape"){closeSheet();closeCmdk()}
+});
+
+/* ============ command palette (Ctrl+K) ============ */
+function cmdkItems(){
+  const items=VIEWS.map(([id,label])=>({label:"Go to "+label,icon:navSVG(""),fn:()=>{S.view=id;render()}}));
+  items.push({label:"Toggle theme",icon:navSVG(""),fn:()=>{const t=window.Theme;htSetTheme(t.name==="analogue"?"digital":"analogue")}});
+  items.push({label:"Toggle light/dark",icon:navSVG(""),fn:()=>{const t=window.Theme;htSetMode(t.resolved==="dark"?"light":"dark")}});
+  items.push({label:"Scan library",icon:navSVG(""),fn:()=>{if(S.root)scanLibrary(S.root).then(render)}});
+  items.push({label:"Rescan (force)",icon:navSVG(""),fn:()=>rescanLibrary()});
+  items.push({label:"Check for updates",icon:navSVG(""),fn:()=>el.otaBtn.click()});
+  return items;
+}
+function openCmdk(){
+  el.cmdk.classList.add("open");
+  el.cmdkInput.value="";
+  buildCmdk("");
+  el.cmdkInput.focus();
+}
+function closeCmdk(){el.cmdk.classList.remove("open")}
+function buildCmdk(q){
+  el.cmdkList.innerHTML="";
+  cmdkItems().filter(x=>x.label.toLowerCase().includes(q.toLowerCase())).forEach((x,k)=>{
+    const b=document.createElement("button");b.className="cmdk-item"+(k===0?" sel":"");
+    b.innerHTML=x.icon+`<span style="flex:1">${esc(x.label)}</span>`;
+    b.onclick=()=>{closeCmdk();x.fn()};
+    el.cmdkList.appendChild(b);
+  });
+}
+el.cmdkInput.addEventListener("input",()=>buildCmdk(el.cmdkInput.value));
+el.cmdkInput.addEventListener("keydown",e=>{
+  const items=[...el.cmdkList.children];
+  if(e.key==="ArrowDown"||e.key==="ArrowUp"){
+    e.preventDefault();
+    const cur=el.cmdkList.querySelector(".sel");
+    let idx=items.indexOf(cur);
+    if(cur)cur.classList.remove("sel");
+    idx=e.key==="ArrowDown"?Math.min(items.length-1,idx+1):Math.max(0,idx-1);
+    if(items[idx])items[idx].classList.add("sel");
   }
-};
+  if(e.key==="Enter"){const cur=el.cmdkList.querySelector(".sel");if(cur)cur.click()}
+});
+el.cmdk.onclick=e=>{if(e.target===el.cmdk)closeCmdk()};
+el.btnPalette.onclick=()=>openCmdk();
 
-/* window controls. LOAD-BEARING: main is the sole audio owner, so
-   this window's close button only HIDES - destroying it would kill
-   the app's audio. Only the widget's close or tray quit terminates. */
-el.btnMin.onclick=async()=>{try{await curWin.minimize()}catch(e){console.warn(e)}};
-el.btnClose.onclick=async()=>{try{await curWin.hide()}catch(e){console.warn(e)}};
-try{curWin.onCloseRequested(async e=>{e.preventDefault();try{await curWin.hide()}catch(_){}})}catch(_){}
+/* ============ window controls ============ */
+/* LOAD-BEARING: main is the sole audio owner, so this window's
+   close button only HIDES - destroying it would kill the app's
+   audio. Only the widget's close or tray quit terminates. */
+el.btnMin.onclick=async()=>{try{await window.curWin.minimize()}catch(e){console.warn(e)}};
+el.btnClose.onclick=async()=>{try{await window.curWin.hide()}catch(e){console.warn(e)}};
+try{window.curWin.onCloseRequested(async e=>{e.preventDefault();try{await window.curWin.hide()}catch(_){}})}catch(_){}
 el.btnWidget.onclick=async()=>{
-  /* toggle: hide the widget if it is showing, otherwise show + focus it */
   try{
     const w=await winByLabel("widget");if(!w)return;
     if(await w.isVisible()){await w.hide();el.btnWidget.classList.remove("on")}
     else{await w.show();await w.setFocus();el.btnWidget.classList.add("on")}
   }catch(e){console.warn(e)}
 };
-wireDrag(el.dragTop);wireDrag(el.dragLogo);
-wireDropZone(document.body);
-el.btnSide.onclick=()=>setCfgM("side",S.cfg.side===false?true:false);
-
-/* library folder browse (owner scans natively; viewer forwards via scanLibrary) */
-el.libbrowse.onclick=async()=>{
-  try{const dir=await invoke("pick_folder");
-    if(dir){el.libpath.value=dir;await scanLibrary(dir);}}
-  catch(e){console.warn("pick_folder",e)}
-};
-el.libpath.addEventListener("keydown",e=>{if(e.key==="Enter")el.libscan.click()});
-
-/* widget -> open on now playing */
-function takeNP(req){
-  S._npReq=req;
-  maybeNP();
-}
-function maybeNP(){
-  if(!S._npReq)return;
-  const t=S._npReq.track;
-  S._npReq=null;
-  S.view="nowplaying";
-  if(t!=null&&t>=0&&t<S.lib.length&&t!==S.i)loadTrack(t);
-  else render();
-}
-if(T){
+async function winByLabel(label){
   try{
-    const L=(T.event&&T.event.listen)?T.event.listen.bind(T.event)
-          :(curWin&&curWin.listen)?curWin.listen.bind(curWin):null;
-    if(L){
-      L("halftone:open-np",e=>{takeNP(e.payload||{});if(!S.lib.length)scanLibrary(S.root||"").then(maybeNP)});
-      /* play-takeover handled centrally in common.js */
+    if(T&&T.window){
+      const all=await T.window.getAllWindows();
+      return all.find(w=>w.label===label)||null;
     }
-  }catch(e){console.warn("listen",e)}
+  }catch(e){console.warn(e)}
+  return null;
 }
+wireDrag(el.dragTop);wireDrag(el.dragLogo);wireDrag(document.getElementById("tbDrag"));
+wireDropZone(document.body);
 
-/* right-click configurator (submenu parity with widget) */
-function setGrid(v){S.cfg.grid=v;saveStore();paintNP()}
-document.body.addEventListener("contextmenu",e=>{
-  if(e.target.closest("input"))return;
-  e.preventDefault();
-  openCtx(e.clientX,e.clientY,[
-    {label:"SHOW WIDGET \u00B7 MINIPLAYER",onClick:()=>el.btnWidget.click()},
-    {label:"MINIMIZE",onClick:()=>{curWin.minimize().catch(()=>{})}},
-    {label:"HIDE MAIN",onClick:()=>{curWin.hide().catch(()=>{})}},
-    {sep:1},
-    {label:"LAYOUT",children:[
-      {label:"ALBUM ART \u00B7 REAL PHOTO",checked:S.cfg.art==="real",onClick:()=>{setCfgM("art","real")}},
-      {label:"ALBUM ART \u00B7 DITHER",checked:S.cfg.art!=="real",onClick:()=>{setCfgM("art","dither")}},
-      {sep:1},
-      {label:"SIDEBAR",checked:S.cfg.side!==false,onClick:()=>setCfgM("side",S.cfg.side===false)},
-      {label:"LYRICS \u00B7 SHOW",checked:S.cfg.lyrics!==false,onClick:()=>setCfgM("lyrics",true)},
-      {label:"LYRICS \u00B7 HIDE (CENTERED ART)",checked:S.cfg.lyrics===false,onClick:()=>setCfgM("lyrics",false)},
-    ]},
-    {label:"DITHER",children:[
-      {label:"DENSITY \u00B7 STANDARD",checked:S.cfg.grid===32,onClick:()=>setGrid(32)},
-      {label:"DENSITY \u00B7 FINE",checked:S.cfg.grid===48,onClick:()=>setGrid(48)},
-      {label:"DENSITY \u00B7 ULTRA",checked:S.cfg.grid===64,onClick:()=>setGrid(64)},
-    ]},
-    {label:"AMBIENT",children:[
-      {label:"OFF \u00B7 NONE",checked:(S.cfg.ambient||"dither")==="off",onClick:()=>setCfgM("ambient","off")},
-      {label:"DITHER BLOOM",checked:(S.cfg.ambient||"dither")==="dither",onClick:()=>setCfgM("ambient","dither")},
-      {label:"HALO GLOW \u00B7 SOFT",checked:S.cfg.ambient==="halo",onClick:()=>setCfgM("ambient","halo")},
-    ]},
-    {label:"ACCENT",children:accentMenuItems()},
-  ]);
-});
-function setCfgM(k,v){
-  S.cfg[k]=v;saveStore();
-  if(k==="ambient")el.np.classList.toggle("noambient",v==="off");
-  if(k==="lyrics")el.np.classList.toggle("nolyr",v===false);
-  if(k==="side")document.querySelector(".app").classList.toggle("noside",v===false);
-  paintNP();
-  if(!["nowplaying"].includes(S.view)&&["art"].includes(k))render();
-}
-
-/* ============ EQ / OUTPUT / SLEEP panel wiring ============ */
+/* ============ EQ view ============ */
 const EQ_PRESETS={
   "FLAT":[0,0,0,0,0,0,0,0,0,0],
   "ROCK":[5,4,3,1,-1.5,-1,1,3,4,4.5],
@@ -928,56 +984,43 @@ const EQ_PRESETS={
   "ELECTRONIC":[6,5,2,0,-2,1,2,4,5,5.5],
   "ACOUSTIC":[4,3.5,2,1,1.5,1,2.5,3.5,4,3]};
 function eqUserPresets(){try{return JSON.parse(localStorage.getItem("halftone.eqpresets")||"{}")}catch(e){return {}}}
-function eqSaveUser(name,g){
-  const all=eqUserPresets();all[name]=g;
-  localStorage.setItem("halftone.eqpresets",JSON.stringify(all));
-  refreshPresetList();
-}
-function eqDelUser(name){
-  const all=eqUserPresets();delete all[name];
-  localStorage.setItem("halftone.eqpresets",JSON.stringify(all));
-  refreshPresetList();
-}
+function eqSaveUser(name,g){const all=eqUserPresets();all[name]=g;localStorage.setItem("halftone.eqpresets",JSON.stringify(all));refreshPresetList()}
+function eqDelUser(name){const all=eqUserPresets();delete all[name];localStorage.setItem("halftone.eqpresets",JSON.stringify(all));refreshPresetList()}
 function refreshPresetList(){
   const sel=el.eqPresetSel;sel.innerHTML="";
   Object.keys(EQ_PRESETS).forEach(k=>{const o=document.createElement("option");o.value="b:"+k;o.textContent=k;sel.appendChild(o)});
   Object.keys(eqUserPresets()).forEach(k=>{const o=document.createElement("option");o.value="u:"+k;o.textContent=k+" *";sel.appendChild(o)});
   const o=document.createElement("option");o.value="";o.textContent="\u2014";sel.appendChild(o);
 }
-function eqActiveProfileName(){return S.cfg.eq.profile||null}
-/* band LED ladder: 12 segments of 2dB; 0dB = gap row in the middle */
-const EQ_SEGS=12; /* per side (negative half mirrors) */
+function eqActiveProfileName(){return (S.cfg.eq&&S.cfg.eq.profile)||null}
 function paintEq(){
+  if(!el.eqBands||!el.eqPreLeds||!el.eqBands.children.length)return;   /* view not built yet */
   const eq=S.cfg.eq;
-  el.eqBypass.classList.toggle("on",!!eq.on);
+  el.eqBypass.classList.toggle("primary",!!eq.on);
   el.eqBypass.textContent=eq.on?"ON":"BYPASS";
-  /* preamp ladder is a horizontal LED strip: LEDs 1..6 left of center =
-     -6..-1dB, LED 7 = 0dB, LEDs 8..13 right = +1..+6dB (halved scale) */
   const pre=eq.pre||0;
-  const step=pre/2;                     /* 2dB per LED for range reach */
+  const step=pre/2;
   [...el.eqPreLeds.children].forEach((seg,k)=>{
-    const idx=k+1;                      /* 1..12 */
-    const center=6.5;                   /* LED 6/7 straddle zero */
-    const d=idx-center;                 /* -5.5..+5.5 */
+    const idx=k+1,center=6.5,d=idx-center;
     let lit=false,neg=false;
     if(pre<0)lit=d<0&&Math.abs(d)<=Math.abs(step);
     if(pre>0)lit=d>0&&d<=step;
     if(pre===0&&Math.abs(d)<=0.5)lit=true;
     neg=pre<0;
-    seg.classList.toggle("lit",lit);
+    seg.classList.toggle("on",lit);
     seg.classList.toggle("neglit",lit&&neg);
   });
-  el.eqPreDb.textContent=(pre>=0?"+":"")+pre.toFixed(1)+"dB"+(rgLabel());
+  el.eqPreDb.textContent=(pre>=0?"+":"")+pre.toFixed(1)+"dB"+rgLabel();
   const rgV=(S.meta&&S.meta.replaygain&&S.cfg.rg!=="off")?
     (S.cfg.rg==="album"?parseFloat(S.meta.replaygain.album_gain)||0:parseFloat(S.meta.replaygain.track_gain)||0):0;
   const posSum=(pre||0)+Math.max(0,rgV)+eq.bands.reduce((a,b)=>a+Math.max(0,b),0);
   el.eqClip.textContent=posSum>0?"TRIM "+(-posSum).toFixed(1)+"dB":"";
-  el.eqProfile.textContent=eqActiveProfileName()?("AUTOEQ \u00B7 "+eqActiveProfileName().toUpperCase()):"";
+  el.eqProfile.textContent=eqActiveProfileName()?("AUTOEQ \u00b7 "+eqActiveProfileName().toUpperCase()):"";
   [...el.eqBands.children].forEach((band,k)=>{
     const v=eq.bands[k]||0;
-    const litN=Math.min(6,Math.round(Math.abs(v)/2));  /* 6 segs per side, 2dB each */
+    const litN=Math.min(6,Math.round(Math.abs(v)/2));
     band.querySelectorAll(".seg").forEach(seg=>{
-      const idx=+seg.dataset.k;      /* 1..6 from zero outward */
+      const idx=+seg.dataset.k;
       const neg=seg.dataset.side==="n";
       const on=seg.classList.contains("zero")?false:(neg?(v<0&&idx<=litN):(v>0&&idx<=litN));
       seg.classList.toggle("lit",on);
@@ -995,7 +1038,6 @@ function buildEqBands(){
   el.eqBands.innerHTML="";
   EQ_BANDS.forEach((b,k)=>{
     const d=document.createElement("div");d.className="eqband";
-    /* LED ladder: 6 negative segs, zero bar, 6 positive segs (bottom = +12dB) */
     let segs="";
     for(let i=6;i>=1;i--)segs+=`<div class="seg" data-side="n" data-k="${i}"></div>`;
     segs+=`<div class="seg zero"></div>`;
@@ -1007,7 +1049,6 @@ function buildEqBands(){
     const drag=ev=>{
       const r=fader.getBoundingClientRect();
       const y=ev.clientY-r.top;
-      /* zero at middle; up = positive (louder up like a fader) */
       const half=r.height/2;
       let v;
       if(y<=half)v=Math.round((1-y/half)*12*2)/2;
@@ -1021,7 +1062,6 @@ function buildEqBands(){
     fader.addEventListener("pointermove",e=>{if(down)drag(e)});
     const up=()=>down=false;
     fader.addEventListener("pointerup",up);fader.addEventListener("pointercancel",up);
-    /* wheel = fine trim 0.5dB */
     fader.addEventListener("wheel",e=>{e.preventDefault();
       let v=(S.cfg.eq.bands[k]||0)+(e.deltaY<0?0.5:-0.5);
       S.cfg.eq.bands[k]=Math.max(-12,Math.min(12,v));S.cfg.eq.profile=null;
@@ -1029,7 +1069,6 @@ function buildEqBands(){
     },{passive:false});
     el.eqBands.appendChild(d);
   });
-  /* preamp LED ladder (12 horizontal steps, center-zero) */
   el.eqPreLeds.innerHTML="";
   for(let k=0;k<12;k++){
     const seg=document.createElement("div");seg.className="led ledseg";seg.dataset.k=k+1;
@@ -1037,15 +1076,6 @@ function buildEqBands(){
     el.eqPreLeds.appendChild(seg);
   }
 }
-function pushEq(rebuild){
-  const eq={on:!!S.cfg.eq.on,pre:S.cfg.eq.pre||0,bands:[...S.cfg.eq.bands],rebuild:!!rebuild};
-  if(IS_OWNER){if(rebuild)reconnectEq();else applyEqGains();emitSync()}
-  else emitCmd({cmd:"eq",eq,rebuild:!!rebuild});
-}
-/* AutoEQ ParametricEQ.txt import:
-     Preamp: -6.4 dB
-     Filter 1: ON LSC Fc 105 Hz Gain 5.5 dB Q 0.68
-     Filter 2: ON PK Fc 1000 Hz Gain -2.0 dB Q 1.10 ...  */
 function parseAutoEq(text){
   const lines=text.split(/\r?\n/);
   const out={pre:0,filters:[]};
@@ -1058,8 +1088,6 @@ function parseAutoEq(text){
   return out;
 }
 function applyAutoEq(parsed,name){
-  /* map AutoEQ filters onto our 10-band chain: closest band per filter,
-     leftover bands zeroed; shelving types map onto the edge bands. */
   const bands=EQ_BANDS.map(()=>0);
   parsed.filters.forEach(f=>{
     let best=0,bd=1e9;
@@ -1079,32 +1107,14 @@ el.eqFile.onchange=async()=>{
   if(parsed.filters.length)applyAutoEq(parsed,f.name.replace(/\.txt$/i,""));
   el.eqFile.value="";
 };
-el.eqBypass.onclick=()=>{S.cfg.eq.on=!S.cfg.eq.on;paintEq();pushEq(true)};
-/* preamp ladder: click/drag sets -12..+12 (left half = cut, right = boost) */
-(()=>{const box=el.eqPreLeds;
-  const set=ev=>{
-    const r=box.getBoundingClientRect();
-    const x=Math.max(0,Math.min(r.width,ev.clientX-r.left));
-    /* center-zero horizontal: left half = cut (up to -12), right = boost */
-    const half=r.width/2;
-    let v;
-    if(x<=half)v=-Math.round((1-x/half)*12*2)/2;
-    else v=Math.round(((x-half)/half)*12*2)/2;
-    S.cfg.eq.pre=v;S.cfg.eq.profile=null;paintEq();pushEq(false);
-  };
-  let down=false;
-  box.addEventListener("pointerdown",e=>{down=true;box.setPointerCapture(e.pointerId);set(e)});
-  box.addEventListener("pointermove",e=>{if(down)set(e)});
-  const up=()=>down=false;
-  box.addEventListener("pointerup",up);box.addEventListener("pointercancel",up);
-})();
+el.eqBypass.onclick=()=>{S.cfg.eq.on=!S.cfg.eq.on;paintEq();pushEq(true);saveStore()};
 el.eqPresetSel.onchange=()=>{
   const v=el.eqPresetSel.value;if(!v)return;
   const [kind,...rest]=v.split(":");const name=rest.join(":");
   const g=kind==="b"?EQ_PRESETS[name]:eqUserPresets()[name];
   if(g){S.cfg.eq.bands=[...g];S.cfg.eq.profile=kind==="u"?name:null;
     if(kind==="b")S.cfg.eq.profile=null;
-    paintEq();pushEq(false)}
+    paintEq();pushEq(false);saveStore()}
 };
 el.eqSave.onclick=()=>{
   const name=(el.eqPresetName.value||"").trim();
@@ -1114,33 +1124,118 @@ el.eqDelete.onclick=()=>{
   const v=el.eqPresetSel.value;
   if(v.startsWith("u:"))eqDelUser(v.slice(2));
 };
-/* open/close */
-function toggleEqPanel(force){
-  const show=force!=null?force:!el.eqPanel.classList.contains("open");
-  el.eqPanel.classList.toggle("open",show);
-  el.btnEq.classList.toggle("on",show);
-  if(show){if(!el.eqBands.children.length)buildEqBands();
-    refreshPresetList();paintEq();refreshSinks()}
+function paintEqView(){
+  if(!el.eqBands.children.length)buildEqBands();
+  refreshPresetList();paintEq();refreshSinks();
 }
-el.btnEq.onclick=()=>toggleEqPanel();
-el.eqClose.onclick=()=>toggleEqPanel(false);
-
 /* output devices */
 async function refreshSinks(){
   if(!el.sinkSel)return;
   const ds=IS_OWNER?await listSinks():[];
   el.sinkSel.innerHTML="";
   const o=document.createElement("option");o.value="";o.textContent="SYSTEM DEFAULT";el.sinkSel.appendChild(o);
-  ds.filter(d=>d.id).forEach(d=>{const o=document.createElement("option");o.value=d.id;o.textContent=d.label.slice(0,60);el.sinkSel.appendChild(o)});
+  ds.filter(d=>d.id).forEach(d=>{const o2=document.createElement("option");o2.value=d.id;o2.textContent=(d.label||d.id).slice(0,60);el.sinkSel.appendChild(o2)});
   el.sinkSel.value=S.cfg.sink||"";
   el.sinkNote.textContent=IS_OWNER?"SHARED MIXER":"OWNER WINDOW ONLY";
 }
 el.sinkSel.onchange=async()=>{
   const id=el.sinkSel.value;
-  if(IS_OWNER)setSink(id);else emitCmd({cmd:"sink",id});
+  if(IS_OWNER)await setSink(id);else emitCmd({cmd:"sink",id});
 };
 
-/* ============ OTA updates ============ */
+/* ============ settings plumbing (schema apply fns) ============ */
+function applyArtSetting(v){
+  const eff=v==="theme"?themeArtDefault:v;
+  if(S.cfg.art!==eff){S.cfg.art=eff;saveStore()}
+  paintNP();
+  if(!["nowplaying","eq"].includes(S.view))render();
+}
+window.applyArtSetting=applyArtSetting;
+function setDitherDensity(v){S.cfg.grid=+v;saveStore();
+  document.querySelectorAll("canvas.art-dither").forEach(cv=>{if(cv._img)drawDither(cv,cv._img)});paintNP()}
+window.setDitherDensity=setDitherDensity;
+function applyAmbientSetting(v){
+  S.cfg.ambient=v==="theme"?themeAmbientDefault:v;
+  const fx=document.querySelector(".fx-layer");
+  if(fx)fx.dataset.ambient=S.cfg.ambient;
+  saveStore();
+}
+window.applyAmbientSetting=applyAmbientSetting;
+function applyQueueSideSetting(v){S.cfg.queueSide=v||"off";saveStore();applyQueueSideDom()}
+window.applyQueueSide=applyQueueSideSetting;   /* settings hook; DOM fn is applyQueueSideDom */
+function applyNpLayout(v){
+  S.cfg.npLayout=v||"split";
+  el.np.classList.toggle("np-stacked",S.cfg.npLayout==="stacked");
+  el.np.classList.toggle("np-hero",S.cfg.npLayout==="hero");
+  saveStore();
+}
+window.applyNpLayout=applyNpLayout;
+function applyTechLine(v){S.cfg.tech=!!v;saveStore();paintNP()}
+window.applyTechLine=applyTechLine;
+function applyMiniBarSetting(v){S.cfg.miniBar=v||"bottom";saveStore();applyMiniBarDom()}
+window.applyMiniBar=applyMiniBarSetting;   /* settings hook (schema apply) */
+function applyMiniBarDom(){
+  const np=S.view==="nowplaying";
+  const pos=S.cfg.miniBar||"bottom";
+  el.npbar.style.display=(np||pos==="off")?"none":"flex";
+  el.npbar.classList.toggle("top",pos==="top");
+  /* mini-bar is a FLEX sibling of .app-shell inside .shell-body — NOT a
+     grid child of appShell (grid item in the nav column inflated the
+     auto column = the "dead band" bug). Keep it outside the grid. */
+  const body=el.appShell.parentElement;
+  if(pos==="top"){body.insertBefore(el.npbar,el.appShell)}
+  else{body.appendChild(el.npbar)}
+}
+/* window.applyMiniBar stays = applyMiniBarSetting (settings hook, set above) */
+function applyWidgetPin(v){
+  S.pinned=!!v;saveStore();
+  try{window.curWin&&window.curWin.setAlwaysOnTop(S.pinned)}catch(e){console.warn(e)}
+  emitSync();
+}
+window.applyWidgetPin=applyWidgetPin;
+function applyWidgetLyrics(v){S.lyricsOpen=!!v;saveStore();emitSync()}
+window.applyWidgetLyrics=applyWidgetLyrics;
+function applyWidgetSeek(v){const sk=document.getElementById("seek");if(sk)sk.style.display=v?"":"none";saveStore()}
+window.applyWidgetSeek=applyWidgetSeek;
+function applyWidgetVol(v){const vb=document.getElementById("vol");if(vb)vb.style.display=v?"":"none";saveStore()}
+window.applyWidgetVol=applyWidgetVol;
+function applyLyricsAuto(v){S.cfg.lyricsAuto=!!v;saveStore();if(S.meta)loadLyrics(S.meta,false)}
+window.applyLyricsAuto=applyLyricsAuto;
+function applyLyricsOffset(v){S.cfg.lyricsOffset=+v|0;saveStore();S.lidx=-1}
+window.applyLyricsOffset=applyLyricsOffset;
+function applyLyricsShowMain(v){
+  S.cfg.lyrics=!!v;saveStore();
+  el.npLyr.style.display=v?"":"none";
+  el.np.classList.toggle("nolyr",!v);
+}
+window.applyLyricsShowMain=applyLyricsShowMain;
+function applyRgSetting(v){S.cfg.rg=v;saveStore();applyEqGains();paintEq();emitSync()}
+window.applyRgSetting=applyRgSetting;
+function applySinkSetting(v){if(IS_OWNER)setSink(v);else{S.cfg.sink=v;emitCmd({cmd:"sink",id:v})}}
+window.applySinkSetting=applySinkSetting;
+function applySleepSetting(v){
+  if(v==="track")sleepEndOfTrack();
+  else if(v==="off")sleepCancel();
+  else sleepSet(+v);
+  const s=window.htSettings;if(s)s.set("sleepTimer","off",{noSave:true});   /* timer is one-shot; reset the row */
+}
+window.applySleepSetting=applySleepSetting;
+function applyLibraryRoot(v){
+  S.root=v||"";
+  saveStore();
+  if(v){scanLibrary(v).then(()=>render())}
+}
+window.applyLibraryRoot=applyLibraryRoot;
+function applyWatchSetting(v){S.cfg.watch=!!v;saveStore()}
+window.applyWatchSetting=applyWatchSetting;
+function checkOta(){el.otaBtn.click()}
+window.checkOta=checkOta;
+
+/* ============ settings sheet/row plumbing ============ */
+window.htDeviceOptions=[];
+window.htSinkPick=id=>{if(IS_OWNER)setSink(id);else emitCmd({cmd:"sink",id})};
+
+/* ============ OTA ============ */
 function otaShow(st){
   if(!el.otaBtn)return;
   if(st.error){el.otaNote.textContent=st.error.toUpperCase();el.otaBtn.textContent="RETRY";return}
@@ -1153,208 +1248,180 @@ el.otaBtn.onclick=async()=>{
   try{
     let st=await invoke("ota_check");
     otaShow(st);
-    if(st.ready){await invoke("ota_apply");return}          /* staged: swap + relaunch */
-    if(st.disabled||st.available)return;                     /* nothing to download */
+    if(st.ready){await invoke("ota_apply");return}
+    if(st.disabled||st.available)return;
     el.otaBtn.textContent="DOWNLOADING...";
-    st=await invoke("ota_download");                         /* blocking, ~9MB */
+    st=await invoke("ota_download");
     otaShow(st);
   }catch(e){console.warn("ota",e);if(el.otaNote)el.otaNote.textContent="UPDATE CHECK FAILED"}
 };
-/* paint staged-update state at boot so the panel reflects reality */
 invoke("ota_check").then(otaShow).catch(()=>{});
 
-/* sleep timer */
-document.querySelectorAll("[data-sleep]").forEach(b=>{
-  b.onclick=()=>{
-    const v=b.dataset.sleep;
-    if(IS_OWNER){if(v==="track")sleepEndOfTrack();else if(v==="off")sleepCancel();else sleepSet(+v)}
-    else emitCmd({cmd:"sleep",mode:v==="track"||v==="off"?v:"min",mins:+v});
-  };
-});
+/* ============ sleep timer clock ============ */
 setInterval(()=>{
   if(!el.sleepLeft)return;
   if(IS_OWNER){const left=SLEEP.until?SLEEP.until-Date.now():0;
     el.sleepLeft.textContent=left?("STOPS IN "+Math.ceil(left/60000)+"M "+Math.floor(left%60000/1000)+"S"):(SLEEP.stopAfterTrack?"AFTER THIS TRACK":"");
   }else el.sleepLeft.textContent=S._sleepLeft?"STOPS IN "+Math.ceil(S._sleepLeft/60000)+"M":"";
 },1000);
-/* viewer: sleepLeft comes via halftone:sync T event (applySync stores it) */
 
-/* logo dither */
-function drawLogo(){const g=el.logoCv.getContext("2d");g.clearRect(0,0,20,20);const [ar,ag,ab]=ACC.hex;
+/* ============ logo dither ============ */
+function drawLogo(){const g=el.logoCv.getContext("2d");g.clearRect(0,0,20,20);
+  const [ar,ag,ab]=ACC.cur;
   const lit=[[1,2],[2,1],[2,3],[3,2],[0,2],[4,2]];
   for(let y=0;y<5;y++)for(let x=0;x<5;x++){
     const on=lit.some(([a,b])=>a===x&&b===y);
-    g.fillStyle=on?`rgb(${ar},${ag},${ab})`:"#232A2E";
+    g.fillStyle=on?css(ACC.cur):css(themeCanvas.off);
     g.fillRect(x*4,y*4,3,3)}}
 
-/* keyboard */
-addEventListener("keydown",e=>{
-  if(e.target.tagName==="INPUT")return;
-  if(e.code==="Space"){e.preventDefault();setPlaying(!S.playing)}
-  if(e.code==="ArrowRight"&&el.aud.duration)el.aud.currentTime=Math.min(el.aud.duration,el.aud.currentTime+5);
-  if(e.code==="ArrowLeft")el.aud.currentTime=Math.max(0,el.aud.currentTime-5);
-});
+/* ============ wheel volume (except scrollables) ============ */
+document.body.addEventListener("wheel",e=>{
+  if(e.target.closest(".lyr-view,.list,.grid,.vscroll,.set-wrap,.content,.menu,.sheet,.cmdk-list,.qrows"))return;
+  e.preventDefault();
+  nudgeVol(e.deltaY<0?.05:-.05);
+},{passive:false});
 
-/* loop */
-function loop(now){
-  const tinted=tickAccent(now);
-  if(tinted){drawEdge(el.edgeCv,S._img);drawLogo();
-    /* dither slots follow the tweening accent so the color never lags */
-    if(S.cfg.art!=="real"&&el.npDither&&el.npDither.style.display!=="none")drawDither(el.npDither,S._img)}
-  sweepTick();
-  drawMeter(el.seekCv,el.seek.clientHeight);
-  if(el.npbar.style.display!=="none")drawMeter(el.seekCv2,el.seek2.clientHeight);
-  if(S.view==="nowplaying"&&S._npLyrics!==null){
-    const am=S.cfg.ambient||"dither";
-    if(am==="dither")drawAmbient(el.ambient,now/1000);
-    else if(am==="halo")drawHalo(el.ambient,now/1000);
+/* ============ right-click configurator ============ */
+/* row / tile / art target for the "Change cover art" menu (task 10) */
+function coverMenuTarget(el){
+  const row=el.closest(".row,[data-album-key]");
+  if(row){
+    if(row.dataset&&row.dataset.albumKey!==undefined&&row.dataset.albumKey!==""){
+      const t=S.lib.find(x=>albumKeyOf(x)===row.dataset.albumKey);
+      if(t)return t;
+    }
+    /* virtual row: recover the track from its index cell text */
+    const list=document.getElementById("list");
+    if(list&&list.contains(row)){
+      const idx=[...list.children].indexOf(row.closest(".row"));
+      if(idx>=0&&S.lib[idx])return S.lib[idx];
+    }
+    const t0=S.lib.find(x=>x.album===(row.querySelector(".card-sub")||{}).textContent);
+    return t0||null;
   }
-  updateLyrics();
-  requestAnimationFrame(loop);
+  /* now-playing art / widget art */
+  if(el.closest(".np-art,.w-art,.card-art,.hero-art")&&S.meta)return S.meta;
+  return null;
 }
-document.addEventListener("halftone:art",()=>{paintNP();drawEdge(el.edgeCv,S._img)});
-
-/* np cover dither canvas behind the img (created once) */
-(function(){
-  const cv=document.createElement("canvas");
-  cv.id="npDither";
-  cv.style.cssText="position:absolute;inset:0;width:100%;height:100%;border-radius:var(--r-w);border:1px solid var(--line2);display:none;background:#12171A";
-  el.npCover.parentElement.appendChild(cv);
-  el.npDither=cv;
-})();
-el.npIcoP=document.getElementById("icoPlay");el.npIcoPa=document.getElementById("icoPause");
-
-/* resize -> edge refit */
-new ResizeObserver(()=>drawEdge(el.edgeCv,S._img)).observe(el.tui);
-el.np.classList.toggle("noambient",(S.cfg.ambient||"dither")==="off");
-el.np.classList.toggle("nolyr",S.cfg.lyrics===false);
-document.querySelector(".app").classList.toggle("noside",S.cfg.side===false);
-
-/* tips */
-document.querySelectorAll(".tbtn[data-tip]").forEach(b=>{
-  b.addEventListener("pointerenter",()=>b.classList.add("tip-on"));
-  b.addEventListener("pointerleave",()=>b.classList.remove("tip-on"));
-  b.addEventListener("click",()=>b.classList.remove("tip-on"));
+document.body.addEventListener("contextmenu",e=>{
+  if(e.target.closest("input"))return;
+  const ct=coverMenuTarget(e.target);
+  if(ct){
+    e.preventDefault();
+    openCtx(e.clientX,e.clientY,[
+      {label:"CHANGE COVER ART",children:[
+        {label:"IMPORT IMAGE…",onClick:()=>coverImportFor(ct)},
+        {label:"SEARCH THE WEB…",onClick:()=>openCoverSearch(ct)},
+        {label:"RESET TO DEFAULT",onClick:()=>coverResetFor(ct)},
+      ]},
+      {sep:1},
+      {label:"SHOW WIDGET \u00b7 MINIPLAYER",onClick:()=>el.btnWidget.click()},
+      {label:"MINIMIZE",onClick:()=>{window.curWin&&window.curWin.minimize().catch(()=>{})}},
+      {label:"HIDE MAIN",onClick:()=>{window.curWin&&window.curWin.hide().catch(()=>{})}},
+      {sep:1},
+      {label:"NAV POSITION",children:[
+        {label:"LEFT RAIL",checked:S.cfg.nav==="left",onClick:()=>pageHtSet("nav","left")},
+        {label:"RIGHT RAIL",checked:S.cfg.nav==="right",onClick:()=>pageHtSet("nav","right")},
+        {label:"TOP TABS",checked:S.cfg.nav==="top",onClick:()=>pageHtSet("nav","top")},
+        {label:"BOTTOM DOCK",checked:S.cfg.nav==="bottom",onClick:()=>pageHtSet("nav","bottom")},
+        {label:"HIDDEN \u00b7 CTRL+K",checked:S.cfg.nav==="hidden",onClick:()=>pageHtSet("nav","hidden")},
+      ]},
+      {label:"ALBUM ART",children:[
+        {label:"REAL PHOTO",checked:S.cfg.art==="real",onClick:()=>pageHtSet("art","real")},
+        {label:"DITHER",checked:S.cfg.art==="dither",onClick:()=>pageHtSet("art","dither")},
+        {label:"THEME DEFAULT",checked:S.cfg.art==="theme",onClick:()=>pageHtSet("art","theme")},
+      ]},
+      {label:"ACCENT",children:accentMenuItems()},
+    ]);
+    return;
+  }
+  e.preventDefault();
+  openCtx(e.clientX,e.clientY,[
+    {label:"SHOW WIDGET \u00b7 MINIPLAYER",onClick:()=>el.btnWidget.click()},
+    {label:"MINIMIZE",onClick:()=>{window.curWin&&window.curWin.minimize().catch(()=>{})}},
+    {label:"HIDE MAIN",onClick:()=>{window.curWin&&window.curWin.hide().catch(()=>{})}},
+    {sep:1},
+    {label:"NAV POSITION",children:[
+      {label:"LEFT RAIL",checked:S.cfg.nav==="left",onClick:()=>pageHtSet("nav","left")},
+      {label:"RIGHT RAIL",checked:S.cfg.nav==="right",onClick:()=>pageHtSet("nav","right")},
+      {label:"TOP TABS",checked:S.cfg.nav==="top",onClick:()=>pageHtSet("nav","top")},
+      {label:"BOTTOM DOCK",checked:S.cfg.nav==="bottom",onClick:()=>pageHtSet("nav","bottom")},
+      {label:"HIDDEN \u00b7 CTRL+K",checked:S.cfg.nav==="hidden",onClick:()=>pageHtSet("nav","hidden")},
+    ]},
+    {label:"ALBUM ART",children:[
+      {label:"REAL PHOTO",checked:S.cfg.art==="real",onClick:()=>pageHtSet("art","real")},
+      {label:"DITHER",checked:S.cfg.art==="dither",onClick:()=>pageHtSet("art","dither")},
+      {label:"THEME DEFAULT",checked:S.cfg.art==="theme",onClick:()=>pageHtSet("art","theme")},
+    ]},
+    {label:"ACCENT",children:accentMenuItems()},
+  ]);
 });
+/* page-side pageHtSet(key,value): settings.js owns window.htSet (schema set);
+   this thin wrapper exists for inline menu handlers and resolves at call
+   time. Never re-alias window.htSet here (that self-recursed). */
+const pageHtSet=(k,v)=>window.htSet(k,v);
 
-/* QA surface */
-window.__qa={
-  state:()=>({lib:S.lib.length,i:S.i,playing:S.playing&&!el.aud.paused,view:S.view,
-              dur:+(el.aud.duration||0).toFixed(2),vol:S.vol,liked:S.liked.size,
-              playlists:S.playlists.length,search:searchStr,npLyrics:S._npLyrics}),
-  meter:()=>({maxBar:+Math.max(...EMA).toFixed(3),alive:EMA.some(v=>v>.02),ctx:AC?AC.state:"none"}),
-  owner:()=>({owner:IS_OWNER,hasAC:!!AC,hasAud:!!el.aud,pump:"interval"}),
-  sweepState:()=>({t:+SWEEP.t.toFixed(2),dir:SWEEP.dir,v:+SWEEP.v.toFixed(3),drag:S.drag!=null}),
-  albums:()=>{const set=new Set(S.lib.map(t=>t.album));return set.size},
-  nav(v){S.view=v;render();return {view:S.view,npShown:el.np.style.display!== "none",
-    contentShown:el.content.style.display!=="none",barShown:el.npbar.style.display!=="none"}},
-  cfg:()=>({...S.cfg}),
-  artSet(mode){setCfgM("art",mode);return {art:S.cfg.art,coverVisible:el.npCover.style.display!=="none"&&el.npCover.src.length>10}},
-  ambientSet(v){setCfgM("ambient",v);return {ambient:S.cfg.ambient,canvasShown:getComputedStyle(el.ambient).display!=="none"}},
-  ambientLit(){if(getComputedStyle(el.ambient).display==="none")return -1;
-    const g=el.ambient.getContext("2d");const d=g.getImageData(0,0,el.ambient.width,el.ambient.height).data;
-    let lit=0,n=0;for(let i=0;i<d.length;i+=256){n++;if(d[i]>18||d[i+1]>18||d[i+2]>18)lit++}
-    return +(lit/n).toFixed(4)},
-  transport:()=>({shuffle:S.shuffle,repeat:S.repeat}),
-  transportSet(kind){kind==="shuffle"?el.btnShuf.click():el.btnRep.click();return this.transport()},
-  dragAPI:()=>({startDragging:typeof (curWin&&curWin.startDragging)}),
-  accent:()=>({mode:accMode(),rgb:"rgb("+ACC.hex.join(",")+")"}),
-  accentSet(m){setAccentMode(m);return this.accent()},
-  lyr:()=>{const v=el.npLyrView,f=v.querySelector(".line");return {
-    scrollable:v.scrollHeight>v.clientHeight+4,top:Math.round(v.scrollTop),
-    manual:!!S._lyrManual,lines:el.lyrWrap.children.length,
-    fontSize:f?getComputedStyle(f).fontSize:null}},
-  lyrWheel(){el.npLyrView.dispatchEvent(new WheelEvent("wheel",{deltaY:120,bubbles:true}));
-    return {manual:!!S._lyrManual}},
-  async widgetToggle(){el.btnWidget.click();await new Promise(r=>setTimeout(r,400));
-    try{const w=await winByLabel("widget");return {visible:w?await w.isVisible():null,
-      btnOn:el.btnWidget.classList.contains("on")}}catch(e){return {err:""+e}}},
-  ambientSet2(m){setCfgM("ambient",m);return {mode:S.cfg.ambient,
-    shown:getComputedStyle(el.ambient).display!=="none"}},
-  lyricsSet(v){setCfgM("lyrics",v);return {lyrics:S.cfg.lyrics,
-    lyrShown:getComputedStyle(el.npLyr).display!=="none",
-    gridCols:getComputedStyle(document.querySelector(".np-grid")).gridTemplateColumns.split(" ").length}},
-  sideSet(v){setCfgM("side",v);return {side:S.cfg.side,
-    cols:getComputedStyle(document.querySelector(".app")).gridTemplateColumns.split(" ").length}},
-  eq:()=>({on:S.cfg.eq.on,pre:S.cfg.eq.pre,bands:[...S.cfg.eq.bands],profile:S.cfg.eq.profile||null,
-    nodes:EQ_NODES.filter(Boolean).length,connected:!!eqIn,rg:S.cfg.rg}),
-  async eqSet(k,v){if(k==="on"){S.cfg.eq.on=v;pushEq(true)}else if(k==="band"){S.cfg.eq.bands[2]=v;pushEq(false)}
-    else if(k==="pre"){S.cfg.eq.pre=v;pushEq(false)}else if(k==="preset"){S.cfg.eq.bands=[...EQ_PRESETS[v]];pushEq(false)}
-    paintEq();return this.eq()},
-  async eqImportText(text,name){const p=parseAutoEq(text);applyAutoEq(p,name||"imported");return this.eq()},
-  async sinks(){await refreshSinks();return {n:el.sinkSel.options.length,cur:S.cfg.sink||"default"}},
-  async sinkSet(id){if(IS_OWNER)await setSink(id);else emitCmd({cmd:"sink",id});return S.cfg.sink||"default"},
-  sleepSet(m){if(m==="track")sleepEndOfTrack();else if(m==="off")sleepCancel();else sleepSet(+m);
-    return {until:SLEEP.until,stopAfterTrack:SLEEP.stopAfterTrack}},
-  eqPanel:()=>({open:el.eqPanel.classList.contains("open"),
-    bands:el.eqBands.children.length,presets:el.eqPresetSel.options.length,
-    clip:el.eqClip.textContent}),
-  ctx(x,y){document.body.dispatchEvent(new MouseEvent("contextmenu",{clientX:x||300,clientY:200,bubbles:true,cancelable:true}));
-    return {root:document.querySelectorAll(".ctxmenu>.ctxitem,.ctxmenu>.ctxwrap").length,
-            subs:document.querySelectorAll(".ctxsub").length}},
-  async play(){await setPlaying(true);return this.state()},
-  async pause(){await setPlaying(false);return this.state()},
-  async load(i){await loadTrack(i);return this.state()},
-  async scan(dir){const r=await scanLibrary(dir);render();return {tracks:r?r.tracks.length:0,skipped:r?r.skipped.length:0}},
-  async like(i){const t=S.lib[i];if(t){toggleLike(t.path)};return {liked:S.liked.size,has:S.liked.has(t.path)}},
-  seekBar(){return {npH:el.seek.clientHeight,barShown:el.npbar.style.display!=="none",
-    barH:el.npbar.style.display!=="none"?el.seek2.clientHeight:-1}},
-  async dragSim(x0,x1){
-    const seek=el.seek;const r=seek.getBoundingClientRect();
-    const ev=(t,px)=>new PointerEvent(t,{clientX:r.left+r.width*px,clientY:r.top+r.height/2,bubbles:true,pointerId:9,isPrimary:true,pointerType:'mouse'});
-    seek.dispatchEvent(ev('pointerdown',x0));
-    for(let k=0;k<=6;k++){seek.dispatchEvent(ev('pointermove',x0+(x1-x0)*k/6))}
-    seek.dispatchEvent(ev('pointerup',x1));
-    return this.sweepState();
-  },
-  async win(){try{const sf=await curWin.scaleFactor(),s=await curWin.innerSize();
-    return {w:+(s.width/sf).toFixed(0),h:+(s.height/sf).toFixed(0)}}catch(e){return {err:""+e}}},
-};
-
-/* folder watcher: backend emits halftone:lib-changed -> auto-rescan (owner) */
-if(T&&T.event&&T.event.listen&&IS_OWNER){
-  let rescanning=false;
-  try{T.event.listen("halftone:lib-changed",()=>{
-    if(rescanning||!S.root)return;
-    rescanning=true;
-    scanLibrary(S.root).then(()=>{rescanning=false;render();emitSync()});
-  }).catch(()=>{})}catch(_){}
-}
-
-/* ============ SMTC via WebView2 media-session bridge ============
-   WebView2 auto-exposes the owner's <audio> as the OS media session;
-   navigator.mediaSession is the sanctioned way to customize it. (A Rust
-   SMTC interop session cannot coexist with it — removed to avoid a
-   competing zombie session.) */
+/* ============ SMTC via WebView2 media-session bridge ============ */
 function smtcPush(){
   if(!IS_OWNER||!S.meta||!('mediaSession' in navigator))return;
   const m=S.meta;
   try{
     navigator.mediaSession.metadata=new MediaMetadata({
       title:m.title,artist:m.artist,album:m.album,
-      artwork:m.cover?[{src:"data:"+m.cover.mime+";base64,"+m.cover.data_b64,sizes:"512x512"}]:[]});
+      artwork:S._artUrl?[{src:S._artUrl,sizes:"512x512"}]:[]});
     navigator.mediaSession.playbackState=S.playing?"playing":"paused";
-    if(el.aud.duration){
+    if(el.aud&&el.aud.duration){
       navigator.mediaSession.setPositionState({
         duration:el.aud.duration,position:Math.min(el.aud.currentTime,el.aud.duration),
         playbackRate:el.aud.playbackRate||1});
     }
   }catch(e){console.warn("mediaSession",e)}
+  /* Linux MPRIS: push the same state to the backend (no-op on Windows) */
+  smtcBackendPush();
+}
+/* BACKEND_API.md: smtc_update(title,artist,album,coverUrl,durationS,playing,positionS)
+   required on track change / play-pause / seek + ~1 Hz while playing
+   (MPRIS position only advances when pushed). */
+function smtcBackendPush(){
+  if(!IS_OWNER||!S.meta)return;
+  const m=S.meta;
+  invoke("smtc_update",{
+    title:m.title||"",artist:m.artist||"",album:m.album||"",
+    coverUrl:S._artUrl||null,
+    durationS:durSec()||0,
+    playing:!!S.playing,
+    positionS:posSec()||0
+  }).catch(()=>{});
 }
 if('mediaSession' in navigator){
   document.addEventListener("halftone:track",smtcPush);
   document.addEventListener("halftone:state",smtcPush);
   document.addEventListener("halftone:seeked",smtcPush);
-  setInterval(()=>{if(S.playing)smtcPush()},3000);   /* keep OS seekbar honest */
+  setInterval(()=>{if(S.playing)smtcPush()},1000);   /* ~1 Hz per BACKEND_API.md */
   const H=(id,fn)=>{try{navigator.mediaSession.setActionHandler(id,fn)}catch(_){}};
   H("play",()=>setPlaying(true));
   H("pause",()=>setPlaying(false));
-  H("previoustrack",()=>{posSec()>3?el.aud.currentTime=0:loadTrack(S.i-1)});
+  H("previoustrack",()=>{posSec()>3?seekTo(0):loadTrack(S.i-1)});
   H("nexttrack",()=>nextTrack());
-  H("seekbackward",()=>{el.aud.currentTime=Math.max(0,el.aud.currentTime-10);smtcPush()});
-  H("seekforward",()=>{el.aud.currentTime=Math.min(durSec(),el.aud.currentTime+10);smtcPush()});
+  H("seekbackward",()=>{seekTo(Math.max(0,posSec()-10));smtcPush()});
+  H("seekforward",()=>{seekTo(Math.min(durSec(),posSec()+10));smtcPush()});
   try{navigator.mediaSession.setActionHandler("seekto",e=>{
-    if(e.seekTime!=null)el.aud.currentTime=e.seekTime;smtcPush()})}catch(_){}
+    if(e.seekTime!=null)seekTo(e.seekTime);smtcPush()})}catch(_){}
+}
+/* MPRIS-only intents (Linux): SetPosition + SeekBy (BACKEND_API.md) */
+if(T&&T.event&&T.event.listen&&IS_OWNER){
+  try{T.event.listen("smtc-seek",e=>{
+    const t=e&&e.payload;
+    if(typeof t==="number"&&isFinite(t))seekTo(t);
+  }).catch(()=>{})}catch(_){}
+  try{T.event.listen("smtc-seek-by",e=>{
+    const p=e&&e.payload;
+    if(Array.isArray(p)&&p.length===2){
+      const [fwd,secs]=p;
+      if(typeof secs==="number"&&isFinite(secs))
+        seekTo(Math.max(0,Math.min(durSec(),posSec()+(fwd?secs:-secs))));
+    }
+  }).catch(()=>{})}catch(_){}
 }
 /* tray menu + OS media keys both land here (tray emits smtc-button) */
 if(T&&T.event&&T.event.listen&&IS_OWNER){
@@ -1366,14 +1433,178 @@ if(T&&T.event&&T.event.listen&&IS_OWNER){
         else if(ev==="pause")await setPlaying(false);
         else if(ev==="toggle")await setPlaying(!S.playing);
         else if(ev==="next")await nextTrack();
-        else if(ev==="prev"){posSec()>3?el.aud.currentTime=0:loadTrack(S.i-1)}
+        else if(ev==="prev"){posSec()>3?seekTo(0):loadTrack(S.i-1)}
       }catch(err){console.warn("smtc-button",err)}
     })();
   }).catch(()=>{})}catch(_){}
 }
 
-/* boot */
-initAccent();drawLogo();
+/* ============ open-np from widget ============ */
+function takeNP(req){
+  S._npReq=req;maybeNP();
+}
+window.takeNP=takeNP;
+function maybeNP(){
+  if(!S._npReq)return;
+  const t=S._npReq.track;
+  S._npReq=null;
+  S.view="nowplaying";
+  if(t!=null&&t>=0&&t<S.lib.length&&t!==S.i)loadTrack(t);
+  else render();
+}
+if(T&&T.event&&T.event.listen){
+  try{
+    T.event.listen("halftone:open-np",e=>{takeNP(e.payload||{});if(!S.lib.length)scanLibrary(S.root||"").then(maybeNP)}).catch(()=>{});
+  }catch(e){console.warn("listen",e)}
+}
+
+/* ============ queue panel rendering ============ */
+function buildQueuePanel(){
+  el.qRows.innerHTML="";
+  if(!S.queue.length){el.qRows.innerHTML='<div class="qempty">Queue is empty \u2014 right-click a track \u2192 Play next.</div>';return}
+  S.queue.forEach((q,k)=>{
+    const i=findIdxByPath(q.path);
+    const t=S.lib[i]||{title:q.path};
+    const b=document.createElement("button");
+    b.className="qrow";
+    b.innerHTML=`<span class="q-n">${String(k+1).padStart(2,"0")}</span><span class="q-t">${esc(t.title)}</span>
+      <button class="row-more" title="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
+    b.querySelector(".row-more").onclick=e=>{e.stopPropagation();queueRemove(k);buildQueuePanel()};
+    b.onclick=()=>{loadTrack(i);buildQueuePanel()};
+    el.qRows.appendChild(b);
+  });
+}
+document.addEventListener("halftone:queue",()=>{if(el.queuePanel.style.display!=="none")buildQueuePanel();if(S.view==="queue")render()});
+el.qClear.onclick=()=>{queueClear();buildQueuePanel()};
+
+/* ============ tips ============ */
+document.querySelectorAll(".win-btn[data-tip]").forEach(b=>{
+  b.addEventListener("pointerenter",()=>b.classList.add("tip-on"));
+  b.addEventListener("pointerleave",()=>b.classList.remove("tip-on"));
+  b.addEventListener("click",()=>b.classList.remove("tip-on"));
+});
+
+/* ============ QA surface ============ */
+window.__qa={
+  state:()=>({lib:S.lib.length,i:S.i,playing:S.playing&&!el.aud.paused,view:S.view,
+              dur:+(el.aud.duration||0).toFixed(2),vol:S.vol,liked:S.liked.size,
+              playlists:S.playlists.length,search:searchStr,npLyrics:S.view==="nowplaying",
+              queue:S.queue.length}),
+  albums:()=>{const set=new Set(S.lib.map(t=>t.album));return set.size},
+  nav(v){S.view=v;render();return {view:S.view}},
+  async load(i){
+    if(!S.lib.length){try{const r=await invoke("library_snapshot");const arr=Array.isArray(r)?r:(r&&r.tracks);if(Array.isArray(arr))S.lib=arr}catch(e){}}
+    await loadTrack(Math.min(i,S.lib.length-1),false);
+    return {i:S.i,title:S.meta&&S.meta.title,lib:S.lib.length};
+  },
+  navPos:()=>({nav:S.cfg.nav,labels:S.cfg.navLabels,
+    items:document.querySelectorAll(".nav-item").length,
+    first:(()=>{const n=document.querySelector(".nav-item");if(!n)return null;const r=n.getBoundingClientRect();return {x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),labelShown:getComputedStyle(n.querySelector(".nav-label")).display!=="none"}})()}),
+  cfg:()=>({...S.cfg}),
+  artSet(mode){pageHtSet("art",mode);return {art:S.cfg.art}},
+  ambientSet(v){pageHtSet("ambient",v);return {ambient:S.cfg.ambient,
+    canvasShown:(()=>{const fx=document.querySelector(".fx-layer");return fx&&fx.dataset.ambient!=="off"})()}},
+  transport:()=>({shuffle:S.shuffle,repeat:S.repeat}),
+  transportSet(kind){kind==="shuffle"?el.btnShuf.click():el.btnRep.click();return this.transport()},
+  accent:()=>({mode:accMode(),rgb:"rgb("+ACC.cur.join(",")+")"}),
+  accentSet(m){setAccentMode(m);return this.accent()},
+  lyr:()=>{const v=el.npLyrView,f=v.querySelector(".lyric-line");return {
+    scrollable:v.scrollHeight>v.clientHeight+4,top:Math.round(v.scrollTop),
+    manual:!!S._lyrManual,lines:el.lyrWrap.children.length,
+    fontSize:f?getComputedStyle(f).fontSize:null,status:S.lyricsStatus}},
+  async play(){await setPlaying(true);return this.state()},
+  async pause(){await setPlaying(false);return this.state()},
+  async load(i){await loadTrack(i);return this.state()},
+  async scan(dir){const r=await scanLibrary(dir);render();return {tracks:r?r.tracks.length:0,skipped:r?r.skipped.length:0}},
+  async like(i){const t=S.lib[i];if(t){toggleLike(t.path)};return {liked:S.liked.size,has:S.liked.has(t.path)}},
+  async queueAdd(i){const t=S.lib[i];if(t){queueAdd([t.path],"next")};return {queue:S.queue.length}},
+  eq:()=>({on:S.cfg.eq.on,pre:S.cfg.eq.pre,bands:[...S.cfg.eq.bands],nodes:EQ_NODES.filter(Boolean).length,rg:S.cfg.rg}),
+  async eqSet(k,v){if(k==="on"){S.cfg.eq.on=v;pushEq(true)}else if(k==="band"){S.cfg.eq.bands[2]=v;pushEq(false)}
+    else if(k==="pre"){S.cfg.eq.pre=v;pushEq(false)}else if(k==="preset"){S.cfg.eq.bands=[...EQ_PRESETS[v]];pushEq(false)}
+    paintEq();return this.eq()},
+  async eqImportText(text,name){const p=parseAutoEq(text);applyAutoEq(p,name||"imported");return this.eq()},
+  async sinks(){await refreshSinks();return {n:el.sinkSel.options.length,cur:S.cfg.sink||"default"}},
+  async sinkSet(id){if(IS_OWNER)await setSink(id);else emitCmd({cmd:"sink",id});return S.cfg.sink||"default"},
+  sleepSet(m){if(m==="track")sleepEndOfTrack();else if(m==="off")sleepCancel();else sleepSet(+m);
+    return {until:SLEEP.until,stopAfterTrack:SLEEP.stopAfterTrack}},
+  settingsRendered:()=>({rows:document.querySelectorAll(".set-row").length,
+    groups:document.querySelectorAll(".set-group").length,
+    labels:[...document.querySelectorAll(".set-label")].map(x=>x.textContent).slice(0,6)}),
+  settingsSet(k,v){pageHtSet(k,v);return {k,v,got:window.getCfg(k)}},
+  setTheme(n,x,y){htSetTheme(n,x,y);return {theme:window.Theme.name,mode:window.Theme.resolved}},
+  setMode(m){htSetMode(m);return {mode:window.Theme.resolved,
+    bg:getComputedStyle(document.documentElement).getPropertyValue("--bg").trim()}},
+  setNav(n){pageHtSet("nav",n);buildNav();return {nav:window.Theme.nav,
+    cols:getComputedStyle(document.querySelector(".app-shell")).gridTemplateColumns.split(" ").length}},
+  npLayout(l){pageHtSet("npLayout",l);return {npLayout:S.cfg.npLayout,
+    cols:getComputedStyle(document.querySelector(".np-grid")).gridTemplateColumns.split(" ").length}},
+  miniBar(p){pageHtSet("miniBar",p);return {miniBar:S.cfg.miniBar,
+    shown:el.npbar.style.display!=="none",top:el.npbar.classList.contains("top")}},
+  palette(){openCmdk();const n=el.cmdkList.children.length;closeCmdk();return {items:n}},
+  sheetFor(i){openTrackSheet(S.lib[i],i);const n=el.sheetBody.querySelectorAll(".sheet-row").length;closeSheet();return {rows:n}},
+  seekBar:()=>({miniShown:el.npbar.style.display!=="none"}),
+  dither:()=>({npW:el.npDither.width,npH:el.npDither.height,
+    note:"cell math logged by drawDither; backing = grid*cell enforced in drawDither"}),
+  async dragSim(x0,x1){
+    const seek=el.seek;const r=seek.getBoundingClientRect();
+    const ev=(t,px)=>new PointerEvent(t,{clientX:r.left+r.width*px,clientY:r.top+r.height/2,bubbles:true,pointerId:9,isPrimary:true,pointerType:'mouse'});
+    seek.dispatchEvent(ev('pointerdown',x0));
+    for(let k=0;k<=6;k++){seek.dispatchEvent(ev('pointermove',x0+(x1-x0)*k/6))}
+    seek.dispatchEvent(ev('pointerup',x1));
+    return {pos:+posSec().toFixed(2),dur:+durSec().toFixed(2)};
+  },
+  async win(){try{const w=window.curWin;
+    const sf=await w.scaleFactor(),s=await w.innerSize();
+    return {w:+(s.width/sf).toFixed(0),h:+(s.height/sf).toFixed(0)}}catch(e){return {err:""+e}}},
+};
+
+/* ============ boot ============ */
+buildNav();
+drawLogo();
+buildVolBoth();
+wireSeek(el.seek);wireSeek(el.seek2);
+document.addEventListener("halftone:theme",()=>{updateSwitchStyles();drawLogo();buildVolBoth();paintVolAll();requestRedraw("theme")});
+document.addEventListener("halftone:settings-ready",()=>{
+  if(!window.__htNavRebuilt){window.__htNavRebuilt=true;buildNav()}   /* boot only — re-running on every settings echo caused range errors */
+  applyNpLayout(S.cfg.npLayout||"split");applyLyricsShowMain(S.cfg.lyrics!==false);
+  applyAmbientSetting(S.cfg.ambient||"theme");applyMiniBarDom();applyQueueSideDom();
+  /* default view for library */
+  if(!window.__qView&&S.cfg.defaultView&&S.view==="nowplaying"){/* keep NP as landing view */}
+  render();
+});
+window.__qView=false;
+/* theme switches refresh the nav chrome (safe: paintNav is read-only,
+   and switchAnimated guards against echo loops in theme.js) */
+document.addEventListener("halftone:theme",()=>{paintNav();drawLogo()});
+/* QA/harness scenario params (?nav=&theme=&mode=&view=&track=&lyrics=)
+   applied AFTER settings-ready — applyAll() would otherwise override
+   them with stored defaults (mode/nav race) */
+(function(){
+  /* QA/harness scenario params (?nav=&theme=&mode=&view=&track=&lyrics=)
+     applied AFTER settings-ready — applyAll() would otherwise override
+     them with stored defaults (mode/nav race). ?track=N injects the mock
+     library + loads track N (boot scan only runs when a real root is
+     configured, so the harness needs this explicit path). */
+  const applyQa=async()=>{
+    const q=new URLSearchParams(location.search);
+    if(q.get("nav")&&window.htSetNav)window.htSetNav(q.get("nav"));
+    if(q.get("theme")&&window.htSetTheme)window.htSetTheme(q.get("theme"));
+    if(q.get("mode")&&window.htSetMode)window.htSetMode(q.get("mode"));
+    if(q.get("view"))S.view=q.get("view");
+    const tr=q.get("track");
+    if(tr!=null&&!S.lib.length){
+      /* no scan root: pull the snapshot directly (mock provides tracks) */
+      try{const r=await invoke("library_snapshot");const arr=Array.isArray(r)?r:(r&&r.tracks);if(Array.isArray(arr)){S.lib=arr;buildNav()}}catch(e){}
+    }
+    if(tr!=null&&S.lib.length){await loadTrack(Math.min(+tr,S.lib.length-1),false)}
+    window.__qaTrack=tr?+tr:null;
+    render();
+  };
+  /* settings.js self-boots during parse, so the settings-ready event may
+     fire before this listener exists — hook the ready promise instead */
+  if(window.__htSettingsReady)window.__htSettingsReady.then(applyQa).catch(()=>{});
+  else document.addEventListener("halftone:settings-ready",()=>setTimeout(applyQa,0));
+})();
 /* owner announces to any viewer that boots later (and vice versa) */
 if(T&&T.event&&T.event.emit){
   try{T.event.emit("halftone:hello",{}).catch(()=>{})}catch(_){}
@@ -1381,25 +1612,24 @@ if(T&&T.event&&T.event.emit){
 if(!IS_OWNER){
   try{T.event.listen("halftone:hello",()=>emitCmd({cmd:"hello"})).catch(()=>{})}catch(_){}
 }
-requestAnimationFrame(loop);
 render();
 paintNP();
+paintLyrStatus();
 (async()=>{
   if(S.root){
-    el.libpath.value=S.root;
+    const lp=document.getElementById("libpath");if(lp)lp.value=S.root;
     const r=await scanLibrary(S.root);
     if(r&&r.tracks.length){
       render();
       const req=S._npReq;
       const li=(req&&req.track!=null&&req.track>=0&&req.track<S.lib.length)?req.track
-              :(S._lastTrack!=null?S._lastTrack:0);
+              :(window.__qaTrack!=null?window.__qaTrack
+              :(S.cfg.lastTrack!=null?S.cfg.lastTrack:0));
       await loadTrack(li,false);
-      S._npLyrics=(S.view==="nowplaying");
       if(req)S.view="nowplaying",render();
     }
   }
-  if(qTrack!=null&&qTrack!==""){S.view="nowplaying";render()}
-  S._syncReady=true;          /* owner alive: viewers may hello */
+  S._syncReady=true;
 })();
 </script>
 </body>
