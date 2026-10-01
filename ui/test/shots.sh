@@ -17,6 +17,7 @@ shot(){ # $1 rel-url  $2 outfile  $3 wxh
   local url="$BASE?$1"
   local w="${3%,*}" h="${3#*,}"
   url="$url&w=$w&h=$h"   # size the fShot iframe to the shot
+  url="$url&play=1"      # playing state + mock spectrum bars (headless has no audio)
   "$CHROME" --headless=new --no-sandbox --disable-gpu --hide-scrollbars \
     --window-size="$3" --virtual-time-budget=12000 \
     --screenshot="$OUT/$2" "$url" 2>/dev/null
