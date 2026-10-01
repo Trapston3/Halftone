@@ -257,6 +257,13 @@ if(Q.get("page")){
           if(Q.get("view")){iw.S.view=Q.get("view");iw.render()}
           if(Q.get("track"))iw.__qa.load(+Q.get("track"));
           if(Q.get("play")&&iw.S.meta&&!iw.S.playing)iw.__qa.play();
+          /* ?queue=N preloads N queued tracks (queue view shot) */
+          const qn=+(Q.get("queue")||0);
+          if(qn>0&&iw.S.lib.length){
+            for(let k=0;k<qn&&k<iw.S.lib.length;k++)
+              iw.queueAdd([iw.S.lib[(k+3)%iw.S.lib.length].path],"add");
+            if(Q.get("view")==="queue")iw.render();
+          }
           /* staged scenarios for the shot matrix */
           const sheet=Q.get("sheet");
           if(sheet&&iw.S.meta){
