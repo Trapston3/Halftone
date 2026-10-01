@@ -30,10 +30,13 @@ def main():
                 time.sleep(0.3)
         else:
             raise RuntimeError("chrome did not come up")
-        tgt = find_target()
-        ws = Ws(tgt["webSocketDebuggerUrl"])
-        ws.cmd("Runtime.enable")
-        ws.cmd("Page.enable")
+        try:
+            tgt = find_target()
+            ws = Ws(tgt["webSocketDebuggerUrl"])
+            ws.cmd("Runtime.enable")
+            ws.cmd("Page.enable")
+        except Exception:
+            raise RuntimeError("cdp did not come up")
         for suffix, out, (w, h) in SCENARIOS:
             if only and out not in only:
                 continue
@@ -59,7 +62,7 @@ def main():
             while time.time() < deadline:
                 try:
                     msg = json.loads(ws_recv_msg(ws, timeout=max(0.05, deadline - time.time())))
-                except Exception:
+                except (TimeoutError, EOFError, OSError):
                     break
                 if msg.get("method") == "Runtime.exceptionThrown":
                     d = msg["params"]["exceptionDetails"]
