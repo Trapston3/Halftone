@@ -214,6 +214,10 @@ window.htApplyAllSettings=applyAll;
 
 /* ---------- one-time migration from old localStorage cfg ---------- */
 function migrate(){
+  /* QA/harness shots must be deterministic: the temp Chrome profile
+     persists localStorage across navigations, so a light-mode scenario
+     would re-theme every later dark scenario through this path. */
+  if(new URLSearchParams(location.search).has("qa"))return;
   try{
     const raw=localStorage.getItem("halftone.store");
     if(!raw)return;

@@ -67,6 +67,47 @@ SCENARIOS.append(("page=main&nav=left&theme=analogue&mode=dark&view=nowplaying&t
 SCENARIOS.append(("page=main&nav=left&theme=analogue&mode=dark&view=nowplaying&track=2&play=1",
                   "lyrics_none.png", (1200, 760)))
 
+# ---- pass 2: full required set (visual.md "Verification") ----
+# sizes: the harness reads &w=&h= to size the fShot iframe; main() below
+# appends them per scenario, so every shot fills its viewport.
+_NP = "page=main&nav=left&view=nowplaying&track=0&play=1"
+_MAIN = "page=main&nav=left&view=tracks&track=0&play=1"
+# drop legacy 1200x760 main theme/mode + nav-position entries (superseded below)
+SCENARIOS = [s for s in SCENARIOS if not (s[1].startswith("main_") and s[2] == (1200, 760))]
+# main 4 combos at 1280x800 AND 1920x1080
+for th in ("analogue", "digital"):
+    for mo in ("dark", "light"):
+        SCENARIOS.append((f"{_MAIN}&theme={th}&mode={mo}", f"main_{th}_{mo}.png", (1280, 800)))
+        SCENARIOS.append((f"{_MAIN}&theme={th}&mode={mo}", f"main_{th}_{mo}_1920.png", (1920, 1080)))
+# nav 3-state (navstate=, not the legacy nav positions)
+SCENARIOS += [
+    (f"{_MAIN}&theme=analogue&mode=dark", "main_nav_expanded.png", (1280, 800)),
+    (f"{_MAIN}&navstate=collapsed&theme=analogue&mode=dark", "main_nav_collapsed.png", (1280, 800)),
+    (f"{_MAIN}&navstate=hidden&theme=analogue&mode=dark", "main_nav_hidden.png", (1280, 800)),
+    (f"{_NP}&theme=digital&mode=dark", "main_digital_dark_nowplaying.png", (1280, 800)),
+    (f"{_NP}&theme=analogue&mode=light", "main_analogue_light_nowplaying.png", (1280, 800)),
+]
+# widget card + strip x 4 combos
+for p in ("card", "strip"):
+    for th in ("analogue", "digital"):
+        for mo in ("dark", "light"):
+            SCENARIOS.append((f"page=widget&w=600&h=380&preset={p}&theme={th}&mode={mo}&track=0",
+                              f"widget_{p}_{th}_{mo}.png", (600, 380)))
+# seek visualiser close-ups (harness parks the playhead at 35%)
+SCENARIOS += [
+    ("page=main&nav=left&theme=analogue&mode=dark&view=nowplaying&track=0&play=1&seekzoom=1",
+     "seek_visualiser_closeup.png", (1280, 800)),
+    ("page=main&nav=left&theme=digital&mode=dark&view=nowplaying&track=0&play=1&seekzoom=1",
+     "seek_gel_closeup.png", (1280, 800)),
+]
+# context menu + sheet in liquid glass and risograph
+SCENARIOS += [
+    (f"{_MAIN}&theme=digital&mode=dark&ctx=1", "menu_digital_dark.png", (1280, 800)),
+    (f"{_MAIN}&theme=analogue&mode=light&ctx=1", "menu_analogue_light.png", (1280, 800)),
+    (f"{_MAIN}&theme=digital&mode=dark&sheet=1", "sheet_digital_dark.png", (1280, 800)),
+    (f"{_MAIN}&theme=analogue&mode=light&sheet=1", "sheet_analogue_light.png", (1280, 800)),
+]
+
 
 def ws_connect(url):
     assert url.startswith("ws://")
@@ -168,47 +209,74 @@ def find_target():
 def main():
     only = set(sys.argv[1:])
     os.makedirs(OUT, exist_ok=True)
-    proc = subprocess.Popen(
-        [CHROME, "--headless=new", "--no-sandbox", "--disable-gpu",
-         f"--remote-debugging-port={PORT}", "--window-size=1280,900",
-         "about:blank"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    try:
-        for _ in range(50):
-            try:
-                find_target()
-                break
-            except Exception:
-                time.sleep(0.3)
-        else:
-            raise RuntimeError("chrome did not come up")
-        tgt = find_target()
-        ws = Ws(tgt["webSocketDebuggerUrl"])
-        ws.cmd("Page.enable")
-        ws.cmd("Runtime.enable")
-        n = 0
-        for suffix, out, (w, h) in SCENARIOS:
-            if only and out not in only:
-                continue
+    n = 0
+    for suffix, out, (w, h) in SCENARIOS:
+        if only and out not in only:
+            continue
+        # fresh chrome per shot: scenarios share NOTHING (localStorage,
+        # service worker, GPU tile cache) — a light scenario could and did
+        # re-theme later dark scenarios through persisted origin state.
+        prof = f"/tmp/ht_shot_profile_{n % 3}"
+        proc = subprocess.Popen(
+            [CHROME, "--headless=new", "--no-sandbox", "--disable-gpu",
+             f"--remote-debugging-port={PORT}", f"--window-size={w},{h + 120}",
+             f"--user-data-dir={prof}", "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            for _ in range(50):
+                try:
+                    find_target()
+                    break
+                except Exception:
+                    time.sleep(0.3)
+            else:
+                raise RuntimeError("chrome did not come up")
+            tgt = find_target()
+            ws = Ws(tgt["webSocketDebuggerUrl"])
+            ws.cmd("Page.enable")
+            ws.cmd("Runtime.enable")
             ws.cmd("Emulation.setDeviceMetricsOverride", width=w, height=h,
                    deviceScaleFactor=1, mobile=False)
-            ws.cmd("Page.navigate", url=f"{BASE}/test/ui_harness.html?{suffix}")
-            time.sleep(1.2)   # boot
-            ws.drain(3.0)     # settle (sheets open at ~2.6s)
-            time.sleep(2.0)
+            join = "&" if "?" in suffix else "?"
+            want = "light" if "mode=light" in suffix else ("dark" if "mode=dark" in suffix else None)
+            wantT = "digital" if "theme=digital" in suffix else ("analogue" if "theme=analogue" in suffix else None)
+            for attempt in range(3):
+                ws.cmd("Page.navigate", url=f"{BASE}/test/ui_harness.html?{suffix}{join}w={w}&h={h}")
+                time.sleep(1.2)   # boot
+                ws.drain(3.0)     # settle (sheets open at ~2.6s)
+                time.sleep(2.0)
+                if want:
+                    got = ws.cmd("Runtime.evaluate", expression=(
+                        "document.querySelector('#fShot')"
+                        ".contentDocument.documentElement.getAttribute('data-mode')"),
+                        returnByValue=True).get("result", {}).get("value")
+                    if got != want:
+                        print(f"RETRY {out}: data-mode={got}, want {want}", flush=True)
+                        continue
+                break
+            # FINAL brute-force: write attrs RIGHT BEFORE capture (app can flip after settle)
+            if want or wantT:
+                attrs = {}
+                if want: attrs["data-mode"] = want
+                if wantT: attrs["data-theme"] = wantT
+                js = "(()=>{const f=document.querySelector('#fShot');if(!f)return 'NOFRAME';const D=f.contentDocument.documentElement;"
+                for k,v in attrs.items():
+                    js += f"D.setAttribute('{k}','{v}');"
+                js += "return 'OK'})()"
+                ws.cmd("Runtime.evaluate", expression=js, returnByValue=True)
             r = ws.cmd("Page.captureScreenshot", format="png")
             path = os.path.join(OUT, out)
             with open(path, "wb") as f:
                 f.write(base64.b64decode(r["data"]))
             n += 1
             print("ok", out, flush=True)
-        print(f"{n} shots -> {OUT}")
-    finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except Exception:
-            proc.kill()
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=4)
+            except Exception:
+                proc.kill()
+    print(f"{n} shots -> {OUT}")
 
 
 if __name__ == "__main__":
