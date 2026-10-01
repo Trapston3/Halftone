@@ -48,7 +48,7 @@ impl LyricsResult {
 }
 
 /// FNV-1a 64 — stable across Rust releases (DefaultHasher is not).
-fn fnv(s: &str) -> u64 {
+pub(crate) fn fnv(s: &str) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for b in s.bytes() {
         h ^= b as u64;
