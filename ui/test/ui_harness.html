@@ -257,6 +257,27 @@ if(Q.get("page")){
           if(Q.get("view")){iw.S.view=Q.get("view");iw.render()}
           if(Q.get("track"))iw.__qa.load(+Q.get("track"));
           if(Q.get("play")&&iw.S.meta&&!iw.S.playing)iw.__qa.play();
+          /* staged scenarios for the shot matrix */
+          const sheet=Q.get("sheet");
+          if(sheet&&iw.S.meta){
+            setTimeout(()=>{
+              if(sheet==="cover")iw.openCoverSheet&&iw.openCoverSheet(iw.S.meta);
+              else if(sheet==="search")iw.openCoverSearch&&iw.openCoverSearch(iw.S.meta);
+              else if(sheet==="pl")iw.openPlaylistPicker&&iw.openPlaylistPicker(iw.S.meta);
+              else iw.openTrackSheet&&iw.openTrackSheet(iw.S.meta,iw.S.i);
+            },2600);   /* after the final apply pass */
+          }
+          if(Q.get("ctx")&&iw.S.meta){
+            setTimeout(()=>{
+              iw.openCtx(140,150,[
+                {label:"CHANGE COVER ART",children:[
+                  {label:"IMPORT IMAGE\u2026",onClick:()=>{}},
+                  {label:"SEARCH THE WEB\u2026",onClick:()=>iw.openCoverSearch&&iw.openCoverSearch(iw.S.meta)},
+                  {label:"RESET TO DEFAULT",onClick:()=>{}},
+                ]},
+              ]);
+            },2600);
+          }
         }else{
           if(Q.get("preset")&&iw.applyWidgetPreset)iw.applyWidgetPreset(Q.get("preset"));
           if(Q.get("theme"))iw.htSetTheme(Q.get("theme"));
