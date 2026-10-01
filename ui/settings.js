@@ -143,6 +143,9 @@ const SCHEMA=[
   apply:v=>window.applyLibraryRoot&&window.applyLibraryRoot(v)},
 {key:"watch",group:"Library",label:"Watch folder (auto-rescan)",type:"toggle",surface:"main",default:true,alias:"watch",
   apply:v=>window.applyWatchSetting&&window.applyWatchSetting(v)},
+{key:"coverAutoNet",group:"Library",label:"Fetch missing cover art online",type:"toggle",surface:"main",default:true,
+  hint:"Looks up art for tracks without embedded covers (iTunes / MusicBrainz).",
+  apply:()=>{}},
 
 /* ---------------- Actions ---------------- */
 {key:"rescan",group:"Library",label:"Rescan library now",type:"action",surface:"main",default:"",

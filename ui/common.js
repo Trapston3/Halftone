@@ -843,6 +843,8 @@ async function loadTrack(i,autoplay=true){
   }
   /* 3. cover art (lazy URL, never base64 over IPC) */
   loadArtFromMeta(S.meta);
+  /* 3b. no embedded art? auto-fetch (task 10) */
+  coverAutoMaybe(S.meta);
   /* 4. lyrics: auto-fetch (T6) */
   loadLyrics(S.meta,false);
   /* 5. broadcast */
@@ -875,6 +877,85 @@ async function loadArtFromMeta(m){
   }
 }
 window.loadArtFromMeta=loadArtFromMeta;
+
+/* ============================================================
+   COVER ART (task 10)
+   - auto: tracks without art get cover_auto() (throttled queue,
+     max 2 in flight; allowNet from the privacy setting)
+   - manual: "Change cover art" context menu -> import / search /
+     reset (main.html wires the menu; shared helpers live here)
+   ============================================================ */
+const COVER_AUTO_MAX=2;
+const coverAutoQ=[];          /* paths pending cover_auto */
+let coverAutoInFlight=0;
+const coverAutoTried=new Set();   /* album keys already attempted this run */
+const albumKeyOf=t=>((t&&t.album)||"").toLowerCase()+"|"+((t&&t.artist)||"");
+
+function coverAutoPump(){
+  while(coverAutoInFlight<COVER_AUTO_MAX&&coverAutoQ.length){
+    const t=coverAutoQ.shift();
+    coverAutoInFlight++;
+    const allowNet=window.htSettings?window.htSettings.all().coverAutoNet!==false:true;
+    invoke("cover_auto",{path:t.path,artist:t.artist||"",album:t.album||"",allowNet})
+      .then(r=>{
+        if(r&&r.url){
+          /* album art changed: refresh every view (cover_url / this url
+             carries the ?v= cache buster per BACKEND_API.md) */
+          S.lib.forEach(x=>{if(albumKeyOf(x)===albumKeyOf(t))x.coverUrl=r.url});
+          if(S.meta&&albumKeyOf(S.meta)===albumKeyOf(t)){S.meta.coverUrl=r.url;loadArtFromMeta(S.meta)}
+          document.dispatchEvent(new CustomEvent("halftone:lib"));
+        }
+      })
+      .catch(()=>{})
+      .finally(()=>{
+        coverAutoInFlight--;
+        coverAutoPump();
+      });
+  }
+}
+/* Enqueue auto-fetch for tracks shown/played without art (dedup per album) */
+function coverAutoMaybe(t){
+  if(!t||t.has_cover||coverAutoTried.has(albumKeyOf(t)))return;
+  coverAutoTried.add(albumKeyOf(t));
+  coverAutoQ.push(t);
+  coverAutoPump();
+}
+window.coverAutoMaybe=coverAutoMaybe;
+
+/* "Change cover art" action set (shared by context menu + row sheet) */
+async function coverImportFor(t){
+  try{
+    const u=await invoke("cover_import",{path:t.path});   /* null = cancelled */
+    if(u!==null&&u!==undefined)await coverRefreshTrack(t);
+    return u;
+  }catch(e){toast("Import failed: "+e,"error");return undefined}
+}
+async function coverApplyFor(t,url){
+  try{
+    const u=await invoke("cover_apply_url",{path:t.path,url:url||""});
+    await coverRefreshTrack(t);
+    return u;
+  }catch(e){toast("Apply failed: "+e,"error");return undefined}
+}
+async function coverResetFor(t){
+  try{
+    await invoke("cover_reset",{path:t.path});
+    await coverRefreshTrack(t);
+  }catch(e){toast("Reset failed: "+e,"error")}
+}
+/* after any override change: re-pull cover_url (new ?v=) + refresh views */
+async function coverRefreshTrack(t){
+  const u=await invoke("cover_url",{path:t.path}).catch(()=>null);
+  S.lib.forEach(x=>{if(albumKeyOf(x)===albumKeyOf(t))x.coverUrl=u||null});
+  if(S.meta&&albumKeyOf(S.meta)===albumKeyOf(t)){S.meta.coverUrl=u||null;S._artUrl=u||null;loadArtFromMeta(S.meta)}
+  coverAutoTried.delete(albumKeyOf(t));   /* reset allows auto again later */
+  document.dispatchEvent(new CustomEvent("halftone:lib"));
+  render&&render();
+}
+window.coverImportFor=coverImportFor;
+window.coverApplyFor=coverApplyFor;
+window.coverResetFor=coverResetFor;
+window.coverInfoFor=t=>invoke("cover_info",{path:t.path}).catch(()=>({source:"none",url:null}));
 
 /* ============================================================
    LYRICS (T6: auto-fetch, sources, status, no auto-browser)
