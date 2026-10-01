@@ -352,7 +352,9 @@ Sub-routes:
   ever loads a whole file per request.
 - `cover/<path>` — embedded art (full bytes, no Range), `Content-Type` from
   the PICTURE mime (default `image/jpeg`), `Cache-Control: max-age=31536000`,
-  LRU-cached (256 entries). `404` when the file has no embedded art.
+  LRU-cached (256 entries). Resolution order (see "Cover art" below):
+  **user override > embedded art > web-fetched cache > `404`**. Query strings
+  (`?v=…` cache busters) are stripped before decoding the path.
 - ALAC-in-M4A: served as a decoded-PCM WAV wrapper (`audio/wav`) — the decode
   happens once per file (mtime-keyed single-entry cache), then ranges slice
   the WAV in memory. Other M4A (AAC) and all supported formats serve original
@@ -360,6 +362,107 @@ Sub-routes:
 
 Error status: `404` file missing, `415` unrecognized audio format, `416`
 bad range, `500` decode/read failure.
+
+---
+
+## Cover art
+
+Auto-fetch + user overrides for tracks without embedded art. New module:
+`src-tauri/src/covers.rs`.
+
+### Storage
+
+- Directory: `app_data_dir()/covers/` — images stored as `<key>.<ext>`
+  (`jpg`/`png`/`webp`), `index.json` mapping album keys to entries, written
+  atomically. Nothing is ever written next to the music files.
+- Album key: FNV-1a hex (same hash as lyrics.rs) of lowercase
+  `albumartist-or-artist|album`. When the album tag is missing or
+  `Unknown album`, the key falls back to the track path (per-track art).
+- `index.json` entry: `{ "source": "user"|"web"|"none"|"miss", "file":
+  "<key>.jpg"?, "url": "<source-url>"?, "ts": <unix-seconds> }`
+  - `user` — user picked/imported art (wins over everything)
+  - `web` — auto-fetched from the web, used only when the file has no
+    embedded art
+  - `none` — user chose "no art" for this album
+  - `miss` — auto-fetch found nothing; retried after **7 days**
+    (negative cache, mirrors the lyrics pattern)
+
+### Commands
+
+All camelCase args in JS. Network behavior: 10 s timeout, polite UA
+(`Halftone/0.2 (https://github.com/Trapston3/Halftone)`), downloaded bytes
+validated by magic (JPEG/PNG/WebP only, ≤ 8 MiB). Sources, in rank order
+(exact album+artist match first, case/punctuation-insensitive):
+
+1. iTunes Search API (`artworkUrl100` upscaled to 600×600)
+2. MusicBrainz release search → Cover Art Archive front image
+   (≤ 1 req/s, globally throttled)
+
+#### `cover_search({artist, album, limit?})` → `CoverCandidate[]`
+
+```jsonc
+[{ "url": "https://…600x600bb.jpg", "thumb": "https://…100x100bb.jpg",
+   "source": "itunes",  // "itunes" | "musicbrainz"
+   "title": "The Dark Side of the Moon", "artist": "Pink Floyd",
+   "width": 600, "height": 600 }]   // width/height null for musicbrainz
+```
+
+No download happens here. `limit` defaults to 12 (1–30).
+
+#### `cover_apply_url({path, url})` → `string`
+
+Downloads + validates + stores the chosen candidate as the **user override**
+for the track's album. An empty `url` records "user chose no art" (`none`).
+Returns the new `cover_url` for the track. Throws on download/validation
+failure.
+
+#### `cover_import({path, file?})` → `string | null`
+
+`file` omitted → opens a native image picker (jpg/jpeg/png/webp filter) on a
+blocking thread. Copies + validates the image as the user override. Returns
+the new `cover_url`, or `null` when the picker was cancelled.
+
+#### `cover_reset({path})` → `string`
+
+Removes the override (and any auto-fetched cache) for the track's album —
+resolution falls back to embedded art / future auto-fetch. Returns the new
+`cover_url`.
+
+#### `cover_auto({path, artist, album, allowNet})` → `CoverAutoResult`
+
+```jsonc
+{ "status": "have",     // "have" | "fetched" | "none"
+  "url": "http://media.localhost/cover/<pct>?v=1759…",   // null on "none"
+  "error": null }       // network errors land here, never a throw
+```
+
+- embedded art, an override/cache, or a no-art choice already present →
+  `{status:"have", url}` (no network)
+- else `allowNet` and no fresh miss → searches, stores the best candidate as
+  `web`, returns `{status:"fetched", url}`
+- else `{status:"none"}` (+ optional `error`). Concurrent calls for the same
+  album are deduped (in-flight set) — the UI may fire it for every row.
+
+#### `cover_info({path})` → `CoverInfo`
+
+```jsonc
+{ "source": "user",     // "user" | "embedded" | "web" | "none"
+  "url": "http://media.localhost/cover/<pct>?v=1759…" }
+```
+
+What the `/cover/` route will currently serve.
+
+### Cache busting
+
+`cover_url` appends `?v=<ts>` (ts = covers index last-change). After any
+change (apply/import/reset/auto), re-request the URL — the query change
+forces the webview to reload the image. The route strips the query before
+decoding the path, so no URL scheme change was needed.
+
+### OTA/compat
+
+New files live only under `app_data_dir()/covers/` — nothing next to the
+music, no schema change to the scan payload, `has_cover` unchanged.
 
 ---
 
