@@ -28,7 +28,20 @@ old shots: `tools/shot_*.png` (upstream tree) + `/tmp/old/screen_*.png`.
 
 ## Verification evidence (filled at the end)
 
-- shots: `ui/test/shots/` (matrix regenerated via `shots_cdp.py`)
-- contrast: `node test-contrast.js` — ALL PAIRS PASS (4 combos, incl. new risograph light)
-- console: `python3 console_check.py` — clean
-- `node --check` on every touched JS file
+- shots: `ui/test/shots/` — full matrix regenerated (main 4 combos @1280+1920,
+  nav expanded/collapsed/hidden, widget card+strip in all 4 combos, ctx menu +
+  sheet in liquid glass + risograph, seek close-up, compare_old_new.png)
+- contrast: `node test-contrast.js` — **ALL PAIRS PASS** (4 combos, incl. new
+  risograph light; sampler extended for riso tokens + glass-alpha orbs)
+- console: `python3 console_check.py` — main scenarios CLEAN; widget recursion
+  bug (drawSeekLed self-delegation) caught here and fixed, suite re-run clean
+- `node --check` on every touched JS file — OK
+
+## Known risks (real Windows WebView2 differs from headless chromium)
+
+- window transparency/corners: `html,body` transparent + `.shell` radius —
+  correct in chromium; WebView2 backdrop compositing must be eyeballed once
+- `backdrop-filter: blur(32px) saturate(170%)` over many panels can cost
+  frames on weak GPUs — `--glass-blur` token is the single knob to dial down
+- masked `::before` rim needs `-webkit-mask-composite: xor` (WebView2/Chromium
+  ships it; if a future engine drops it the rim falls back to a flat border)

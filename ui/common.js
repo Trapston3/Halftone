@@ -286,7 +286,11 @@ window.observeCanvas=observeCanvas;
 const BAYER4=[[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]].map(r=>r.map(v=>(v+.5)/16));
 const ditherCache=new Map();   /* key → {cv-key parts} to skip repaints */
 function ditherKey(img,N,cell,W,H){
-  return [img?img.src.slice(-48):"none",N,cell,W,H,ACC.cur.map(v=>v|0).join(","),themeName(),themeMode(),(S.cfg&&S.cfg.grid)||32].join("|");
+  /* ink state included: riso light prints art in the spot ink, others in
+     the accent — a theme/mode switch must invalidate the cache */
+  let inkSw="0";
+  try{inkSw=getComputedStyle(document.documentElement).getPropertyValue("--dither-ink").trim()==="1"?"1":"0"}catch(_){}
+  return [img?img.src.slice(-48):"none",N,cell,W,H,ACC.cur.map(v=>v|0).join(","),themeName(),themeMode(),(S.cfg&&S.cfg.grid)||32,inkSw].join("|");
 }
 function themeName(){return (window.Theme&&window.Theme.name)||"analogue"}
 function themeMode(){return (window.Theme&&window.Theme.resolved)||"dark"}
@@ -392,7 +396,7 @@ function drawMeter(cv,h){
    the playhead is a tall ink marker with a notch.
    ============================================================ */
 const SEEK_ROW_PITCH=4;
-function drawSeekLed(cv,p){
+function drawSeekLedShared(cv,p){
   if(!cv)return;
   const box=cv.parentElement,W=box?box.clientWidth:cv.clientWidth;
   const H=cv.clientHeight;
@@ -1182,7 +1186,7 @@ function paintSeek(){
     const cv=sk.querySelector(".seek-led");
     if(cv&&getComputedStyle(cv).display!=="none"){
       /* LED dot-matrix spectrum strip (v0.1.2 signature) */
-      drawSeekLed(cv,p);
+      drawSeekLedShared(cv,p);
     }
     const gel=sk.querySelector(".seek-gel");
     if(gel&&getComputedStyle(gel).display!=="none")paintGel(sk,p);

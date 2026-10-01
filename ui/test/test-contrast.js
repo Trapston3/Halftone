@@ -76,18 +76,36 @@ function over(alpha, base) {
   ];
 }
 
-/* resolve color-mix(in srgb, A p%, B q%) to a concrete rgb triple */
+/* resolve color-mix(in srgb, A p%, B q%) to a concrete rgb triple.
+   Paren-aware: component colors may themselves be rgb()/var() chains. */
+function splitTop(s) {
+  const out = []; let depth = 0, cur = '';
+  for (const ch of s) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) { out.push(cur.trim()); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
 function resolveMix(v) {
-  const m = v.match(/color-mix\(in srgb,\s*(.+?)\s+([\d.]+)%\s*,\s*(.+?)\s+([\d.]+)?%?\s*\)/i);
-  if (!m) return null;
-  const a = color(m[1].trim());
-  const b = color(m[3].trim());
+  const inner = v.replace(/^color-mix\(/i, '').replace(/\)\s*$/, '');
+  const parts = splitTop(inner);
+  // parts: ['in srgb', '<A> p%', '<B> q%' (q optional)]
+  if (parts.length < 3) return null;
+  const pm = parts[1].match(/\s([\d.]+)%$/);
+  const qm = parts[2].match(/\s([\d.]+)%$/);
+  const a = color(pm ? parts[1].slice(0, pm.index).trim() : parts[1]);
+  const b = color(qm ? parts[2].slice(0, qm.index).trim() : parts[2]);
   if (!a || !b) return null;
-  const pa = parseFloat(m[2]) / 100;
+  const pa = pm ? parseFloat(pm[1]) / 100 : 0.5;
+  const pb = qm ? parseFloat(qm[1]) / 100 : 1 - pa;
+  const tot = pa + pb || 1;
   return [
-    Math.round(a[0] * pa + b[0] * (1 - pa)),
-    Math.round(a[1] * pa + b[1] * (1 - pa)),
-    Math.round(a[2] * pa + b[2] * (1 - pa)),
+    Math.round((a[0] * pa + b[0] * pb) / tot),
+    Math.round((a[1] * pa + b[1] * pb) / tot),
+    Math.round((a[2] * pa + b[2] * pb) / tot),
   ];
 }
 
@@ -102,8 +120,8 @@ function ratio(fg, bg) {
   return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
 }
 
-/* component colors harvested from the shipped theme rules
-   (orb body/label, gel fill, active lyric) */
+/* resolve var() inside color() before other parsing — vars already merged in
+   resolve(), so this is a no-op beyond the standard pass; kept for clarity */
 function componentColors(theme, mode) {
   const css = fs.readFileSync(path.join(THEME_DIR, theme + '.css'), 'utf8');
   const grab = (suffix, prop) => {
@@ -122,21 +140,50 @@ function componentColors(theme, mode) {
     }
     return null;
   };
+  vars['__grab'] = grab;
   const orbBg = grab('.btn-orb', 'background');
   const orbLabel = grab('.btn-orb', 'color'); // dark override wins in dark, base rule in light
   let lyric = grab('.lyrics .lyric-line.active', 'color');
-  if (!lyric && theme === 'analogue') lyric = vars['--fg']; // analogue: active line is fg (marker is accent-print)
-  const hexM = orbBg && orbBg.match(/#([0-9a-f]{6})/gi); // radial stops, take the mid one
+  if (!lyric && theme === 'analogue') {
+    // riso light: active line prints in riso blue; dark stays fg
+    lyric = mode === 'light' ? (vars['--riso-blue'] || vars['--fg']) : vars['--fg'];
+  }
+  // orb body: first hex stop of a gradient, else the raw value
+  const hexM = orbBg && orbBg.match(/#([0-9a-f]{6})/gi);
+  const orbBodyVal = hexM ? hexM[Math.min(1, hexM.length - 1)] : orbBg;
+  let orbBody = color(orbBodyVal);
+  // translucent glass orb bodies (rgba gradients) must be composited over
+  // the backdrop they actually render on (panel over --bg), not used raw
+  const bgc0 = color(vars['--bg']);
+  if (orbBody && orbBody.length === 4 && orbBody[3] < 1) {
+    const panel = color(vars['--panel-bg']);
+    orbBody = over(orbBody, over(panel || [0, 0, 0], bgc0 || [0, 0, 0]));
+  } else if (!orbBody && orbBg && /rgba\(/.test(orbBg)) {
+    // gradient of white alphas: composite the first stop over panel/bg
+    const m = orbBg.match(/rgba\(([^)]+)\)/i);
+    if (m) {
+      const stops = m[1].split(',').map(s => parseFloat(s));
+      const panel = color(vars['--panel-bg']);
+      orbBody = over([stops[0], stops[1], stops[2], stops[3]], over(panel || [0, 0, 0], bgc0 || [0, 0, 0]));
+    }
+  }
+  // on-accent label color for the accent-filled transport orb:
+  // analogue light fills .btn-orb.lg with riso blue (label = --accent-fg paper);
+  // digital glass orbs keep gradient bodies with light labels
+  const lgFillRaw = grab('.btn-orb.lg', 'background');
+  const lgHex = lgFillRaw && lgFillRaw.match(/#([0-9a-f]{6})/gi);
   return {
-    orbBody: color(hexM ? hexM[1] : null),
+    orbBody,
     orbLabel: color(orbLabel),
     gelFill: mode === 'light' ? color('#1f6fe0') : color('#0e6fe0'),
     lyricActive: color(lyric),
     accentOrb: false,
+    lgFill: lgHex ? color(lgHex[0]) : color(lgFillRaw),
+    lgLabel: color(vars['--accent-fg']),
   };
 }
 
-const WANT = ['--bg', '--fg', '--fg-2', '--fg-3', '--accent-fg', '--accent', '--accent-print', '--accent-deep', '--panel-bg'];
+const WANT = ['--bg', '--fg', '--fg-2', '--fg-3', '--accent-fg', '--accent', '--accent-print', '--accent-deep', '--panel-bg', '--riso-blue'];
 
 let failures = 0;
 console.log('CONTRAST AUDIT (WCAG 2.1) — sampled from shipped theme CSS');
@@ -170,6 +217,18 @@ for (const theme of THEMES) {
     const deep = vars['--accent-print'] || vars['--accent-deep'];
     if (deep && theme === 'analogue') {
       rows.push(['accent-print / bg (LED cells, markers)', color(deep), bg, 3]);
+      // riso light: accent-print mixes live accent over riso blue — check the
+      // same 3:1 UI mark bar the dark mode is held to
+      if (mode === 'light' && vars['--riso-blue']) {
+        rows.push(['riso-blue / bg (stamps, LED plate)', color(vars['--riso-blue']), bg, 3]);
+        // ink-fill transport orb: paper label on riso blue body — this pair IS
+        // the on-accent text pair in riso (raw accent is never a fill)
+        if (p.lgFill) {
+          rows.push(['orb label / riso orb body', p.lgLabel, p.lgFill, 4.5]);
+          const iAccent = rows.findIndex(r => r[0] === 'accent-fg / accent');
+          if (iAccent >= 0) rows[iAccent][0] += ' [n/a in riso: accent never a fill — see orb pair]';
+        }
+      }
     }
     if (deep && theme === 'digital') {
       const panelBg = over(color(vars['--panel-bg']) || [255, 255, 255], bg);
@@ -187,7 +246,8 @@ for (const theme of THEMES) {
       const pass = r >= aa;
       // raw JS-owned accent on pale light backgrounds is never used for text/marks
       // (themes derive accent-print / accent-deep for that) — informational in light
-      const info = name.startsWith('accent / bg') && mode === 'light' && !pass;
+      const info = (name.startsWith('accent / bg') && mode === 'light' && !pass)
+        || name.includes('[n/a in riso');
       if (!pass && !info) failures++;
       console.log(`  ${pass ? 'PASS' : info ? 'INFO' : 'FAIL'}  ${r.toFixed(2).padStart(5)}:1  (need ${aa}:1)  ${name}${info ? '  [info: raw accent unused for text/marks in light]' : ''}`);
     }

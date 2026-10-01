@@ -67,7 +67,7 @@
   --bg-3: #E1DACA;
   --fg: #1A2C3D;   /* riso blue-black ink text */
   --fg-2: #4C5B68;
-  --fg-3: #6B7885;
+  --fg-3: #5A6875;
   --line: #D8D1C2;
   --line-2: #B9B2A2;
   --accent-fg: #F6F1E7; /* paper color on solid ink */
@@ -107,9 +107,9 @@
   --art-default: dither;
   --ambient-default: dither;
   /* spot inks: riso blue primary + fluoro pink for the second pass */
-  --riso-blue: #0078BF;
-  --riso-pink: #FF48B0;
-  --accent-print: color-mix(in srgb, var(--accent) 30%, var(--riso-blue) 70%);
+  --riso-blue: #0068A8;
+  --riso-pink: #E23A97;
+  --accent-print: color-mix(in srgb, var(--riso-blue) 88%, var(--accent) 12%);
   --accent-2: var(--riso-pink);
   --glow-accent: none;      /* print doesn't glow — ink bleed instead */
   --glow-text: none;
