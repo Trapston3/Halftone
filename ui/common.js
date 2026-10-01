@@ -961,7 +961,7 @@ function lyricFollow(){
   for(let k=0;k<lines.length;k++){if(t>=+lines[k].dataset.t)idx=k}
   if(idx!==S.lidx){
     S.lidx=idx;
-    lines.forEach((l,k)=>{l.classList.toggle("active",k===idx);l.classList.toggle("past",idx>=0&&k<idx)});
+    lines.forEach((l,k)=>{l.classList.toggle("active",k===idx);l.classList.toggle("past",idx>=0&&k<idx);l.classList.toggle("future",idx>=0&&k>idx)});
     if(idx>=0&&!S._lyrManual){
       const ln=lines[idx];
       const top=ln.offsetTop-view.clientHeight/2+ln.offsetHeight/2;

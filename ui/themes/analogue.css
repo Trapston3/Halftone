@@ -321,6 +321,34 @@
   box-shadow: inset 3px 0 0 var(--accent-print);
 }
 
+/* nav ITEMS — match the rail look: mono, tracked, thin 1px line,
+   transparent on paper; never the UA white button. */
+:root[data-theme="analogue"] .nav-item {
+  background: transparent;
+  color: var(--fg-2);
+  border: 1px solid transparent;
+  border-radius: calc(var(--r-m) * var(--radius-scale, 1));
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+:root[data-theme="analogue"] .nav-item svg {
+  width: 14px; height: 14px; flex: none;
+}
+:root[data-theme="analogue"] .nav-item:hover {
+  color: var(--fg);
+  border-color: var(--line);
+}
+:root[data-theme="analogue"] .nav-item.active {
+  color: var(--accent);
+  border-color: var(--accent-print);
+  background: var(--accent-12);
+}
+
 :root[data-theme="analogue"][data-nav="bottom"] .nav {
   justify-content: space-around;
   border: 1px solid var(--line);
@@ -329,6 +357,13 @@
 }
 :root[data-theme="analogue"][data-nav="bottom"] .nav.active {
   border-color: var(--accent);
+}
+:root[data-theme="analogue"][data-nav="bottom"] .nav-item {
+  padding: 8px;
+  border-radius: calc(var(--r-pill) * var(--radius-scale, 1));
+}
+:root[data-theme="analogue"][data-nav="bottom"] .nav-item svg {
+  width: 16px; height: 16px;
 }
 
 :root[data-theme="analogue"][data-nav="hidden"] .nav { display: none; }
@@ -520,14 +555,20 @@
   transition: color var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-spring);
 }
 :root[data-theme="analogue"] .lyrics .lyric-line.past { color: var(--fg-2); }
+:root[data-theme="analogue"] .lyrics .lyric-line.future { color: var(--fg-3); opacity: .62; }
 :root[data-theme="analogue"] .lyrics .lyric-line.active {
   color: var(--fg);
-  transform: translateX(10px);
+  transform: translateX(26px);
   opacity: 1;
 }
+/* ▸ marker lives in a reserved left gutter (absolute) so it never
+   reflows/wraps the text when the line activates */
 :root[data-theme="analogue"] .lyrics .lyric-line.active::before {
-  content: "\25B8  ";
+  content: "\25B8";
   color: var(--accent);
+  position: absolute;
+  left: -26px;
+  line-height: inherit;
 }
 :root[data-theme="analogue"] .lyrics.plain {
   font-family: var(--font-mono);
