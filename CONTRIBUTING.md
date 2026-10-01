@@ -13,7 +13,7 @@ Thanks for helping! A few ground rules to keep the codebase sane:
    `halftone:cmd` messages and renders broadcasts. Never construct audio objects there.
 3. **Network surfaces are the ones documented in the README** (LRCLIB lyrics, cover-art
    lookups, OTA checks) — each user-disableable. New UI must not add another.
-4. **Phosphor design system** (`ui/style.css`): segmented/quantized visual units, border-tier
+4. **Phosphor design system** (`ui/themes/`): segmented/quantized visual units, border-tier
    depth (no soft drop shadows), the existing type scale. New UI must use the same vocabulary
    (LED segments, dot caps, dither textures) — not a new one.
 
@@ -35,6 +35,14 @@ cargo run --release            # or launch the exe directly with CDP env (see to
 - Comments explain *why*, not what
 - Keep the crate dependency-free where practical (metadata walking, base64, etc. are
   hand-rolled on purpose)
+
+## Version notes
+
+- **v0.2.1** — visual overhaul: Analogue light is a new risograph style, Digital dark is
+  liquid glass, the nav rail collapses/hides (Ctrl+B), and the seek bar gains a spectrum
+  visualiser; startup-freeze fix and hardened installers included.
+- **v0.2.0** — multi-format original-bytes playback, two-theme engine with light/dark,
+  one-line installers, network-surface disclosure.
 
 ## Reporting issues
 
