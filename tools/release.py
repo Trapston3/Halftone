@@ -93,6 +93,8 @@ def main() -> None:
     ap.add_argument("--appimage", help="path to the built Linux AppImage")
     ap.add_argument("--deb", help="path to the built Linux .deb")
     ap.add_argument("--notes", default="", help="release notes for latest.json / gh --notes-file")
+    ap.add_argument("--ci", action="store_true",
+                    help="CI mode: stage only; the workflow publishes (no gh command hints)")
     args = ap.parse_args()
 
     version = args.version.strip().lstrip("vV")
@@ -143,6 +145,10 @@ def main() -> None:
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
         )
         staged.append(dist / "latest.json")
+
+    if args.ci:
+        print(f"staged: {[p.name for p in staged]}")
+        return
 
     # --- the release command (printed, never run here) ----------------------
     assets = " ".join(f"dist/{p.name}" for p in staged)
