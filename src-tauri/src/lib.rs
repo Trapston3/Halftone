@@ -1,10 +1,10 @@
-//! Halftone audio backend — Rust port of the verified direct-FLAC pipeline.
+//! Halftone audio backend — direct-bytes pipeline, now format-neutral.
 //!
-//! Contract (docs/audio-pipeline.md): FLAC in, FLAC out. Metadata + cover art
-//! come out of ONE header read per track (STREAMINFO / VORBIS_COMMENT /
-//! METADATA_BLOCK_PICTURE all live in the metadata block list at the front of
-//! the file, before any audio frames). Playback serves the file's ORIGINAL
-//! bytes via the flac:// protocol — no transcode, no AAC, no side files.
+//! Contract (docs/audio-pipeline.md): metadata + cover art come out of ONE
+//! header read per track. Playback serves the file's ORIGINAL bytes via the
+//! media:// protocol (ALAC is the one documented exception: decoded once to
+//! PCM in Rust, no lossy transcode). FLAC has its own verified parser;
+//! WAV/MP3/AAC/ALAC live in formats.rs/alac.rs.
 
 use serde::Serialize;
 use tauri::Manager;
@@ -12,6 +12,15 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+
+// Phase 1 format parsers + ALAC decode (authored once, #[path]-included into both the
+// standalone TDD harness and this crate). They must NOT depend on tauri/serde.
+#[path = "formats.rs"]
+mod formats;
+#[path = "alac.rs"]
+mod alac;
+#[path = "m4a.rs"]
+mod m4a;
 
 // OTA update channel: latest.json published as a release asset. Override the
 // source for QA with HALFTONE_OTA_URL; disable the check with HALFTONE_NO_OTA.
@@ -69,6 +78,13 @@ pub struct TrackMeta {
     /// REPLAYGAIN_TRACK_GAIN / REPLAYGAIN_ALBUM_GAIN from VORBIS_COMMENT
     /// (already parsed in the same single read — zero extra I/O).
     pub replaygain: Option<ReplayGain>,
+    /// Format tag: "FLAC" | "WAV" | "MP3" | "AAC" | "ALAC"
+    #[serde(rename = "format")]
+    pub format_tag: String,
+    /// True for FLAC/WAV/ALAC, false for MP3/AAC
+    pub lossless: bool,
+    /// Average bitrate in kbps (rounded)
+    pub bitrate_kbps: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -296,6 +312,9 @@ pub fn read_track(path: &Path) -> Result<TrackMeta, String> {
         cover: if pics.is_empty() { None } else { Some(pics.remove(0)) },
         block_types,
         replaygain,
+        format_tag: "FLAC".into(),
+        lossless: true,
+        bitrate_kbps: 0, // FLAC bitrate varies per frame; 0 = unknown/VBR
     })
 }
 
@@ -383,7 +402,24 @@ fn try_watch(app: tauri::AppHandle, dir: String) -> Result<(), String> {
 }
 
 /// Extensions WebView2 can likely play but Halftone does not support yet.
-const UNSUPPORTED_AUDIO: &[&str] = &["mp3", "m4a", "aac", "wav", "ogg", "oga", "opus", "wma", "aiff", "aif"];
+const UNSUPPORTED_AUDIO: &[&str] = &["ogg", "oga", "opus", "wma", "aiff", "aif"];
+
+/// Format counters for per-format scan reporting.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanCounts {
+    pub flac: usize,
+    pub wav: usize,
+    pub mp3: usize,
+    pub aac: usize,
+    pub alac: usize,
+    pub unsupported: usize,
+}
+
+impl ScanCounts {
+    fn new() -> Self {
+        Self { flac: 0, wav: 0, mp3: 0, aac: 0, alac: 0, unsupported: 0 }
+    }
+}
 
 #[tauri::command]
 fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> {
@@ -398,8 +434,7 @@ fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> 
     }
     let mut tracks = Vec::new();
     let mut skipped = Vec::new();
-    let mut unsupported = 0usize;
-    let mut flac_seen = 0usize;
+    let mut counts = ScanCounts::new();
     let t0 = std::time::Instant::now();
     let _ = CANCEL_SCAN.swap(false, std::sync::atomic::Ordering::Relaxed);
 
@@ -409,8 +444,7 @@ fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> 
         depth: usize,
         tracks: &mut Vec<TrackMeta>,
         skipped: &mut Vec<String>,
-        unsupported: &mut usize,
-        flac_seen: &mut usize,
+        counts: &mut ScanCounts,
         app: &tauri::AppHandle,
     ) -> Result<(), String> {
         if depth > 16 {
@@ -423,53 +457,131 @@ fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> 
             }
             let p = entry.path();
             if p.is_dir() {
-                walk(&p, depth + 1, tracks, skipped, unsupported, flac_seen, app)?;
+                walk(&p, depth + 1, tracks, skipped, counts, app)?;
                 continue;
             }
             if !p.is_file() {
                 continue;
             }
-            let ext = p.extension().and_then(|e| e.to_str()).map(|s| s.to_ascii_lowercase()).unwrap_or_default();
-            if ext != "flac" {
-                if UNSUPPORTED_AUDIO.contains(&ext.as_str()) {
-                    *unsupported += 1;
-                }
+
+            // Read the file bytes once for format detection + parsing
+            let bytes = match fs::read(&p) {
+                Ok(b) => b,
+                Err(e) => { skipped.push(format!("{}: {}", p.display(), e)); continue; }
+            };
+            if bytes.is_empty() {
+                skipped.push(format!("{}: empty file", p.display()));
                 continue;
             }
-            *flac_seen += 1;
-            match read_track(&p) {
-                Ok(t) => {
-                    tracks.push(t);
-                    // progress every 25 files: count + current folder
-                    if tracks.len() % 25 == 0 {
-                        let _ = app.emit("halftone:scan-progress", serde_json::json!({
-                            "found": tracks.len(),
-                            "folder": p.parent().map(|d| d.display().to_string()).unwrap_or_default(),
-                            "done": false,
-                        }));
+
+            // Try Phase 1 parsers first (WAV, MP3, M4A/AAC/ALAC)
+            match formats::detect(&bytes) {
+                Ok("wav") => {
+                    counts.wav += 1;
+                    match formats::parse(&bytes, &p) {
+                        Ok(mut m) => {
+                            m.format_tag = "WAV".into();
+                            m.lossless = true;
+                            tracks.push(m);
+                        }
+                        Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
                     }
                 }
-                Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
+                Ok("mp3") => {
+                    counts.mp3 += 1;
+                    match formats::parse(&bytes, &p) {
+                        Ok(mut m) => {
+                            m.format_tag = "MP3".into();
+                            m.lossless = false;
+                            tracks.push(m);
+                        }
+                        Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
+                    }
+                }
+                Ok("m4a") => {
+                    // Disambiguate AAC vs ALAC via stsd fourcc in parse_m4a
+                    match m4a::parse_m4a(&bytes, &p) {
+                        Ok((mut m, is_alac)) => {
+                            if is_alac {
+                                counts.alac += 1;
+                                m.format_tag = "ALAC".into();
+                                m.lossless = true;
+                            } else {
+                                counts.aac += 1;
+                                m.format_tag = "AAC".into();
+                                m.lossless = false;
+                            }
+                            tracks.push(m);
+                        }
+                        Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
+                    }
+                }
+                Ok("adts") => {
+                    counts.aac += 1;
+                    match formats::parse(&bytes, &p) {
+                        Ok(mut m) => {
+                            m.format_tag = "AAC".into();
+                            m.lossless = false;
+                            tracks.push(m);
+                        }
+                        Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
+                    }
+                }
+                Ok(_) => { counts.unsupported += 1; } // should not happen
+                Err(_) => {
+                    // Fallback: check for FLAC magic
+                    if bytes.len() >= 4 && &bytes[0..4] == b"fLaC" {
+                        counts.flac += 1;
+                        match read_track(&p) {
+                            Ok(t) => tracks.push(t),
+                            Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
+                        }
+                    } else if UNSUPPORTED_AUDIO.iter().any(|e| p.extension().and_then(|s| s.to_str()).map(|s| s.to_ascii_lowercase()).unwrap_or_default() == *e) {
+                        counts.unsupported += 1;
+                    }
+                    // silently ignore other extensions
+                }
+            }
+
+            // progress every 25 files
+            if tracks.len() % 25 == 0 {
+                let _ = app.emit("halftone:scan-progress", serde_json::json!({
+                    "found": tracks.len(),
+                    "folder": p.parent().map(|d| d.display().to_string()).unwrap_or_default(),
+                    "done": false,
+                }));
             }
         }
         Ok(())
     }
 
-    walk(Path::new(&dir), 0, &mut tracks, &mut skipped, &mut unsupported, &mut flac_seen, &app)
+    walk(Path::new(&dir), 0, &mut tracks, &mut skipped, &mut counts, &app)
         .map_err(|e| format!("scan failed: {}", e))?;
     CANCEL_SCAN.store(false, std::sync::atomic::Ordering::Relaxed);
     tracks.sort_by(|a, b| a.path.cmp(&b.path));
 
+    // Emit final progress with per-format breakdown
     let _ = app.emit(
         "halftone:scan-progress",
-        serde_json::json!({"found": tracks.len(), "skipped": skipped.len(),
-                           "unsupported": unsupported, "done": true,
-                           "ms": t0.elapsed().as_millis()}),
+        serde_json::json!({
+            "found": tracks.len(),
+            "skipped": skipped.len(),
+            "counts": {
+                "flac": counts.flac,
+                "wav": counts.wav,
+                "mp3": counts.mp3,
+                "aac": counts.aac,
+                "alac": counts.alac,
+                "unsupported": counts.unsupported,
+            },
+            "done": true,
+            "ms": t0.elapsed().as_millis()
+        }),
     );
     if let Some(app) = APP.get() {
         watch_folder(app.clone(), &dir);
     }
-    Ok(ScanResult { tracks, skipped, unsupported })
+    Ok(ScanResult { tracks, skipped, unsupported: counts.unsupported })
 }
 
 // ---------------------------------------------------------------------------
@@ -688,7 +800,18 @@ fn scan_cancel() {
 
 #[tauri::command]
 fn open_track(path: &str) -> Result<TrackMeta, String> {
-    read_track(&PathBuf::from(path))
+    let p = PathBuf::from(path);
+    // Read once; detect by MAGIC bytes, not extension (Phase 1 contract).
+    let buf = fs::read(&p).map_err(|e| format!("read {}: {}", p.display(), e))?;
+    if buf.len() >= 4 && &buf[0..4] == b"fLaC" {
+        return read_track(&p); // existing verified FLAC parser
+    }
+    match formats::detect(&buf) {
+        Ok("wav") | Ok("mp3") => formats::parse(&buf, &p),
+        Ok("m4a") => m4a::parse_m4a(&buf, &p).map(|(m, _)| m),
+        Ok("adts") => m4a::parse_adts(&buf, &p),
+        _ => read_track(&p), // FLAC magic handled above; fall back for errors
+    }
 }
 
 #[tauri::command]
@@ -696,14 +819,16 @@ fn read_lyrics(path: &str) -> Vec<LyricLine> {
     read_lrc_file(&PathBuf::from(path))
 }
 
-/// Platform-correct URL that serves the ORIGINAL FLAC bytes.
-/// Windows WebView2 resolves custom schemes as http://<scheme>.localhost.
+/// Format-neutral URL that serves the file's ORIGINAL bytes (Phase 1:
+/// FLAC/WAV/MP3/AAC direct, ALAC as decoded-PCM WAV wrapper — see
+/// docs/audio-pipeline.md). Windows WebView2 resolves custom schemes as
+/// http://<scheme>.localhost.
 #[tauri::command]
-fn flac_url(path: &str) -> String {
+fn media_url(path: &str) -> String {
     if cfg!(windows) {
-        format!("http://flac.localhost/{}", pct_encode(path))
+        format!("http://media.localhost/{}", pct_encode(path))
     } else {
-        format!("flac://localhost/{}", pct_encode(path))
+        format!("media://localhost/{}", pct_encode(path))
     }
 }
 
@@ -793,12 +918,14 @@ async fn lrc_fetch(path: String, artist: String, title: String) -> Result<String
 // SMTC bridge commands (owner/UI only)
 // ---------------------------------------------------------------------------
 
-fn serve_flac(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
+fn serve_media(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
     let uri = request.uri().to_string();
     let enc = uri
-        .strip_prefix("flac://localhost/")
-        .or_else(|| uri.strip_prefix("http://flac.localhost/"))
-        .or_else(|| uri.strip_prefix("https://flac.localhost/"))
+        .strip_prefix("media://localhost/")
+        .or_else(|| uri.strip_prefix("http://media.localhost/"))
+        .or_else(|| uri.strip_prefix("https://media.localhost/"))
+        .or_else(|| uri.strip_prefix("flac://localhost/"))          // legacy fallback
+        .or_else(|| uri.strip_prefix("http://flac.localhost/"))     // legacy fallback
         .unwrap_or("");
     let path = pct_decode(enc);
 
@@ -814,51 +941,67 @@ fn serve_flac(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<V
             Some((start, end))
         });
 
-    match fs::metadata(&path) {
-        Ok(m) if m.is_file() => {
-            let total = m.len();
-            match range {
-                Some((start, end)) if start < total => {
-                    let end = end.min(total - 1);
-                    let len = (end - start + 1) as usize;
-                    let mut buf = vec![0u8; len];
-                    let mut f = fs::File::open(&path).map_err(|e| e.to_string()).unwrap();
-                    use std::io::Seek;
-                    f.seek(std::io::SeekFrom::Start(start)).ok();
-                    f.read_exact(&mut buf).ok();
-                    tauri::http::Response::builder()
-                        .status(206)
-                        .header("Content-Type", "audio/flac")
-                        .header("Content-Length", len.to_string())
-                        .header("Accept-Ranges", "bytes")
-                        .header("Access-Control-Allow-Origin", "*")
-                        .header("Content-Range", format!("bytes {}-{}/{}", start, end, total))
-                        .body(buf)
-                        .unwrap()
-                }
-                Some(_) => tauri::http::Response::builder()
-                    .status(416)
-                    .header("Content-Range", format!("bytes */{}", total))
-                    .body(Vec::new())
-                    .unwrap(),
-                None => {
-                    let mut f = fs::File::open(&path).map_err(|e| e.to_string()).unwrap();
-                    let mut buf = Vec::with_capacity(total as usize);
-                    f.read_to_end(&mut buf).ok();
-                    tauri::http::Response::builder()
-                        .status(200)
-                        .header("Content-Type", "audio/flac")
-                        .header("Content-Length", buf.len().to_string())
-                        .header("Accept-Ranges", "bytes")
-                        .header("Access-Control-Allow-Origin", "*")
-                        .body(buf)
-                        .unwrap()
-                }
+    // --- ALAC path: decode once to PCM WAV, serve byte ranges from memory ---
+    // Detection is by content (ftyp + stsd fourcc), not extension.
+    let is_alac = {
+        match fs::read(&path) {
+            Ok(b) => b.len() > 12
+                && &b[4..8.min(b.len())] == b"ftyp"
+                && m4a::parse_m4a(&b, Path::new(&path)).map(|(_, alac)| alac).unwrap_or(false),
+            Err(_) => false,
+        }
+    };
+
+    let (body, content_type): (Vec<u8>, &str) = if is_alac {
+        match fs::read(&path).map_err(|e| e.to_string()).and_then(alac::decode) {
+            Ok(wav) => (wav, "audio/wav"),
+            Err(_e) => {
+                return tauri::http::Response::builder()
+                    .status(500)
+                    .body(b"alac decode failed".to_vec())
+                    .unwrap()
             }
         }
-        _ => tauri::http::Response::builder()
-            .status(404)
-            .body(format!("halftone: no such file: {}", path).into_bytes())
+    } else {
+        match fs::read(&path) {
+            Ok(b) => (b, "audio/flac"),
+            Err(e) => {
+                return tauri::http::Response::builder()
+                    .status(404)
+                    .body(format!("halftone: cannot read {}: {}", path, e).into_bytes())
+                    .unwrap()
+            }
+        }
+    };
+
+    let total = body.len() as u64;
+    match range {
+        Some((start, end)) if start < total => {
+            let end = end.min(total - 1);
+            let len = (end - start + 1) as usize;
+            let buf = body[start as usize..(start as usize + len)].to_vec();
+            tauri::http::Response::builder()
+                .status(206)
+                .header("Content-Type", content_type)
+                .header("Content-Length", len.to_string())
+                .header("Accept-Ranges", "bytes")
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Content-Range", format!("bytes {}-{}/{}", start, end, total))
+                .body(buf)
+                .unwrap()
+        }
+        Some(_) => tauri::http::Response::builder()
+            .status(416)
+            .header("Content-Range", format!("bytes */{}", total))
+            .body(Vec::new())
+            .unwrap(),
+        None => tauri::http::Response::builder()
+            .status(200)
+            .header("Content-Type", content_type)
+            .header("Content-Length", total.to_string())
+            .header("Accept-Ranges", "bytes")
+            .header("Access-Control-Allow-Origin", "*")
+            .body(body)
             .unwrap(),
     }
 }
@@ -986,13 +1129,14 @@ pub fn run() {
                 }
             }
         })
-        .register_uri_scheme_protocol("flac", |_ctx, request| serve_flac(request))
+        .register_uri_scheme_protocol("media", |_ctx, request| serve_media(request))
+        .register_uri_scheme_protocol("flac", |_ctx, request| serve_media(request)) // legacy
         .invoke_handler(tauri::generate_handler![
             scan_library,
             scan_cancel,
             open_track,
             read_lyrics,
-            flac_url,
+            media_url,
             pick_folder,
             lrc_fetch,
             ota_check,

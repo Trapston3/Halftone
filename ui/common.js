@@ -128,6 +128,7 @@ function emitFullState(){  /* meta + lyrics + lib - heavier, on track change */
   emitSync({
     meta:S.meta?{title:S.meta.title,artist:S.meta.artist,album:S.meta.album,
       streaminfo:S.meta.streaminfo,duration_s:S.meta.duration,
+      format_tag:S.meta.format_tag,lossless:S.meta.lossless,
       cover:S.meta.cover?{mime:S.meta.cover.mime,data_b64:S.meta.cover.data_b64}:null}:null,
     lyrics:S.lyrics,lib:S.lib.map(t=>({path:t.path,title:t.title,artist:t.artist,
       album:t.album,duration_s:t.duration_s,streaminfo:t.streaminfo})),
@@ -170,14 +171,18 @@ function applySync(d){
       img.src="data:"+d.meta.cover.mime+";base64,"+d.meta.cover.data_b64;
     }else{S._img=null;document.dispatchEvent(new CustomEvent("halftone:art"))}
   }
-  if(d.t!=null){S._pos=d.t;document.dispatchEvent(new CustomEvent("halftone:tick"))}
+  if(d.t!=null){if(window.viewerReconcile)viewerReconcile(d.t);else{S._pos=d.t}
+    document.dispatchEvent(new CustomEvent("halftone:tick"))}
   if(d.dur!=null)S._dur=d.dur;
   if(trackChanged){document.dispatchEvent(new CustomEvent("halftone:track"));S.lidx=-1;S._lyrManual=false}
   updTransportAll();
 }
 function updTransportAll(){document.dispatchEvent(new CustomEvent("halftone:state"))}
 /* position/duration helpers - owner reads the element, viewer reads broadcasts */
-function posSec(){return IS_OWNER?(el.aud?el.aud.currentTime:0):(S._pos||0)}
+function posSec(){
+  if(IS_OWNER)return el.aud?el.aud.currentTime:0;
+  return window.viewerSmoothTick?viewerSmoothTick():(S._pos||0)   /* PHASE 2: inter-tick smoothing */
+}
 function durSec(){return IS_OWNER?(el.aud?el.aud.duration||0:0):(S._dur||0)}
 function setVol(v){
   S.vol=Math.min(1,Math.max(0,v));
@@ -228,8 +233,9 @@ if(T&&T.event&&T.event.listen&&curWin){
     }).catch(()=>{});
   }else{
     T.event.listen("halftone:sync",e=>applySync(e.payload)).catch(()=>{});
-    T.event.listen("halftone:time",e=>{const d=e.payload||{};S._pos=d.t||0;
-      document.dispatchEvent(new CustomEvent("halftone:tick"))}).catch(()=>{});
+    T.event.listen("halftone:time",e=>{const d=e.payload||{};
+      if(window.viewerReconcile)viewerReconcile(d.t||0);   /* PHASE 2: predict-then-discard */
+      else{S._pos=d.t||0;document.dispatchEvent(new CustomEvent("halftone:tick"))}}).catch(()=>{});
     T.event.listen("halftone:bars",e=>{const d=e.payload||{};
       if(!S._barsRcv)S._barsRcv=new Float32Array(NBARS);
       if(d.b&&d.b.length===NBARS){for(let k=0;k<NBARS;k++)S._barsRcv[k]=(d.b.charCodeAt(k)-33)/255;
@@ -634,7 +640,7 @@ async function scanLibrary(dir){
     if(el.libstat)el.libstat.textContent=res.tracks.length+" TRACKS"+(res.skipped.length?" / "+res.skipped.length+" SKIPPED":"");
     if(!res.tracks.length&&!res.unsupported)toast("No audio files found in that folder.","warn");
     else if(!res.tracks.length&&res.unsupported)toast(res.unsupported+" audio files found \u2014 Halftone plays FLAC only (MP3/M4A/WAV not yet).","warn",7000);
-    if(res.unsupported)toast(res.unsupported+" files can't be played \u2014 FLAC only for now.","warn",6000);
+    if(res.unsupported)toast(res.unsupported+" files can't be played \u2014 format not supported.","warn",6000);
     if(res.skipped.length)toast(res.skipped.length+" files skipped (corrupt or unreadable).","warn",6000);
     return res;
   }catch(e){
@@ -659,7 +665,7 @@ async function loadTrack(i,autoplay=true){
   S.meta=meta;
   try{S.lyrics=await invoke("read_lyrics",{path:S.lib[S.i].path})}
   catch(e){S.lyrics=[];toast("Lyrics file unreadable for this track.","warn",4000)}
-  const url=await invoke("flac_url",{path:S.lib[S.i].path});
+  const url=await invoke("media_url",{path:S.lib[S.i].path});
   el.aud.src=url;
   el.aud.addEventListener("error",function onErr(){
     el.aud.removeEventListener("error",onErr);
