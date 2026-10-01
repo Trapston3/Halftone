@@ -316,7 +316,14 @@ function drawDither(cv,img,opts){
   ditherCache.set("_k",key);ditherCache.set("_cv",cv);
   console.log("[dither] backing="+BW+"x"+BH+" N="+N+" cell="+cell+" N*cell="+(N*cell)+" (exact="+((BW===N*cell&&BH===M*cell)?"YES":"NO")+")");
   g.imageSmoothingEnabled=false;
-  const fg=ACC.cur,bg=themeCanvas.bg;
+  /* ink color: risograph light prints dither art in the spot ink,
+     not the mint accent (theme sets --dither-ink: 1) */
+  let fg=ACC.cur;
+  try{
+    if(getComputedStyle(document.documentElement).getPropertyValue("--dither-ink").trim()==="1")
+      fg=parseColor(getComputedStyle(document.documentElement).getPropertyValue("--canvas-ink"))||fg;
+  }catch(_){}
+  const bg=themeCanvas.bg;
   /* downsample to N×M once, threshold with a 4×4 Bayer matrix */
   const tmp=drawDither._tmp||(drawDither._tmp=document.createElement("canvas"));
   if(tmp.width!==N||tmp.height!==M){tmp.width=N;tmp.height=M}

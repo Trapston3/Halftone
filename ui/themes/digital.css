@@ -57,39 +57,45 @@
   --vol-style: gel;
   --art-default: real;
   --ambient-default: aurora;
+  /* glow: white specular sheen */
+  --glow-accent: 0 0 16px rgba(255, 255, 255, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --glow-text: 0 0 12px rgba(255, 255, 255, 0.8);
 }
 
 /* ----------------------------------------------------
-   TOKENS — DARK (night version of the same structure)
+   TOKENS — DARK → LIQUID GLASS (Apple-style)
+   near-black backdrop, art-accent ambient blobs, deep glass
+   panels, top-lit gradient border, specular sheen
    ---------------------------------------------------- */
 :root[data-theme="digital"][data-mode="dark"] {
-  --bg: #060c15;
-  --bg-2: rgba(255, 255, 255, 0.08);
-  --bg-3: rgba(255, 255, 255, 0.15);
-  --fg: #f0f6fc;
+  --bg: #05070c;
+  --bg-2: rgba(255, 255, 255, 0.055);
+  --bg-3: rgba(255, 255, 255, 0.11);
+  --fg: #f2f7fc;
   --fg-2: #9fb2c4;
-  --fg-3: #70869a;
-  --line: rgba(255, 255, 255, 0.12);
-  --line-2: rgba(0, 180, 255, 0.3);
-  --accent-fg: #06263f; /* dark navy on luminous mint accent */
+  --fg-3: #6e8498;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-2: rgba(160, 210, 255, 0.22);
+  --accent-fg: #06263f;
   --ok: #34d399;
   --warn: #fbbf24;
   --danger: #f87171;
 
-  --panel-bg: rgba(12, 22, 38, 0.55);
-  --panel-border: rgba(255, 255, 255, 0.14);
-  --panel-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.18);
-  --glass-blur: 24px;
-  --glass-sat: 140%;
-  --shadow-1: 0 8px 24px rgba(0, 0, 0, 0.4);
-  --shadow-2: 0 18px 44px rgba(0, 0, 0, 0.6);
+  /* glass panel: deep tint + more blur + stronger saturation */
+  --panel-bg: rgba(16, 24, 38, 0.48);
+  --panel-border: linear-gradient(to bottom, rgba(255,255,255,0.32), rgba(255,255,255,0.04));
+  --panel-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.22);
+  --glass-blur: 32px;
+  --glass-sat: 170%;
+  --shadow-1: 0 10px 30px rgba(0, 0, 0, 0.5);
+  --shadow-2: 0 24px 60px rgba(0, 0, 0, 0.65);
 
   --font-ui: "Segoe UI Variable Display", "Segoe UI", "SF Pro Display", system-ui, sans-serif;
   --font-mono: Consolas, ui-monospace, monospace;
   --font-display: "Segoe UI Variable Display", "Segoe UI", "SF Pro Display", system-ui, sans-serif;
 
-  --r-s: 10px;
-  --r-m: 16px;
+  --r-s: 12px;
+  --r-m: 18px;
   --r-l: 26px;
   --r-pill: 9999px;
 
@@ -101,13 +107,16 @@
 
   --canvas-bg: transparent;
   --canvas-off: transparent;
-  --canvas-ink: #00d2ff;
+  --canvas-ink: #9adfff;
 
   --seek-style: gel;
   --vol-style: gel;
   --art-default: real;
   --ambient-default: aurora;
   --accent-deep: var(--accent);
+  /* glow: accent-tinted bloom on active controls */
+  --glow-accent: 0 0 18px var(--accent-22), 0 0 4px var(--accent-22);
+  --glow-text: 0 0 14px var(--accent-22);
 }
 
 :root[data-motion="off"] {
@@ -124,12 +133,28 @@
    BACKDROP — pale sky gradient (light) / deep navy (dark)
    ---------------------------------------------------- */
 :root[data-theme="digital"] body {
-  background: linear-gradient(180deg, #e8f2fb 0%, #cfe3f5 100%) fixed;
+  background: transparent;
   color: var(--fg);
   font-family: var(--font-ui);
 }
 :root[data-theme="digital"][data-mode="dark"] body {
-  background: linear-gradient(180deg, #060c15 0%, #0d192b 55%, #10203a 100%) fixed;
+  background: transparent;
+}
+/* the shell carries the backdrop (body stays transparent for the
+   rounded window corners) */
+:root[data-theme="digital"] .shell {
+  background: linear-gradient(180deg, #e8f2fb 0%, #cfe3f5 100%) fixed;
+}
+:root[data-theme="digital"][data-mode="dark"] .shell {
+  background:
+    radial-gradient(1100px 720px at 12% -8%, color-mix(in srgb, var(--accent) 26%, transparent) 0%, transparent 62%),
+    radial-gradient(900px 640px at 88% 12%, rgba(60, 130, 220, 0.20) 0%, transparent 60%),
+    radial-gradient(1000px 800px at 45% 108%, color-mix(in srgb, var(--accent) 14%, rgba(40, 90, 160, 0.16)) 0%, transparent 58%),
+    linear-gradient(180deg, #05070c 0%, #090e18 55%, #0c1322 100%) fixed;
+}
+/* refraction feel: content inside the glass lifts slightly */
+:root[data-theme="digital"][data-mode="dark"] .shell-body {
+  filter: brightness(1.015) contrast(1.015);
 }
 
 /* ----------------------------------------------------
@@ -174,19 +199,20 @@
   background:
     linear-gradient(180deg,
       transparent 12%,
-      rgba(0, 225, 255, 0.30) 24%,
-      rgba(0, 255, 210, 0.18) 31%,
+      color-mix(in srgb, var(--accent) 32%, transparent) 24%,
+      color-mix(in srgb, var(--accent) 18%, transparent) 31%,
       transparent 44%),
     linear-gradient(180deg,
       transparent 46%,
-      rgba(0, 140, 255, 0.26) 58%,
-      rgba(120, 230, 255, 0.16) 64%,
+      rgba(0, 140, 255, 0.22) 58%,
+      rgba(120, 230, 255, 0.13) 64%,
       transparent 76%),
     linear-gradient(180deg,
       transparent 78%,
-      rgba(160, 240, 255, 0.14) 87%,
+      rgba(160, 240, 255, 0.10) 87%,
       transparent 97%);
-  filter: blur(48px);
+  filter: blur(64px);
+  opacity: 0.8;
 }
 
 @keyframes aurora-pulse {
@@ -230,7 +256,8 @@
 }
 
 /* ----------------------------------------------------
-   PANELS / TITLEBAR / MINI-BAR — frosted glass
+   PANELS / TITLEBAR / MINI-BAR — frosted glass (light)
+   + LIQUID GLASS (dark): top-lit gradient border, sheen
    ---------------------------------------------------- */
 :root[data-theme="digital"] .panel,
 :root[data-theme="digital"] .sheet,
@@ -241,6 +268,45 @@
   border: 1px solid var(--panel-border);
   box-shadow: var(--shadow-1), var(--panel-highlight);
   border-radius: calc(var(--r-l) * var(--radius-scale, 1));
+}
+/* border-image can't take var() gradients in some engines — set it directly */
+:root[data-theme="digital"][data-mode="dark"] .panel,
+:root[data-theme="digital"][data-mode="dark"] .sheet,
+:root[data-theme="digital"][data-mode="dark"] .menu,
+:root[data-theme="digital"][data-mode="dark"] .toast,
+:root[data-theme="digital"][data-mode="dark"] .tooltip {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+/* the rim: gradient line clipped to the border box (top-lit) */
+:root[data-theme="digital"][data-mode="dark"] .panel,
+:root[data-theme="digital"][data-mode="dark"] .sheet {
+  position: relative;
+}
+:root[data-theme="digital"][data-mode="dark"] .panel::before,
+:root[data-theme="digital"][data-mode="dark"] .sheet::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(to bottom, rgba(255,255,255,0.34), rgba(255,255,255,0.05) 55%, rgba(255,255,255,0.12));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 2;
+}
+/* specular sheen sweeping the top of glass panels (dark) */
+:root[data-theme="digital"][data-mode="dark"] .panel::after,
+:root[data-theme="digital"][data-mode="dark"] .sheet::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(160deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 30%, transparent 60%);
+  pointer-events: none;
+  z-index: 1;
 }
 
 @supports (backdrop-filter: blur(1px)) {
@@ -327,9 +393,15 @@
   transition: transform var(--dur-1) var(--ease-out), box-shadow var(--dur-1);
 }
 :root[data-theme="digital"][data-mode="dark"] .btn {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.05) 100%);
-  box-shadow: var(--shadow-1), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13) 0%, rgba(255, 255, 255, 0.04) 100%);
+  box-shadow: var(--shadow-1), inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
+:root[data-theme="digital"][data-mode="dark"] .btn:hover {
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, 0.4), var(--glow-accent);
+}
+:root[data-theme="digital"] .btn:active { transform: scale(.96); }
+:root[data-theme="digital"] .btn-icon { transition: transform var(--dur-1) var(--ease-spring), box-shadow var(--dur-1); }
+:root[data-theme="digital"] .btn-icon:active { transform: scale(.94); }
 :root[data-theme="digital"] .btn:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, 1);
@@ -391,16 +463,23 @@
 }
 
 :root[data-theme="digital"][data-mode="dark"] .btn-orb {
-  border: 2px solid rgba(0, 180, 255, 0.4);
-  background: radial-gradient(circle at 50% 32%, #2a5a8c 0%, #123258 58%, #081c36 100%);
+  border: 1px solid rgba(160, 220, 255, 0.28);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.03) 100%);
   box-shadow:
-    0 6px 18px rgba(0, 0, 0, 0.55),
-    inset 0 -8px 14px rgba(0, 180, 255, 0.35),
-    inset 0 2px 3px rgba(160, 220, 255, 0.45);
-  color: #d6efff;
+    0 8px 22px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -6px 14px color-mix(in srgb, var(--accent) 14%, transparent);
+  color: #dcefff;
 }
 :root[data-theme="digital"][data-mode="dark"] .btn-orb::before {
-  background: linear-gradient(180deg, rgba(210, 240, 255, 0.55) 0%, rgba(210, 240, 255, 0.10) 62%, rgba(210, 240, 255, 0) 100%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.03) 62%, rgba(255, 255, 255, 0) 100%);
+}
+:root[data-theme="digital"][data-mode="dark"] .btn-orb.lg {
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.55),
+    0 0 26px color-mix(in srgb, var(--accent) 40%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -8px 18px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 :root[data-theme="digital"] .btn-orb:hover { transform: scale(1.06); }
@@ -466,55 +545,41 @@
 
 /* ----------------------------------------------------
    NAV — left rail / top bar / floating bottom dock
-   (real app markup uses .nav as the item; contract variant
-   .nav > .nav-item is styled for the bottom dock)
+   (v0.2 markup: .nav is the CONTAINER, .nav-item the item)
    ---------------------------------------------------- */
-/* item look (glass slab, navy icon + label) */
 :root[data-theme="digital"] .nav {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 10px;
-  padding: 9px 16px;
+  padding: 12px;
   border-radius: calc(var(--r-m) * var(--radius-scale, 1));
   color: #2a4056;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(235, 245, 252, 0.35) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 3px 10px rgba(30, 60, 90, 0.08);
-  font-size: 14px;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
-:root[data-theme="digital"] .nav:hover {
-  border-color: rgba(255, 255, 255, 1);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 5px 14px rgba(30, 60, 90, 0.14);
-}
-:root[data-theme="digital"] .nav.active {
-  background: linear-gradient(180deg, #4aa8f8 0%, #1f6fe0 60%, #175bd0 100%);
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.6);
-  box-shadow:
-    inset 0 1px 2px rgba(255, 255, 255, 0.8),
-    0 0 16px rgba(31, 111, 223, 0.55);
-  text-shadow: 0 1px 2px rgba(10, 40, 100, 0.35);
-}
+:root[data-theme="digital"] .nav:hover { box-shadow: none; }
+:root[data-theme="digital"] .nav.active { box-shadow: none; }
 :root[data-theme="digital"][data-mode="dark"] .nav {
-  color: #c6d8ea;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.04) 100%);
-  border-color: rgba(255, 255, 255, 0.14);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 4px 14px rgba(0, 0, 0, 0.35);
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
-:root[data-theme="digital"][data-mode="dark"] .nav.active {
-  background: linear-gradient(180deg, #1591e8 0%, #0e5fc0 60%, #0a4aa0 100%);
-  color: #ffffff;
-  border-color: rgba(120, 220, 255, 0.5);
-  box-shadow:
-    inset 0 1px 2px rgba(255, 255, 255, 0.5),
-    0 0 18px rgba(0, 170, 255, 0.55);
-}
+:root[data-theme="digital"][data-mode="dark"] .nav.active { box-shadow: none; }
 
-/* contract variant: .nav as CONTAINER of .nav-items (bottom dock) */
-:root[data-theme="digital"] .nav:has(.nav-item) {
+/* RAIL layout for left/right/top (flex row only for bottom dock) */
+:root[data-theme="digital"][data-nav="left"] .nav:has(.nav-item),
+:root[data-theme="digital"][data-nav="right"] .nav:has(.nav-item) {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 12px 10px;
+}
+/* dock variant (bottom): floating glass slab */
+:root[data-theme="digital"][data-nav="bottom"] .nav:has(.nav-item) {
   display: flex;
   align-items: center;
   justify-content: space-around;
@@ -526,18 +591,78 @@
   box-shadow: 0 12px 34px rgba(30, 60, 90, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 @supports (backdrop-filter: blur(1px)) {
-  :root[data-theme="digital"] .nav:has(.nav-item) {
+  :root[data-theme="digital"][data-nav="bottom"] .nav:has(.nav-item) {
     backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
   }
 }
-:root[data-theme="digital"][data-mode="dark"] .nav:has(.nav-item) {
+:root[data-theme="digital"][data-nav="bottom"][data-mode="dark"] .nav:has(.nav-item) {
   background: rgba(12, 22, 38, 0.65);
   border-color: rgba(255, 255, 255, 0.15);
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
-/* dock items = orb icon buttons; active = glowing blue orb */
+/* rail items: glass pills with icon + label; dock items (bottom) = orbs */
+:root[data-theme="digital"][data-nav="left"] .nav-item,
+:root[data-theme="digital"][data-nav="right"] .nav-item,
+:root[data-theme="digital"][data-nav="top"] .nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: calc(var(--r-pill) * var(--radius-scale, 1));
+  color: #2a4056;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 600;
+  transition: transform var(--dur-1) var(--ease-spring), box-shadow var(--dur-1),
+    background var(--dur-1), color var(--dur-1);
+}
+:root[data-theme="digital"][data-nav="left"] .nav-item:hover,
+:root[data-theme="digital"][data-nav="right"] .nav-item:hover,
+:root[data-theme="digital"][data-nav="top"] .nav-item:hover {
+  transform: none;
+  background: rgba(255, 255, 255, 0.5);
+}
+:root[data-theme="digital"][data-nav="left"] .nav-item.active,
+:root[data-theme="digital"][data-nav="right"] .nav-item.active,
+:root[data-theme="digital"][data-nav="top"] .nav-item.active {
+  background: linear-gradient(180deg, #4aa8f8 0%, #1f6fe0 60%, #175bd0 100%);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.65);
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.7),
+    0 0 18px rgba(31, 111, 223, 0.5);
+}
+:root[data-theme="digital"][data-nav="left"][data-mode="dark"] .nav-item,
+:root[data-theme="digital"][data-nav="right"][data-mode="dark"] .nav-item,
+:root[data-theme="digital"][data-nav="top"][data-mode="dark"] .nav-item {
+  color: #c6d8ea;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+:root[data-theme="digital"][data-nav="left"][data-mode="dark"] .nav-item:hover,
+:root[data-theme="digital"][data-nav="right"][data-mode="dark"] .nav-item:hover,
+:root[data-theme="digital"][data-nav="top"][data-mode="dark"] .nav-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+:root[data-theme="digital"][data-nav="left"][data-mode="dark"] .nav-item.active,
+:root[data-theme="digital"][data-nav="right"][data-mode="dark"] .nav-item.active,
+:root[data-theme="digital"][data-nav="top"][data-mode="dark"] .nav-item.active {
+  background: color-mix(in srgb, var(--accent) 30%, rgba(255, 255, 255, 0.05));
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow:
+    0 0 22px color-mix(in srgb, var(--accent) 45%, transparent),
+    inset 0 1px 2px rgba(255, 255, 255, 0.4);
+}
+/* dock items = orb icon buttons; active = glowing orb */
 :root[data-theme="digital"] .nav-item {
   display: flex;
   align-items: center;
@@ -567,18 +692,18 @@
 }
 :root[data-theme="digital"][data-mode="dark"] .nav-item {
   color: #c6d8ea;
-  border-color: rgba(255, 255, 255, 0.18);
-  background: radial-gradient(circle at 50% 30%, rgba(70, 110, 160, 0.5) 0%, rgba(20, 40, 70, 0.6) 60%, rgba(10, 22, 40, 0.7) 100%);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), inset 0 1px 2px rgba(160, 220, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.15);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.11) 0%, rgba(255, 255, 255, 0.03) 100%);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 :root[data-theme="digital"][data-mode="dark"] .nav-item.active {
-  background: radial-gradient(circle at 50% 30%, #1591e8 0%, #0e5fc0 55%, #0a4aa0 100%);
+  background: color-mix(in srgb, var(--accent) 30%, rgba(255, 255, 255, 0.05));
   color: #ffffff;
-  border-color: rgba(120, 220, 255, 0.55);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
   box-shadow:
-    0 0 20px rgba(0, 170, 255, 0.6),
-    0 4px 12px rgba(0, 0, 0, 0.45),
-    inset 0 1px 2px rgba(255, 255, 255, 0.5);
+    0 0 22px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 5px 14px rgba(0, 0, 0, 0.45),
+    inset 0 1px 2px rgba(255, 255, 255, 0.4);
 }
 
 /* hidden nav renders nothing */

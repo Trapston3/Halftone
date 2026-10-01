@@ -53,29 +53,35 @@
   --art-default: dither;
   --ambient-default: dither;
   --accent-print: var(--accent); /* mint reads fine on near-black */
+  /* glow: soft phosphor bloom on lit/active elements (v0.1.2 signature) */
+  --glow-accent: 0 0 12px rgba(102, 224, 194, .35), 0 0 2px rgba(102, 224, 194, .5);
+  --glow-text: 0 0 8px rgba(102, 224, 194, .35);
 }
 
 :root[data-theme="analogue"][data-mode="light"] {
-  --bg: #F0EAD6; /* warm off-white newsprint */
-  --bg-2: #E6DFCB;
-  --bg-3: #DCD4C0;
-  --fg: #1C1E1C; /* ink black / charcoal */
-  --fg-2: #4A504A;
-  --fg-3: #606860;
-  --line: #D3CAB5;
-  --line-2: #BDB39E;
-  --accent-fg: #141D19; /* ink on mint — mint is a light color, never white text */
-  --ok: #208060;
-  --warn: #8A6600;
-  --danger: #CC3333;
+  /* RISOGRAPH / NEWSPRINT — warm uncoated paper, two spot inks:
+     riso blue + fluoro pink (or the art accent). Misregistration on
+     headings, ink-stamp buttons, halftone-dot fills. */
+  --bg: #F2EDE3;   /* off-white uncoated paper */
+  --bg-2: #EAE4D8; /* slight sunburn */
+  --bg-3: #E1DACA;
+  --fg: #1A2C3D;   /* riso blue-black ink text */
+  --fg-2: #4C5B68;
+  --fg-3: #6B7885;
+  --line: #D8D1C2;
+  --line-2: #B9B2A2;
+  --accent-fg: #F6F1E7; /* paper color on solid ink */
+  --ok: #2B7A5A;
+  --warn: #9A6B00;
+  --danger: #C2333B;
 
-  --panel-bg: var(--bg-2);
-  --panel-border: var(--line-2);
+  --panel-bg: #F5F0E6;
+  --panel-border: #1A2C3D; /* ink outlines */
   --panel-highlight: none;
   --glass-blur: 0px;
   --glass-sat: 100%;
-  --shadow-1: 0 4px 12px rgba(0,0,0,.15);
-  --shadow-2: none;
+  --shadow-1: 2px 3px 0 rgba(26, 44, 61, 0.14); /* offset ink-bleed */
+  --shadow-2: 4px 6px 0 rgba(26, 44, 61, 0.12);
 
   --font-ui: Consolas, ui-monospace, "Cascadia Mono", monospace;
   --font-mono: Consolas, ui-monospace, "Cascadia Mono", monospace;
@@ -92,17 +98,23 @@
   --dur-2: 240ms;
   --dur-3: 420ms;
 
-  --canvas-bg: #E6DFCB;
-  --canvas-off: #DCD4C0; /* printed ink dots */
-  --canvas-ink: #1C1E1C;
+  --canvas-bg: #F5F0E6;
+  --canvas-off: #E4DECF; /* printed ink dots */
+  --canvas-ink: #1A2C3D;
 
   --seek-style: led;
   --vol-style: leds;
   --art-default: dither;
   --ambient-default: dither;
-  /* deep teal "spot ink" derived from the live accent: raw mint is invisible
-     on paper, this passes 3:1 for LED cells / borders / markers */
-  --accent-print: color-mix(in srgb, var(--accent) 40%, #0a5a46 60%);
+  /* spot inks: riso blue primary + fluoro pink for the second pass */
+  --riso-blue: #0078BF;
+  --riso-pink: #FF48B0;
+  --accent-print: color-mix(in srgb, var(--accent) 30%, var(--riso-blue) 70%);
+  --accent-2: var(--riso-pink);
+  --glow-accent: none;      /* print doesn't glow — ink bleed instead */
+  --glow-text: none;
+  /* dither art prints in the ink, not the accent */
+  --dither-ink: 1;
 }
 
 :root[data-motion="off"] {
@@ -112,20 +124,25 @@
 }
 
 /* ----------------------------------------------------
-   BACKDROP — halftone dot paper + faint scanlines
+   BACKDROP — shell carries the look (body stays transparent
+   so the rounded window corners show through)
    ---------------------------------------------------- */
 :root[data-theme="analogue"] body {
-  background: var(--bg);
+  background: transparent;
   color: var(--fg);
   font-family: var(--font-ui);
 }
-
+:root[data-theme="analogue"] .shell {
+  background: var(--bg);
+}
 /* risograph halftone dot texture — visible but never noisy */
-:root[data-theme="analogue"][data-mode="light"] body {
-  background-image: radial-gradient(rgba(28,30,28,.16) 1px, transparent 1px);
+:root[data-theme="analogue"][data-mode="light"] .shell {
+  background-color: var(--bg);
+  background-image: radial-gradient(rgba(26,44,61,.13) 1px, transparent 1px);
   background-size: 5px 5px;
 }
-:root[data-theme="analogue"][data-mode="dark"] body {
+:root[data-theme="analogue"][data-mode="dark"] .shell {
+  background-color: var(--bg);
   background-image: radial-gradient(rgba(242,232,207,.035) 1px, transparent 1px);
   background-size: 5px 5px;
 }
@@ -142,6 +159,32 @@
 :root[data-theme="analogue"][data-mode="light"] body::after {
   background: repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,0,0,.015) 2px 3px);
 }
+
+/* ----------------------------------------------------
+   RISOGRAPH SIGNATURES (light) — paper grain, spot-ink
+   headings with misregistration, ink-stamp buttons
+   ---------------------------------------------------- */
+/* subtle paper grain: two tiny repeating SVG-free gradients */
+:root[data-theme="analogue"][data-mode="light"] .shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: .5;
+  background:
+    repeating-conic-gradient(rgba(26,44,61,.028) 0% 25%, transparent 0% 50%) 0 0/3px 3px,
+    repeating-conic-gradient(rgba(255,72,176,.02) 0% 25%, transparent 0% 50%) 1.5px 1.5px/4px 4px;
+}
+/* headings print in riso blue with a pink pass offset 1.5px (misregistration) */
+:root[data-theme="analogue"][data-mode="light"] .h1,
+:root[data-theme="analogue"][data-mode="light"] .np-title,
+:root[data-theme="analogue"][data-mode="light"] .section-title {
+  color: var(--riso-blue);
+  position: relative;
+  text-shadow: 1.5px 1px 0 rgba(255, 72, 176, .55);
+}
+:root[data-theme="analogue"][data-mode="light"] .np-title { letter-spacing: .01em; }
 
 /* ----------------------------------------------------
    TYPE SIGNATURE — uppercase tracked labels everywhere
@@ -182,7 +225,7 @@
 }
 
 /* ----------------------------------------------------
-   BUTTONS — thin 1px ink outlines, small radii
+   BUTTONS — printed stamps (light) / phosphor ink (dark)
    ---------------------------------------------------- */
 :root[data-theme="analogue"] .btn,
 :root[data-theme="analogue"] .btn-icon,
@@ -192,11 +235,44 @@
   background: transparent;
   color: var(--fg);
   border-radius: calc(var(--r-m) * var(--radius-scale, 1));
-  transition: border-color var(--dur-1), color var(--dur-1), background var(--dur-1);
+  transition: border-color var(--dur-1), color var(--dur-1), background var(--dur-1),
+    box-shadow var(--dur-1), transform var(--dur-1);
   padding: 4px 12px;
   font-size: 11px;
   font-family: var(--font-mono);
   cursor: pointer;
+}
+:root[data-theme="analogue"] .btn:hover,
+:root[data-theme="analogue"] .btn-icon:hover,
+:root[data-theme="analogue"] .btn-orb:hover,
+:root[data-theme="analogue"] .pill:hover {
+  transform: translateY(-1px);
+}
+:root[data-theme="analogue"] .btn:active,
+:root[data-theme="analogue"] .btn-icon:active,
+:root[data-theme="analogue"] .btn-orb:active,
+:root[data-theme="analogue"] .pill:active {
+  transform: scale(.96);
+}
+
+/* light = ink stamp: 1px ink outline, solid ink fill on hover/active,
+   tiny offset shadow like a pressed stamp */
+:root[data-theme="analogue"][data-mode="light"] .btn,
+:root[data-theme="analogue"][data-mode="light"] .btn-icon,
+:root[data-theme="analogue"][data-mode="light"] .btn-orb,
+:root[data-theme="analogue"][data-mode="light"] .pill {
+  border-color: var(--riso-blue);
+  color: var(--riso-blue);
+  background: transparent;
+  box-shadow: 1.5px 1.5px 0 rgba(255, 72, 176, .35);
+}
+:root[data-theme="analogue"][data-mode="light"] .btn:hover,
+:root[data-theme="analogue"][data-mode="light"] .btn-icon:hover,
+:root[data-theme="analogue"][data-mode="light"] .btn-orb:hover,
+:root[data-theme="analogue"][data-mode="light"] .pill:hover {
+  background: var(--riso-blue);
+  color: var(--accent-fg);
+  box-shadow: 2px 2px 0 rgba(255, 72, 176, .5);
 }
 
 :root[data-theme="analogue"] .btn-icon,
@@ -210,6 +286,10 @@
   border-radius: calc(var(--r-l) * var(--radius-scale, 1));
   color: var(--fg);           /* label/icon on panel bg — cream on near-black */
 }
+:root[data-theme="analogue"][data-mode="light"] .btn-icon,
+:root[data-theme="analogue"][data-mode="light"] .btn-orb {
+  color: var(--riso-blue);
+}
 
 /* transport orbs: outlined squares, the big one filled with the accent LED color */
 :root[data-theme="analogue"] .btn-orb.lg {
@@ -221,6 +301,13 @@
   color: var(--accent-fg);
   font-weight: 700;
   letter-spacing: .1em;
+  box-shadow: var(--glow-accent);
+}
+:root[data-theme="analogue"][data-mode="light"] .btn-orb.lg {
+  border-color: var(--riso-blue);
+  background: var(--riso-blue);
+  color: var(--accent-fg);
+  box-shadow: 2px 2px 0 rgba(255, 72, 176, .5);
 }
 
 :root[data-theme="analogue"] .btn-orb:hover,
@@ -230,10 +317,13 @@
   border-color: var(--fg-2);
   color: var(--fg);
 }
-
 :root[data-theme="analogue"] .btn-orb.lg:hover {
   filter: brightness(1.08);
   color: var(--accent-fg);
+}
+/* dark: phosphor glow on the lit transport + active text */
+:root[data-theme="analogue"][data-mode="dark"] .btn-orb.lg:hover {
+  box-shadow: var(--glow-accent), 0 0 22px rgba(102, 224, 194, .3);
 }
 
 :root[data-theme="analogue"] .pill.active {
@@ -242,10 +332,12 @@
 }
 :root[data-theme="analogue"][data-mode="dark"] .pill.active {
   color: var(--accent);
+  box-shadow: var(--glow-accent);
 }
 :root[data-theme="analogue"][data-mode="light"] .pill.active {
   color: var(--accent-fg);
-  background: var(--accent);
+  background: var(--riso-blue);
+  border-color: var(--riso-blue);
 }
 
 /* ----------------------------------------------------
@@ -290,39 +382,16 @@
 }
 
 /* ----------------------------------------------------
-   NAV — left rail / top bar items; bottom dock container
+   NAV — .nav is the CONTAINER (rail); .nav-item the item
    ---------------------------------------------------- */
 :root[data-theme="analogue"] .nav {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  padding: var(--sp2);
   color: var(--fg-2);
-  border-radius: calc(var(--r-m) * var(--radius-scale, 1));
-  border: 1px solid transparent;
+  background: transparent;
+  border: none;
   font-size: 10px;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
+  gap: 2px;
 }
-:root[data-theme="analogue"] .nav:hover {
-  color: var(--fg);
-  border-color: var(--line);
-}
-:root[data-theme="analogue"] .nav.active {
-  border-color: var(--accent-print);
-  background: var(--accent-12);
-}
-:root[data-theme="analogue"][data-mode="dark"] .nav.active {
-  color: var(--accent);
-}
-:root[data-theme="analogue"][data-mode="light"] .nav.active {
-  color: var(--fg);
-  box-shadow: inset 3px 0 0 var(--accent-print);
-}
-
-/* nav ITEMS — match the rail look: mono, tracked, thin 1px line,
-   transparent on paper; never the UA white button. */
 :root[data-theme="analogue"] .nav-item {
   background: transparent;
   color: var(--fg-2);
@@ -348,15 +417,21 @@
   border-color: var(--accent-print);
   background: var(--accent-12);
 }
+:root[data-theme="analogue"][data-mode="dark"] .nav-item.active {
+  box-shadow: var(--glow-accent);
+}
+:root[data-theme="analogue"][data-mode="light"] .nav-item.active {
+  color: var(--accent-fg);
+  background: var(--riso-blue);
+  border-color: var(--riso-blue);
+  box-shadow: 1.5px 1.5px 0 rgba(255, 72, 176, .45);
+}
 
 :root[data-theme="analogue"][data-nav="bottom"] .nav {
   justify-content: space-around;
   border: 1px solid var(--line);
   background: var(--bg-2);
   padding: 10px;
-}
-:root[data-theme="analogue"][data-nav="bottom"] .nav.active {
-  border-color: var(--accent);
 }
 :root[data-theme="analogue"][data-nav="bottom"] .nav-item {
   padding: 8px;
@@ -487,6 +562,18 @@
 :root[data-theme="analogue"] .vol-leds .led.on {
   background: var(--accent-print);
 }
+/* dark: lit LEDs get the phosphor bloom */
+:root[data-theme="analogue"][data-mode="dark"] .vol-leds .led.on {
+  box-shadow: var(--glow-accent);
+}
+:root[data-theme="analogue"][data-mode="light"] .vol-leds .led.on {
+  background: var(--riso-blue);
+}
+/* light: seek strip prints in ink — border + rail read as halftone plate */
+:root[data-theme="analogue"][data-mode="light"] .seek {
+  border-color: var(--riso-blue);
+  box-shadow: 1.5px 1.5px 0 rgba(255, 72, 176, .3);
+}
 
 /* ----------------------------------------------------
    LISTS / GRID / CARDS
@@ -504,7 +591,7 @@
 :root[data-theme="analogue"] .row:hover { background: var(--bg-2); }
 :root[data-theme="analogue"] .row.cur { background: var(--accent-12); }
 :root[data-theme="analogue"][data-mode="dark"] .row.cur .row-title { color: var(--accent); }
-:root[data-theme="analogue"][data-mode="light"] .row.cur .row-title { color: var(--fg); }
+:root[data-theme="analogue"][data-mode="light"] .row.cur .row-title { color: var(--riso-blue); }
 :root[data-theme="analogue"] .row-art {
   border: 1px solid var(--line-2);
   border-radius: calc(var(--r-s) * var(--radius-scale, 1));
@@ -546,7 +633,7 @@
   letter-spacing: .18em;
   margin-top: 6px;
 }
-:root[data-theme="analogue"][data-mode="dark"] .np-meta { color: var(--accent); }
+:root[data-theme="analogue"][data-mode="dark"] .np-meta { color: var(--accent); text-shadow: var(--glow-text); }
 :root[data-theme="analogue"][data-mode="light"] .np-meta { color: var(--fg-2); }
 :root[data-theme="analogue"] .np-transport { display: flex; gap: 10px; align-items: center; margin: 14px 0; }
 
@@ -563,6 +650,13 @@
   color: var(--fg);
   transform: translateX(26px);
   opacity: 1;
+}
+:root[data-theme="analogue"][data-mode="dark"] .lyrics .lyric-line.active {
+  text-shadow: var(--glow-text);
+}
+:root[data-theme="analogue"][data-mode="light"] .lyrics .lyric-line.active {
+  color: var(--riso-blue);
+  text-shadow: 1.2px .8px 0 rgba(255, 72, 176, .4);
 }
 /* ▸ marker lives in a reserved left gutter (absolute) so it never
    reflows/wraps the text when the line activates */
