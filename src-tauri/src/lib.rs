@@ -25,6 +25,13 @@ mod alac;
 #[path = "m4a.rs"]
 mod m4a;
 mod ogg;
+mod mpris;
+
+/// App handle for modules that emit backend->UI events (MPRIS bridge).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn app_handle() -> Option<tauri::AppHandle> {
+    APP.get().cloned()
+}
 
 // OTA update channel: latest.json published as a release asset. Override the
 // source for QA with HALFTONE_OTA_URL; disable the check with HALFTONE_NO_OTA.
@@ -811,7 +818,7 @@ fn ota_apply() -> Result<String, String> {
         st = stage_s,
         ex = exe
     );
-    fs::write(&bat, script).map_err(|e| format!("cannot write update helper: {e}"))?;
+    fs::write(&bat, &script).map_err(|e| format!("cannot write update helper: {e}"))?;
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -1275,6 +1282,8 @@ pub fn run() {
             library_snapshot,
             settings_load,
             settings_save,
+            mpris::smtc_update,
+            mpris::smtc_clear,
             ota_check,
             ota_download,
             ota_apply
