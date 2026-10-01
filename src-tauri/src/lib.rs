@@ -1262,14 +1262,13 @@ async fn lyrics_get(
     lyrics::resolve(&app, &path, &artist, &title, &album, duration, allow_net, force).await
 }
 
-/// URL of the track's embedded art via the media protocol (404 if none).
+/// URL of the track's cover via the media protocol. Resolution order in the
+/// route: user override > embedded art > web-fetched cache (see covers.rs).
+/// The `?v=` buster changes with the covers index so the webview reloads
+/// art after an apply/import/reset/auto change (the route strips the query).
 #[tauri::command]
-fn cover_url(path: &str) -> String {
-    if cfg!(windows) {
-        format!("http://media.localhost/cover/{}", pct_encode(path))
-    } else {
-        format!("media://localhost/cover/{}", pct_encode(path))
-    }
+fn cover_url(app: tauri::AppHandle, path: &str) -> String {
+    covers::cover_url_for(&app, path)
 }
 
 /// One settings file shared by both windows (localStorage is per-webview
