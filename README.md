@@ -18,7 +18,7 @@ https://github.com/user-attachments/assets/PLACEHOLDER
 irm https://github.com/Trapston3/Halftone/raw/main/tools/install.ps1 | iex
 ```
 
-**Install (Linux · one line, no root):**
+**Install (Linux · one line — .deb via apt on Debian/Ubuntu, AppImage elsewhere):**
 
 ```sh
 curl -fsSL https://github.com/Trapston3/Halftone/raw/main/tools/install.sh | sh
