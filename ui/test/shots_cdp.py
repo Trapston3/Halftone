@@ -46,6 +46,8 @@ for mo in ("light", "dark"):
                       f"widget_digital_{mo}_600x380.png", (600, 380)))
 SCENARIOS.append(("page=widget&w=600&h=380&preset=card&theme=analogue&mode=light&track=0",
                   "widget_analogue_light_600x380.png", (600, 380)))
+SCENARIOS.append(("page=main&nav=left&theme=analogue&mode=dark&view=queue&track=0&queue=3",
+                  "queue.png", (1200, 760)))
 SCENARIOS.append(("page=main&nav=left&theme=analogue&mode=dark&view=settings",
                   "settings.png", (1200, 760)))
 SCENARIOS.append(("page=main&nav=left&theme=analogue&mode=dark&view=tracks&track=0&sheet=1",
