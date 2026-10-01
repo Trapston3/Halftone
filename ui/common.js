@@ -636,6 +636,14 @@ const CMD={
   async opennp(o){
     if(IS_OWNER&&window.takeNP)window.takeNP(o||{});
   },
+  /* widget art right-click -> "Change cover art" (task 10): the full
+     import/search/reset sheet lives in the owner window, like opennp */
+  async cover(o){
+    if(IS_OWNER&&o&&o.path&&window.openCoverSheet){
+      const t=S.lib.find(x=>x.path===o.path)||S.meta;
+      if(t)window.openCoverSheet(t);
+    }
+  },
 };
 async function handleCmd(o){
   try{const fn=CMD[o&&o.cmd];if(fn)await fn(o)}catch(e){console.warn("cmd",o&&o.cmd,e)}

@@ -310,6 +310,15 @@ document.addEventListener("contextmenu",e=>{
     {label:"HIDE WIDGET",onClick:()=>{try{window.curWin&&window.curWin.hide()}catch(_){}}},
   ]);
 });
+/* right-click ON THE ART itself: "Change cover art" (task 10) — the owner
+   main window owns the sheet/import/search flows, so it forwards via cmd */
+WID.wArt.addEventListener("contextmenu",e=>{
+  if(!S.meta||!S.meta.path)return;
+  e.preventDefault();e.stopPropagation();
+  openCtx(e.clientX,e.clientY,[
+    {label:"CHANGE COVER ART",onClick:()=>emitCmd({cmd:"cover",path:S.meta.path})},
+  ]);
+});
 
 /* ============================================================
    SETTINGS-DRIVEN WIDGET BEHAVIOUR
