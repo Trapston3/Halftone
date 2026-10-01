@@ -87,9 +87,14 @@ function toast(msg,kind){
   const t=document.createElement("div");
   t.className="toast"+(kind?" "+kind:"");
   t.textContent=msg;
-  t.onclick=()=>t.remove();
+  t.onclick=()=>dismissToast(t);
   box.appendChild(t);
-  setTimeout(()=>{t.style.transition="opacity .3s";t.style.opacity="0";setTimeout(()=>t.remove(),320)},3600);
+  setTimeout(()=>dismissToast(t),3600);
+}
+function dismissToast(t){
+  if(!t||t._bye)return;t._bye=true;
+  t.classList.add("bye");
+  setTimeout(()=>t.remove(),320);
 }
 window.toast=toast;
 function openExternal(url){

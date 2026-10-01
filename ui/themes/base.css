@@ -107,9 +107,13 @@ html.theme-fading body{opacity:.25;transition:opacity var(--dur-3) var(--ease-ou
   background:var(--bg);border:1px solid var(--line-2);
   display:flex;flex-direction:column;overflow:visible;
   box-shadow:var(--shadow-2);
+  transition:border-radius var(--dur-2) var(--ease-out);
 }
+/* maximized / fullscreen: square corners, no border gap */
+[data-max="1"] .shell,[data-max="1"] .shell-body{border-radius:0}
 .shell-body{position:relative;border-radius:calc(var(--R-w) - 1px);overflow:hidden;
-  flex:1;display:flex;flex-direction:column;background:var(--bg);min-height:0}
+  flex:1;display:flex;flex-direction:column;background:transparent;min-height:0;
+  transition:border-radius var(--dur-2) var(--ease-out)}
 
 /* ---------- titlebar (frameless window) ---------- */
 .titlebar{
@@ -139,31 +143,77 @@ html.theme-fading body{opacity:.25;transition:opacity var(--dur-3) var(--ease-ou
 [data-nav="bottom"] .app-shell{grid-template-rows:minmax(0,1fr) auto}
 [data-nav="hidden"] .app-shell{grid-template-columns:minmax(0,1fr)}
 
-/* ---------- nav (left/right rail) ---------- */
-.nav{display:flex;flex-direction:column;gap:2px;padding:var(--sp2);min-width:148px;
-  border-right:1px solid var(--line);background:var(--bg-2)}
+/* ---------- nav (left/right rail) — 3-state: expanded / collapsed / hidden ---------- */
+.nav{display:flex;flex-direction:column;gap:2px;padding:var(--sp2);
+  border-right:1px solid var(--line);background:var(--bg-2);
+  /* expanded rail: clamped width, never grows with the window */
+  width:clamp(148px,14vw,220px);min-width:0;box-sizing:border-box;
+  transition:width var(--dur-2) var(--ease-out),opacity var(--dur-2) var(--ease-out),
+    transform var(--dur-2) var(--ease-out)}
+/* collapsed: icon-only rail */
+[data-nav-state="collapsed"] .nav{width:68px}
+[data-nav-state="collapsed"] .nav .nav-label{opacity:0;visibility:hidden}
+[data-nav-state="collapsed"] .nav .nav-item{justify-content:center;padding:var(--sp2) 0;width:100%}
+[data-nav-state="collapsed"] .nav .libzone{opacity:0;pointer-events:none}
+.libzone{transition:opacity var(--dur-2) var(--ease-out)}
+.nav .nav-label{transition:opacity var(--dur-2) var(--ease-out)}
+/* hidden: rail fully hidden; reveal = hover the left edge or the floating toggle */
+[data-nav-state="hidden"] .nav{width:0;min-width:0;padding:0;opacity:0;overflow:hidden;
+  pointer-events:none;border-right-width:0}
+[data-nav-state="hidden"][data-nav="right"] .nav{border-left-width:0}
+/* hover reveal strip on the window edge (left rails) */
+.edge-reveal{position:fixed;left:0;top:0;bottom:0;width:6px;z-index:45;cursor:pointer}
+.edge-reveal.right{left:auto;right:0}
+/* floating toggle shown when the rail is hidden / for manual collapse */
+.nav-toggle{position:fixed;z-index:46;bottom:var(--sp3);left:var(--sp3);
+  width:34px;height:34px;display:grid;place-items:center;
+  border:1px solid var(--panel-border);border-radius:var(--R-m);
+  background:var(--panel-bg);color:var(--fg-2);cursor:pointer;
+  box-shadow:var(--shadow-1);opacity:0;pointer-events:none;
+  transition:opacity var(--dur-2) var(--ease-out),transform var(--dur-2) var(--ease-out)}
+.nav-toggle.show{opacity:1;pointer-events:auto}
+.nav-toggle:hover{color:var(--fg);transform:scale(1.06)}
+.nav-toggle svg{width:15px;height:15px}
+[data-nav="right"] .nav-toggle{left:auto;right:var(--sp3)}
+/* overlay mode: revealed rail floats over content (hidden-state reveal) */
+[data-nav="left"][data-nav-state="hidden"] .nav.overlay-reveal,
+[data-nav="right"][data-nav-state="hidden"] .nav.overlay-reveal{
+  position:absolute;top:0;bottom:0;z-index:44;width:clamp(148px,14vw,220px);
+  padding:var(--sp2);opacity:1;pointer-events:auto;overflow:visible;
+  border-right-width:1px;box-shadow:var(--shadow-2)}
+[data-nav="right"][data-nav-state="hidden"] .nav.overlay-reveal{order:2;border-right:0;
+  border-left:1px solid var(--line)}
+[data-nav="right"][data-nav-state="hidden"] .nav{order:2}
 [data-nav="right"] .nav{border-right:0;border-left:1px solid var(--line);order:2}
-[data-nav="top"] .nav,[data-nav="bottom"] .nav{flex-direction:row;align-items:center;min-width:0;
+[data-nav="top"] .nav,[data-nav="bottom"] .nav{flex-direction:row;align-items:center;min-width:0;width:auto;
   border-right:0;border-bottom:1px solid var(--line);overflow-x:auto}
 [data-nav="bottom"] .nav{border-bottom:0;border-top:1px solid var(--line);order:2;
   border-radius:var(--R-l);margin:var(--sp2) auto;position:absolute;left:50%;transform:translateX(-50%);
   bottom:var(--sp2);z-index:30;background:var(--panel-bg);border:1px solid var(--panel-border);
-  box-shadow:var(--shadow-1);padding:var(--sp1) var(--sp2)}
+  box-shadow:var(--shadow-1);padding:var(--sp1) var(--sp2);
+  transition:transform var(--dur-2) var(--ease-out),opacity var(--dur-2) var(--ease-out)}
+/* top/bottom bars: hidden state = dock slides off / fades out */
+[data-nav="top"][data-nav-state="hidden"] .nav{transform:translateY(-100%);opacity:0;pointer-events:none;margin:0}
+[data-nav="bottom"][data-nav-state="hidden"] .nav{transform:translateX(-50%) translateY(calc(100% + var(--sp2)));opacity:0;pointer-events:none}
 [data-nav="hidden"] .nav{display:none}
 [data-surface="widget"] .nav{display:none}
 .nav-item{
   position:relative;display:flex;align-items:center;gap:var(--sp2);width:100%;
+  flex:none;box-sizing:border-box;
   padding:var(--sp2) var(--sp3);border-radius:var(--R-m);
   font-size:.625rem;font-weight:600;letter-spacing:.16em;color:var(--fg-2);
   border:1px solid transparent;text-align:left;white-space:nowrap;
-  transition:color var(--dur-1),border-color var(--dur-1),background var(--dur-1)}
+  transition:color var(--dur-1),border-color var(--dur-1),background var(--dur-1),transform var(--dur-1)}
 [data-nav="top"] .nav-item,[data-nav="bottom"] .nav-item{width:auto}
 .nav-item svg{width:14px;height:14px;flex:none}
 .nav-item:hover{color:var(--fg);border-color:var(--line)}
+.nav-item:active{transform:scale(.96)}
 .nav-item.active{color:var(--accent);border-color:var(--accent);background:var(--accent-12)}
 [data-nav="top"] .nav-item.active,[data-nav="bottom"] .nav-item.active{border-color:transparent}
-[data-nav-labels="icons"] .nav-label{display:none}
-[data-nav-labels="icons"] .nav-item{justify-content:center;padding:var(--sp2)}
+[data-nav-labels="icons"]:not([data-nav-state="expanded"]) .nav-label,
+[data-nav-labels="icons"][data-nav-state="collapsed"] .nav-label{display:none}
+[data-nav-labels="icons"] .nav-item{justify-content:flex-start;padding:var(--sp2) var(--sp3)}
+[data-nav-labels="icons"][data-nav-state="collapsed"] .nav-item{justify-content:center;padding:var(--sp2) 0}
 /* sliding nav indicator (transform only) */
 .nav-ind{position:absolute;left:0;width:3px;border-radius:2px;background:var(--accent);
   transition:transform var(--dur-2) var(--ease-spring),height var(--dur-2) var(--ease-out);opacity:0}
@@ -172,8 +222,12 @@ html.theme-fading body{opacity:.25;transition:opacity var(--dur-3) var(--ease-ou
 /* ---------- views + router ---------- */
 .view{display:none;flex-direction:column;min-height:0;min-width:0;flex:1;position:relative;z-index:1}
 .view.shown{display:flex}
-.view-enter{animation:viewin var(--dur-2) var(--ease-out)}
-@keyframes viewin{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.view-enter{animation:viewin var(--dur-2) cubic-bezier(.2,.8,.2,1)}
+@keyframes viewin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+/* large windows: views keep a readable measure, centered */
+@media (min-width:1600px){
+  .view>.vscroll,.view .content{max-width:1560px;width:100%;margin:0 auto}
+}
 .panel{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:var(--R-l);
   box-shadow:inset 0 1px 0 var(--panel-highlight)}
 
@@ -415,7 +469,7 @@ select.field option{background:var(--bg-2);color:var(--fg)}
   border:1px solid var(--panel-border);border-radius:var(--R-m);box-shadow:var(--shadow-2);
   padding:5px;display:none;backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-sat))}
 .menu.open{display:block;animation:menuin var(--dur-1) var(--ease-out)}
-@keyframes menuin{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+@keyframes menuin{from{opacity:0;transform:translateY(-3px) scale(.96)}to{opacity:1;transform:none}}
 .menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;border-radius:var(--R-s);
   font-size:.625rem;letter-spacing:.12em;color:var(--fg-2);text-align:left;font-family:var(--font-mono)}
 .menu-item:hover{background:var(--accent-12);color:var(--fg)}
@@ -434,7 +488,9 @@ select.field option{background:var(--bg-2);color:var(--fg)}
   display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
 .toast{pointer-events:auto;max-width:70vw;padding:8px 14px;border:1px solid var(--line-2);border-radius:var(--R-m);
   background:var(--panel-bg);color:var(--fg);font:11px var(--font-mono);letter-spacing:.04em;
-  box-shadow:var(--shadow-2);cursor:pointer;animation:menuin var(--dur-2) var(--ease-out)}
+  box-shadow:var(--shadow-2);cursor:pointer;animation:menuin var(--dur-2) var(--ease-out);
+  transition:opacity var(--dur-2) var(--ease-out),transform var(--dur-2) var(--ease-out)}
+.toast.bye{opacity:0;transform:translateY(6px) scale(.97)}
 .toast.ok{border-color:var(--ok);color:var(--ok)}
 .toast.warn{border-color:var(--warn);color:var(--warn)}
 .toast.error{border-color:var(--danger);color:var(--danger)}
@@ -559,3 +615,15 @@ select.field option{background:var(--bg-2);color:var(--fg)}
 /* scanline signature (shared surface detail; themes may restyle) */
 .scanlines::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:60;
   background:repeating-linear-gradient(0deg,transparent 0 2px,rgba(255,255,255,.012) 2px 3px);border-radius:inherit}
+
+/* ============================================================
+   REDUCED MOTION — fades only; off = nothing
+   ============================================================ */
+[data-motion="reduced"] *,[data-motion="reduced"] *::before,[data-motion="reduced"] *::after{
+  animation-duration:.01ms!important;transition-duration:.01ms!important}
+[data-motion="off"] *,[data-motion="off"] *::before,[data-motion="off"] *::after{
+  animation:none!important;transition:none!important}
+@media (prefers-reduced-motion: reduce){
+  [data-motion="full"] *,[data-motion="full"] *::before,[data-motion="full"] *::after{
+    animation-duration:.01ms!important;transition-duration:.01ms!important}
+}

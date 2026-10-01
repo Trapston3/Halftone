@@ -1563,6 +1563,80 @@ buildNav();
 drawLogo();
 buildVolBoth();
 wireSeek(el.seek);wireSeek(el.seek2);
+
+/* ============ NAV STATE (expanded / collapsed / hidden) ============
+   Wire once: hover edge-reveal + floating toggle + Ctrl/B cycles the
+   rail. State itself lives in the settings store via htSetNavState. */
+(function(){
+  const rail=document.getElementById("nav");
+  /* reveal furniture (idempotent) */
+  let edge=document.querySelector(".edge-reveal");
+  if(!edge){edge=document.createElement("div");edge.className="edge-reveal";document.body.appendChild(edge)}
+  let tgl=document.querySelector(".nav-toggle");
+  if(!tgl){
+    tgl=document.createElement("button");
+    tgl.className="nav-toggle";tgl.title="Toggle nav (Ctrl+B)";tgl.setAttribute("aria-label","Toggle navigation");
+    tgl.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
+    document.body.appendChild(tgl);
+  }
+  const pos=()=>((window.Theme&&Theme.nav)||S.cfg.nav||"left");
+  const state=()=>((window.Theme&&Theme.navState)||"expanded");
+  let hideTimer=null;
+  function applyChrome(){
+    const st=state(),p=pos();
+    const vertical=(p==="left"||p==="right")&&st==="hidden";
+    edge.classList.toggle("right",p==="right");
+    edge.style.display=(vertical&&!rail.classList.contains("overlay-reveal"))?"block":"none";
+    tgl.classList.toggle("show",st==="hidden"&&!rail.classList.contains("overlay-reveal"));
+  }
+  function reveal(){
+    if(state()!=="hidden")return;
+    clearTimeout(hideTimer);
+    rail.classList.add("overlay-reveal");
+    applyChrome();
+    paintNav();
+    /* auto-hide shortly after the pointer leaves the revealed rail */
+    rail.onpointerleave=()=>{hideTimer=setTimeout(()=>{
+      rail.classList.remove("overlay-reveal");applyChrome();paintNav();
+    },900)};
+    rail.onpointerenter=()=>clearTimeout(hideTimer);
+  }
+  function conceal(){
+    rail.classList.remove("overlay-reveal");applyChrome();paintNav();
+  }
+  function cycle(){
+    const order=["expanded","collapsed","hidden"];
+    const next=order[(order.indexOf(state())+1)%order.length];
+    rail.classList.remove("overlay-reveal");
+    if(window.htSetNavState)window.htSetNavState(next);
+    /* htSetNavState dispatches halftone:theme -> chrome() re-runs there */
+  }
+  window.__navCycle=cycle;
+  edge.addEventListener("pointerenter",reveal);
+  tgl.addEventListener("click",()=>{
+    if(state()==="hidden")rail.classList.contains("overlay-reveal")?conceal():reveal();
+    else cycle();
+  });
+  addEventListener("keydown",e=>{
+    if(e.ctrlKey&&!e.altKey&&!e.shiftKey&&(e.code==="KeyB")){e.preventDefault();cycle()}
+  });
+  /* keep chrome in sync with theme/nav changes + boot */
+  document.addEventListener("halftone:theme",()=>setTimeout(applyChrome,0));
+  setTimeout(applyChrome,0);
+})();
+
+/* ============ MAXIMIZED / FULLSCREEN → square corners ============
+   Listens to the real Tauri window; harness sets ?max=1 (window.__HT_MAX). */
+(function(){
+  try{
+    const cw=T&&T.window?T.window.getCurrentWindow():null;
+    if(!cw)return;
+    const sync=()=>{cw.isMaximized().then(m=>{window.__HT_MAX=m;if(window.htThemeApply)window.htThemeApply()}).catch(()=>{})};
+    if(cw.onResized)cw.onResized(sync).catch(()=>{});
+    sync();
+  }catch(e){}
+})();
+
 document.addEventListener("halftone:theme",()=>{updateSwitchStyles();drawLogo();buildVolBoth();paintVolAll();requestRedraw("theme")});
 document.addEventListener("halftone:settings-ready",()=>{
   if(!window.__htNavRebuilt){window.__htNavRebuilt=true;buildNav()}   /* boot only — re-running on every settings echo caused range errors */
@@ -1588,9 +1662,11 @@ document.addEventListener("halftone:theme",()=>{paintNav();drawLogo()});
   const applyQa=async()=>{
     const q=new URLSearchParams(location.search);
     if(q.get("nav")&&window.htSetNav)window.htSetNav(q.get("nav"));
+    if(q.get("navstate")&&window.htSetNavState)window.htSetNavState(q.get("navstate"));
     if(q.get("theme")&&window.htSetTheme)window.htSetTheme(q.get("theme"));
     if(q.get("mode")&&window.htSetMode)window.htSetMode(q.get("mode"));
     if(q.get("view"))S.view=q.get("view");
+    if(q.get("max")==="1")window.__HT_MAX=true;   /* harness: simulate maximized (square corners) */
     const tr=q.get("track");
     if(tr!=null&&!S.lib.length){
       /* no scan root: pull the snapshot directly (mock provides tracks) */
