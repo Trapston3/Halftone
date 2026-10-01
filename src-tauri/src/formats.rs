@@ -602,33 +602,41 @@ fn mp3_first_frame(buf: &[u8], from: usize) -> Option<usize> {
 /// Look for Xing/Info/VBRI in the first frame's payload. Returns
 /// (frames, bytes, present) — bytes == 0 when only frames are stored.
 fn mp3_xing(buf: &[u8], frame_off: usize, frame_len: usize) -> Option<(u32, u32)> {
-    // Xing/Info live ~4..~40 bytes into the frame body (after side info).
     let end = (frame_off + frame_len).min(buf.len());
     if frame_off >= end {
         return None;
     }
     let body = &buf[frame_off..end];
+    // Xing/Info sit AFTER the side-info record, whose size is fixed by the
+    // MPEG version and channel mode (see mp3_side_info). Searching the whole
+    // frame instead can lock onto an "Xing" string inside audio data or a
+    // tag copied into the first frame (files have been seen to do both).
+    let body_si = body.get(mp3_side_info(body)?..).unwrap_or(body);
     for tag in [&b"Xing"[..], &b"Info"[..]] {
-        let Some(pos) = find_pattern(body, tag) else { continue };
-        if pos + 16 > body.len() {
-            continue;
+        // Only the canonical slot: right after side info (allow the tiny
+        // offsets some encoders add for the ancillary bits).
+        for off in mp3_xing_offsets(body_si.len()) {
+            if off + 16 > body_si.len() || &body_si[off..off + 4] != tag {
+                continue;
+            }
+            let q = off + 4;
+            let flags = u32::from_be_bytes([body_si[q], body_si[q + 1], body_si[q + 2], body_si[q + 3]]);
+            let mut r = q + 4;
+            let mut frames = 0u32;
+            let mut bytes = 0u32;
+            if flags & 0x01 != 0 && r + 4 <= body_si.len() {
+                frames = u32::from_be_bytes([body_si[r], body_si[r + 1], body_si[r + 2], body_si[r + 3]]);
+                r += 4;
+            }
+            if flags & 0x02 != 0 && r + 4 <= body_si.len() {
+                bytes = u32::from_be_bytes([body_si[r], body_si[r + 1], body_si[r + 2], body_si[r + 3]]);
+            }
+            if frames > 0 {
+                return Some((frames, bytes));
+            }
+            // "Info" tag with zero frames = plain CBR (LAME): no VBR data.
+            return None;
         }
-        let q = pos + 4;
-        let flags = u32::from_be_bytes([body[q], body[q + 1], body[q + 2], body[q + 3]]);
-        let mut r = q + 4;
-        let mut frames = 0u32;
-        let mut bytes = 0u32;
-        if flags & 0x01 != 0 && r + 4 <= body.len() {
-            frames = u32::from_be_bytes([body[r], body[r + 1], body[r + 2], body[r + 3]]);
-            r += 4;
-        }
-        if flags & 0x02 != 0 && r + 4 <= body.len() {
-            bytes = u32::from_be_bytes([body[r], body[r + 1], body[r + 2], body[r + 3]]);
-        }
-        if frames > 0 {
-            return Some((frames, bytes));
-        }
-        return None;
     }
     // VBRI (Fraunhofer) sits at a fixed offset +32 in the frame
     if body.len() >= 40 && &body[32..36] == b"VBRI" {
@@ -645,11 +653,29 @@ fn mp3_xing(buf: &[u8], frame_off: usize, frame_len: usize) -> Option<(u32, u32)
     None
 }
 
-fn find_pattern(hay: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.len() > hay.len() {
+/// MPEG frame side-info size: MPEG1 mono 17 / stereo 32; MPEG2/2.5 mono 9 /
+/// stereo 17. The first byte of `body` is the version/channel-mode byte we
+/// already parsed — re-derive from the frame header layout directly.
+fn mp3_side_info(body: &[u8]) -> Option<usize> {
+    // body[0..4] is the frame header (sync + version + layer + mode).
+    if body.len() < 4 {
         return None;
     }
-    (0..=hay.len() - needle.len()).find(|&i| &hay[i..i + needle.len()] == needle)
+    let version_bits = (body[1] >> 3) & 0x03;
+    let mode = (body[3] >> 6) & 0x03;
+    let mono = mode == 3;
+    Some(match version_bits {
+        3 => if mono { 17 } else { 32 },   // MPEG-1
+        0 | 2 => if mono { 9 } else { 17 }, // MPEG-2 / MPEG-2.5
+        _ => return None,                   // reserved
+    })
+}
+
+/// Candidate offsets of the Xing/Info tag relative to the side info end.
+/// The spec puts it exactly there; a couple of encoders emit it a few bytes
+/// into the ancillary area — try those, then stop (never scan the frame).
+fn mp3_xing_offsets(after_si_len: usize) -> impl Iterator<Item = usize> {
+    [0usize, 1, 2, 4].into_iter().take_while(move |&o| o + 8 <= after_si_len)
 }
 
 /// Count frames by walking every frame header. A frame is counted only when

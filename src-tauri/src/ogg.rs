@@ -105,6 +105,7 @@ fn is_opus_tags(head: &[u8], off: usize) -> bool {
 /// One page: granule position, whether it continues the previous packet,
 /// and the packet boundaries it finishes (offsets into `buf`).
 struct Page<'a> {
+    #[allow(dead_code)] // granule of intermediate pages; only the last page's is read
     granule: u64,
     continued: bool,
     body: &'a [u8],
