@@ -1,0 +1,409 @@
+/* Analogue Theme (Light + Dark) */
+
+:root[data-theme="analogue"][data-mode="dark"] {
+  --bg: #16181A;
+  --bg-2: #1B1E21;
+  --bg-3: #21252A;
+  --fg: #F2E8CF;
+  --fg-2: #8B949C;
+  --fg-3: #566066;
+  --line: #262B30;
+  --line-2: #3A4147;
+  --accent-fg: #0A0E0C;
+  --ok: #66E0C2;
+  --warn: #E0C266;
+  --danger: #E06666;
+
+  --panel-bg: var(--bg-2);
+  --panel-border: var(--line-2);
+  --panel-highlight: none;
+  --glass-blur: 0px;
+  --glass-sat: 100%;
+  --shadow-1: 0 8px 24px rgba(0,0,0,.4);
+  --shadow-2: none;
+
+  --font-ui: "Segoe UI", -apple-system, sans-serif;
+  --font-mono: Consolas, ui-monospace, monospace;
+  --font-display: var(--font-ui);
+
+  --r-s: 3px;
+  --r-m: 6px;
+  --r-l: 8px;
+  --r-pill: 14px;
+
+  --ease-out: ease-out;
+  --ease-spring: cubic-bezier(.2,.9,.2,1);
+  --dur-1: 120ms;
+  --dur-2: 240ms;
+  --dur-3: 420ms;
+
+  --canvas-bg: #12171A;
+  --canvas-off: #232A2E;
+  --canvas-ink: #F2E8CF;
+
+  --seek-style: led;
+  --vol-style: leds;
+  --art-default: dither;
+  --ambient-default: dither;
+}
+
+:root[data-theme="analogue"][data-mode="light"] {
+  --bg: #F0EAD6; /* warm off-white newsprint */
+  --bg-2: #E6DFCB;
+  --bg-3: #DCD4C0;
+  --fg: #1C1E1C; /* ink black / charcoal */
+  --fg-2: #4A504A;
+  --fg-3: #757B75;
+  --line: #D3CAB5;
+  --line-2: #BDB39E;
+  --accent-fg: #FFFFFF;
+  --ok: #208060;
+  --warn: #B38600;
+  --danger: #CC3333;
+
+  --panel-bg: var(--bg-2);
+  --panel-border: var(--line-2);
+  --panel-highlight: none;
+  --glass-blur: 0px;
+  --glass-sat: 100%;
+  --shadow-1: 0 4px 12px rgba(0,0,0,.15);
+  --shadow-2: none;
+
+  --font-ui: "Segoe UI", -apple-system, sans-serif;
+  --font-mono: Consolas, ui-monospace, monospace;
+  --font-display: var(--font-ui);
+
+  --r-s: 3px;
+  --r-m: 6px;
+  --r-l: 8px;
+  --r-pill: 14px;
+
+  --ease-out: ease-out;
+  --ease-spring: cubic-bezier(.2,.9,.2,1);
+  --dur-1: 120ms;
+  --dur-2: 240ms;
+  --dur-3: 420ms;
+
+  --canvas-bg: #E6DFCB;
+  --canvas-off: #DCD4C0; /* printed ink dots */
+  --canvas-ink: #1C1E1C;
+
+  --seek-style: led;
+  --vol-style: leds;
+  --art-default: dither;
+  --ambient-default: dither;
+}
+
+:root[data-motion="off"] {
+  --dur-1: 0ms !important;
+  --dur-2: 0ms !important;
+  --dur-3: 0ms !important;
+}
+
+/* Analogue Light Halftone Pattern */
+:root[data-theme="analogue"][data-mode="light"] body {
+  background-image: radial-gradient(var(--line) 1px, transparent 1px);
+  background-size: 4px 4px;
+}
+
+/* --- Components for Analogue --- */
+:root[data-theme="analogue"] .btn,
+:root[data-theme="analogue"] .btn-icon,
+:root[data-theme="analogue"] .btn-orb,
+:root[data-theme="analogue"] .pill {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg-2);
+  border-radius: calc(var(--r-m) * var(--radius-scale, 1));
+  transition: border-color var(--dur-1), color var(--dur-1);
+  padding: 4px 12px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+
+:root[data-theme="analogue"] .btn-icon,
+:root[data-theme="analogue"] .btn-orb {
+  padding: 0;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: calc(var(--r-l) * var(--radius-scale, 1));
+}
+
+:root[data-theme="analogue"] .btn-orb.lg {
+  width: 44px;
+  height: 44px;
+  border-radius: calc(var(--r-l) * var(--radius-scale, 1));
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+:root[data-theme="analogue"] .btn:hover,
+:root[data-theme="analogue"] .btn-icon:hover,
+:root[data-theme="analogue"] .pill:hover {
+  border-color: var(--line-2);
+  color: var(--fg);
+}
+
+:root[data-theme="analogue"] .pill.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-12);
+}
+
+:root[data-theme="analogue"] .panel,
+:root[data-theme="analogue"] .sheet,
+:root[data-theme="analogue"] .menu,
+:root[data-theme="analogue"] .toast,
+:root[data-theme="analogue"] .tooltip {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--shadow-1);
+  border-radius: calc(var(--r-l) * var(--radius-scale, 1));
+}
+
+:root[data-theme="analogue"] .nav {
+  padding: 8px;
+  color: var(--fg-2);
+  border-radius: calc(var(--r-m) * var(--radius-scale, 1));
+  border: 1px solid transparent;
+}
+:root[data-theme="analogue"] .nav:hover {
+  color: var(--fg);
+  border-color: var(--line);
+}
+:root[data-theme="analogue"] .nav.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-12);
+}
+
+:root[data-theme="analogue"] .seg {
+  display: flex;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: calc(var(--r-m) * var(--radius-scale, 1));
+  overflow: hidden;
+}
+:root[data-theme="analogue"] .seg button {
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  color: var(--fg-2);
+}
+:root[data-theme="analogue"] .seg button.on {
+  background: var(--line);
+  color: var(--fg);
+}
+
+:root[data-theme="analogue"] .badge {
+  padding: 2px 6px;
+  font-size: 10px;
+  border-radius: calc(var(--r-s) * var(--radius-scale, 1));
+  border: 1px solid var(--line-2);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+}
+:root[data-theme="analogue"] .badge.lossless {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+:root[data-theme="analogue"] .row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border-radius: calc(var(--r-m) * var(--radius-scale, 1));
+}
+:root[data-theme="analogue"] .row:hover { background: var(--bg-2); }
+:root[data-theme="analogue"] .row.cur .row-title { color: var(--accent); }
+
+:root[data-theme="analogue"] .card {
+  padding: 12px;
+}
+
+:root[data-theme="analogue"] .lyrics .lyric-line {
+  color: var(--fg-3);
+  font-size: 28px;
+  transition: color var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-spring);
+}
+:root[data-theme="analogue"] .lyrics .lyric-line.active {
+  color: var(--fg);
+  transform: translateX(10px);
+}
+:root[data-theme="analogue"] .lyrics .lyric-line.active::before {
+  content: "\25B8  ";
+  color: var(--accent);
+}
+
+:root[data-theme="analogue"] .switch {
+  appearance: none;
+  width: 32px;
+  height: 18px;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  position: relative;
+  cursor: pointer;
+}
+:root[data-theme="analogue"] .switch:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+:root[data-theme="analogue"] .switch::after {
+  content: '';
+  position: absolute;
+  top: 1px; left: 1px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--fg);
+  transition: transform 0.2s;
+}
+:root[data-theme="analogue"] .switch:checked::after {
+  transform: translateX(14px);
+  background: var(--accent-fg);
+}
+
+:root[data-theme="analogue"] :focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+:root[data-theme="analogue"] ::selection {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+/* Hide fx elements for analogue */
+:root[data-theme="analogue"] .fx-aurora,
+:root[data-theme="analogue"] .fx-bokeh {
+  display: none;
+}
+
+/* View transition circular reveal */
+::view-transition-old(root) {
+  animation: none;
+}
+::view-transition-new(root) {
+  animation: reveal 0.6s cubic-bezier(0, 0, 0.2, 1);
+  clip-path: circle(0% at var(--vt-x, 50%) var(--vt-y, 50%));
+}
+@keyframes reveal {
+  to { clip-path: circle(150% at var(--vt-x, 50%) var(--vt-y, 50%)); }
+}
+/* Additional components for Analogue */
+
+:root[data-theme="analogue"] .app-shell {
+  background: var(--bg);
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+}
+
+:root[data-theme="analogue"] .titlebar {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+:root[data-theme="analogue"] .titlebar .win-btn {
+  width: 12px; height: 12px; border-radius: 50%;
+  margin-left: 8px; border: 1px solid var(--line-2);
+}
+
+:root[data-theme="analogue"] .mini-bar {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--bg-2);
+  border-top: 1px solid var(--line);
+}
+
+:root[data-theme="analogue"] .field {
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  color: var(--fg);
+  padding: 6px 12px;
+  border-radius: calc(var(--r-m) * var(--radius-scale, 1));
+  font-family: var(--font-ui);
+}
+:root[data-theme="analogue"] .field:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+:root[data-theme="analogue"] .vol-leds {
+  display: flex; gap: 2px;
+}
+:root[data-theme="analogue"] .vol-leds .led {
+  width: 4px; height: 12px;
+  background: var(--canvas-off);
+  border-radius: 1px;
+}
+:root[data-theme="analogue"] .vol-leds .led.on {
+  background: var(--accent);
+}
+
+:root[data-theme="analogue"] .sheet {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-top-left-radius: calc(var(--r-l) * var(--radius-scale, 1));
+  border-top-right-radius: calc(var(--r-l) * var(--radius-scale, 1));
+  box-shadow: var(--shadow-1);
+}
+:root[data-theme="analogue"] .sheet-handle {
+  width: 40px; height: 4px;
+  background: var(--line-2);
+  border-radius: 2px;
+  margin: 10px auto;
+}
+:root[data-theme="analogue"] .sheet-row {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+:root[data-theme="analogue"] .sheet.open {
+  transform: translateY(0); opacity: 1; transition: transform var(--dur-2) var(--ease-spring), opacity var(--dur-2);
+}
+:root[data-theme="analogue"] .sheet:not(.open) {
+  transform: translateY(100%); opacity: 0; transition: transform var(--dur-2) var(--ease-spring), opacity var(--dur-2);
+}
+
+:root[data-theme="analogue"] .menu {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: calc(var(--r-m) * var(--radius-scale, 1));
+  padding: 4px;
+  box-shadow: var(--shadow-1);
+}
+:root[data-theme="analogue"] .menu-item {
+  padding: 6px 12px;
+  color: var(--fg-2);
+  border-radius: calc(var(--r-s) * var(--radius-scale, 1));
+}
+:root[data-theme="analogue"] .menu-item:hover {
+  background: var(--bg-3); color: var(--fg);
+}
+:root[data-theme="analogue"] .menu-sep {
+  height: 1px; background: var(--line); margin: 4px 0;
+}
+
+:root[data-theme="analogue"] .toast {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  color: var(--fg);
+  padding: 12px 16px;
+  border-radius: calc(var(--r-m) * var(--radius-scale, 1));
+  box-shadow: var(--shadow-1);
+}
+:root[data-theme="analogue"] .toast.ok { border-color: var(--ok); color: var(--ok); }
+:root[data-theme="analogue"] .toast.warn { border-color: var(--warn); color: var(--warn); }
+:root[data-theme="analogue"] .toast.error { border-color: var(--danger); color: var(--danger); }
+
+:root[data-theme="analogue"] ::-webkit-scrollbar { width: 8px; height: 8px; }
+:root[data-theme="analogue"] ::-webkit-scrollbar-track { background: transparent; }
+:root[data-theme="analogue"] ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+:root[data-theme="analogue"] ::-webkit-scrollbar-thumb:hover { background: var(--fg-3); }

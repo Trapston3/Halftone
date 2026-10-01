@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="analogue" data-mode="dark" data-motion="full" data-density="comfy">
+<head>
+  <meta charset="utf-8">
+  <title>Theme Gallery</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-ui, sans-serif);
+      height: 100vh;
+      overflow-y: auto;
+    }
+    .gallery-controls {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 1000;
+      background: var(--panel-bg, #000);
+      border: 1px solid var(--panel-border, #333);
+      padding: 10px;
+      display: flex;
+      gap: 10px;
+    }
+    .gallery-container {
+      max-width: 1200px;
+      margin: 40px auto;
+      display: flex;
+      flex-direction: column;
+      gap: 30px;
+      position: relative;
+    }
+    .fx-layer {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+    }
+    .section-title {
+      font-size: 24px;
+      font-family: var(--font-display, sans-serif);
+      margin-bottom: 10px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 5px;
+    }
+    .row-flex { display: flex; gap: 10px; align-items: center; }
+  </style>
+  <link rel="stylesheet" href="../themes/analogue.css">
+  <link rel="stylesheet" href="../themes/digital.css">
+</head>
+<body>
+  <div class="fx-layer" data-ambient="aurora">
+    <div class="fx-aurora"></div>
+    <div class="fx-bokeh"></div>
+    <canvas class="fx-ambient"></canvas>
+  </div>
+
+  <div class="gallery-controls">
+    <button onclick="setT('theme', 'analogue')">Analogue</button>
+    <button onclick="setT('theme', 'digital')">Digital</button>
+    |
+    <button onclick="setT('mode', 'dark')">Dark</button>
+    <button onclick="setT('mode', 'light')">Light</button>
+  </div>
+
+  <div class="gallery-container">
+    <div class="section-title">Controls</div>
+    <div class="row-flex">
+      <button class="btn">Regular Button</button>
+      <button class="btn-icon">I</button>
+      <button class="btn-orb lg">Play</button>
+      <button class="btn-orb">N</button>
+    </div>
+    
+    <div class="row-flex">
+      <div class="pill-tabs">
+        <button class="pill active">Tab 1</button>
+        <button class="pill">Tab 2</button>
+      </div>
+      <div class="seg">
+        <button class="on">Seg 1</button>
+        <button>Seg 2</button>
+      </div>
+      <input type="checkbox" class="switch" role="switch">
+      <div class="badge lossless">LOSSLESS</div>
+    </div>
+
+    <div class="section-title">Seek & Vol</div>
+    <div class="row-flex" style="width:300px;">
+      <div class="seek" data-seek="led" style="flex:1;">
+        <canvas class="seek-led" style="width:100%;height:10px;background:#333;"></canvas>
+      </div>
+      <div class="seek" data-seek="gel" style="flex:1;">
+        <div class="seek-gel">
+          <div class="track">
+            <div class="fill" style="width:60%;"></div>
+            <div class="knob" style="left:60%;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">Lists & Grids</div>
+    <div class="list">
+      <div class="row cur playing">
+        <div class="row-art" style="width:30px;height:30px;background:#66E0C2;"></div>
+        <div class="row-title">Active Song</div>
+        <div class="row-sub">Artist Name</div>
+        <div class="row-dur">3:45</div>
+        <div class="row-more">...</div>
+      </div>
+      <div class="row">
+        <div class="row-art" style="width:30px;height:30px;background:#333;"></div>
+        <div class="row-title">Inactive Song</div>
+        <div class="row-sub">Artist Name</div>
+        <div class="row-dur">4:20</div>
+        <div class="row-more">...</div>
+      </div>
+    </div>
+
+    <div class="grid" style="display:flex;gap:10px;">
+      <div class="card panel">
+        <div class="card-art" style="width:100px;height:100px;background:linear-gradient(45deg, #f06, #4a90e2);"></div>
+        <div class="card-title">Album Name</div>
+        <div class="card-sub">Artist</div>
+      </div>
+    </div>
+
+    <div class="section-title">Now Playing Block & Lyrics</div>
+    <div class="np panel" style="display:flex;padding:20px;gap:20px;">
+      <div class="np-art" style="width:150px;height:150px;background:linear-gradient(135deg, #a18cd1, #fbc2eb);"></div>
+      <div style="flex:1;">
+        <div class="np-title">Now Playing Title</div>
+        <div class="np-artist">Artist</div>
+        <div class="np-meta">FLAC - Lossless</div>
+        <div class="np-transport row-flex">
+          <button class="btn-orb lg">Play</button>
+        </div>
+      </div>
+      <div class="lyrics" style="flex:1;">
+        <div class="lyric-line past">Past lyric line</div>
+        <div class="lyric-line active">Active lyric line shining bright</div>
+        <div class="lyric-line">Future lyric line</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function setT(k, v) { document.documentElement.setAttribute('data-'+k, v); }
+    const urlParams = new URLSearchParams(window.location.search);
+    if(urlParams.has('theme')) setT('theme', urlParams.get('theme'));
+    if(urlParams.has('mode')) setT('mode', urlParams.get('mode'));
+  </script>
+</body>
+</html>
