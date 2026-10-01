@@ -261,6 +261,26 @@ if(Q.get("page")){
           if(Q.get("preset")&&iw.applyWidgetPreset)iw.applyWidgetPreset(Q.get("preset"));
           if(Q.get("theme"))iw.htSetTheme(Q.get("theme"));
           if(Q.get("mode"))iw.htSetMode(Q.get("mode"));
+          /* no owner frame exists in shot mode: synthesize the sync the
+             main window would broadcast, so widget shots show a real
+             playing state (art + dither + title) — brief defect 6 */
+          if(!iw.S.meta&&!iw.__shotSynced){
+            iw.__shotSynced=true;
+            const tk=Q.get("track")!=null?+Q.get("track"):0;
+            const t=iw.S.lib[tk];
+            if(t){
+              const inv=iw.__HT_TAURI_MOCK__.__invoke;
+              Promise.all([
+                inv("cover_url",{path:t.path}),
+                inv("lyrics_get",{path:t.path})
+              ]).then(([url,lyr])=>{
+                iw.applySync({i:tk,playing:true,vol:.7,pos:42,
+                  meta:Object.assign({},t,{coverUrl:url||null}),
+                  lyrics:{lines:lyr.lines||[],plain:lyr.plain||null,
+                          status:lyr.synced?"synced":(lyr.plain?"plain":"none")}});
+              }).catch(e=>console.error("shot sync",e));
+            }
+          }
         }
       }catch(e){console.error("shot apply",e&&(e.stack||e.message||e))}
     };

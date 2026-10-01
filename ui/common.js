@@ -300,6 +300,12 @@ function drawDither(cv,img,opts){
   /* BACKING = N*cell exactly (brief T5); re-derive W from N*cell */
   const BW=N*cell,BH=M*cell;
   if(cv.width!==BW||cv.height!==BH){cv.width=BW;cv.height=BH}
+  /* fitCanvas enforces css*dpr (e.g. 137) while the dither needs N*cell
+     (136): on the next loop tick fitCanvas would resize 136->137, WIPING
+     the canvas, and the ditherCache key (unchanged) would skip the
+     repaint — blank art forever. Align the fit cache with the dither
+     backing so the two stops fighting. */
+  _fitCache.set(cv,{w:BW,h:BH});
   const key=ditherKey(img,N,cell,BW,BH);
   if(!opts.force&&ditherCache.get("_k")===key&&ditherCache.get("_cv")===cv)return;
   ditherCache.set("_k",key);ditherCache.set("_cv",cv);
@@ -323,7 +329,8 @@ function drawDither(cv,img,opts){
       const pi=(y*BW+x)*4;
       const cj=(x/cell)|0;
       const si=((rowOff+cj))*4;
-      const l=lum(src[si],src[si+1],src[si+2])/255;
+      /* lum() already returns 0..1 (it /255s internally) */
+      const l=lum(src[si],src[si+1],src[si+2]);
       const thr=BAYER4[y&3][x&3];
       const on=l>thr;
       od[pi]=on?fg[0]:bg[0];od[pi+1]=on?fg[1]:bg[1];od[pi+2]=on?fg[2]:bg[2];od[pi+3]=255;
