@@ -25,7 +25,7 @@ const MP3_AUDIO_WINDOW: u64 = 256 * 1024;
 const META_CAP: u64 = 64 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind { Flac, Wav, Mp3, M4a, Adts }
+pub enum Kind { Flac, Wav, Mp3, M4a, Adts, Ogg, Opus }
 
 impl Kind {
     /// Content-Type for the ORIGINAL bytes (ALAC is decided separately).
@@ -36,6 +36,7 @@ impl Kind {
             Kind::Mp3 => "audio/mpeg",
             Kind::M4a => "audio/mp4",
             Kind::Adts => "audio/aac",
+            Kind::Ogg | Kind::Opus => "audio/ogg",
         }
     }
 }
@@ -43,6 +44,20 @@ impl Kind {
 pub fn kind_of(head: &[u8]) -> Option<Kind> {
     if head.len() >= 4 && &head[0..4] == b"fLaC" {
         return Some(Kind::Flac);
+    }
+    // Ogg container: "OggS" + codec sniff from the first packet (Vorbis
+    // identification header vs OpusHead). Ogg FLAC/Theora etc. fall through
+    // to None (codec_of rejects non-vorbis/opus codecs). Page 0's first
+    // packet starts at 27 + nsegs (lacing table is 1 byte here).
+    if head.len() >= 4 && &head[0..4] == b"OggS" {
+        let nsegs = head.get(26).copied().unwrap_or(0) as usize;
+        return head
+            .get(27 + nsegs..60 + nsegs)
+            .and_then(|b| crate::ogg::codec_of(b, 0))
+            .map(|c| match c {
+                crate::ogg::Codec::Vorbis { .. } => Kind::Ogg,
+                crate::ogg::Codec::Opus { .. } => Kind::Opus,
+            });
     }
     match formats::detect(head) {
         Ok("wav") => Some(Kind::Wav),
@@ -208,6 +223,11 @@ pub fn read_meta(path: &Path, want_cover: bool) -> Result<(TrackMeta, Kind, bool
             }
             m4a::parse_adts(&read_at(&mut f, 0, len)?, path)?
         }
+        Kind::Ogg | Kind::Opus => {
+            // Head pages (through the comment packet) + the last 64 KiB
+            // tail read happen inside ogg::parse (bounded on both ends).
+            crate::ogg::parse(&head, path, len)?
+        }
     };
     // Bitrates from synthesized buffers would be wrong; use the real length.
     if matches!(kind, Kind::M4a | Kind::Flac) && m.duration > 0.0 {
@@ -219,6 +239,8 @@ pub fn read_meta(path: &Path, want_cover: bool) -> Result<(TrackMeta, Kind, bool
         Kind::Mp3 => "MP3",
         Kind::M4a if alac => "ALAC",
         Kind::M4a | Kind::Adts => "AAC",
+        Kind::Ogg => "OGG",
+        Kind::Opus => "OPUS",
     }
     .into();
     m.lossless = matches!(kind, Kind::Flac | Kind::Wav) || alac;
@@ -234,7 +256,8 @@ pub fn read_meta(path: &Path, want_cover: bool) -> Result<(TrackMeta, Kind, bool
 
 /// Extensions worth opening during a scan. Magic bytes still decide the
 /// actual format — this only avoids opening every .jpg/.txt/.cue.
-pub const AUDIO_EXTS: &[&str] = &["flac", "mp3", "wav", "wave", "m4a", "mp4", "aac", "alac"];
+pub const AUDIO_EXTS: &[&str] =
+    &["flac", "mp3", "wav", "wave", "m4a", "mp4", "aac", "alac", "ogg", "oga", "opus", "oggvorbis"];
 
 pub fn is_candidate(path: &Path) -> bool {
     path.extension()

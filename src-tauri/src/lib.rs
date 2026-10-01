@@ -24,6 +24,7 @@ mod media_source;
 mod alac;
 #[path = "m4a.rs"]
 mod m4a;
+mod ogg;
 
 // OTA update channel: latest.json published as a release asset. Override the
 // source for QA with HALFTONE_OTA_URL; disable the check with HALFTONE_NO_OTA.
@@ -471,7 +472,7 @@ fn library_snapshot() -> Vec<TrackMeta> {
 }
 
 /// Extensions WebView2 can likely play but Halftone does not support yet.
-const UNSUPPORTED_AUDIO: &[&str] = &["ogg", "oga", "opus", "wma", "aiff", "aif", "ape", "wv"];
+const UNSUPPORTED_AUDIO: &[&str] = &["wma", "aiff", "aif", "ape", "wv"];
 
 /// Format counters for per-format scan reporting.
 #[derive(Debug, Clone, Serialize)]
@@ -481,12 +482,14 @@ pub struct ScanCounts {
     pub mp3: usize,
     pub aac: usize,
     pub alac: usize,
+    pub ogg: usize,
+    pub opus: usize,
     pub unsupported: usize,
 }
 
 impl ScanCounts {
     fn new() -> Self {
-        Self { flac: 0, wav: 0, mp3: 0, aac: 0, alac: 0, unsupported: 0 }
+        Self { flac: 0, wav: 0, mp3: 0, aac: 0, alac: 0, ogg: 0, opus: 0, unsupported: 0 }
     }
 }
 
@@ -573,6 +576,8 @@ fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> 
                     "WAV" => counts.wav += 1,
                     "MP3" => counts.mp3 += 1,
                     "ALAC" => counts.alac += 1,
+                    "OGG" => counts.ogg += 1,
+                    "OPUS" => counts.opus += 1,
                     _ => counts.aac += 1,
                 }
                 new_index.insert(key, ScanEntry { size, mtime, meta: m.clone() });
@@ -600,6 +605,8 @@ fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> 
                 "mp3": counts.mp3,
                 "aac": counts.aac,
                 "alac": counts.alac,
+                "ogg": counts.ogg,
+                "opus": counts.opus,
                 "unsupported": counts.unsupported,
             },
             "done": true,
