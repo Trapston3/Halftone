@@ -1,886 +1,1329 @@
 /* ============================================================
-   HALFTONE shared engine — accent, dither art, meter + sweep,
-   collections, transport, layout config. Both windows use it.
+   HALFTONE shared engine — v0.2 (foundation)
+   Main window = sole audio owner (one <audio>, AudioContext,
+   EQ chain, analyser). Widget = pure view + controller: sends
+   `halftone:cmd`, renders `halftone:sync|tick|bars`.
+
+   LOAD-BEARING:
+   - Main's close button HIDES the window; only the widget's
+     close or the tray Quit ends the app.
+   - Viewers never construct an AudioContext or decode.
+   - Canvas drawing is THEME-AWARE: all colors come from the
+     tokens theme.js caches on <html> (Theme.canvas), never
+     hardcoded — light modes need it.
+   - Settings persist through settings.js (backend JSON shared
+     by both windows); localStorage is only a boot-time mirror.
    ============================================================ */
-
-/* ============ Tauri bridge ============ */
-const T=window.__TAURI__;
-const invoke=T?T.core.invoke:null;
-const curWin=T?T.window.getCurrentWindow():null;
-
-/* ============ persistent state ============ */
-function loadStore(){
-  try{return JSON.parse(localStorage.getItem("halftone.store")||"{}")}catch(_){return {}}
+"use strict";
+/* Test-harness adoption: the harness installs __HT_TAURI_MOCK__ on the
+   iframe's INITIAL about:blank window; a real navigation replaces that
+   window object, so the mock is lost unless the page pulls it from the
+   parent. Same-origin in the harness (http), no-op in production. */
+if(!window.__TAURI__&&!window.__HT_TAURI_MOCK__){
+  try{
+    const pm=window.parent&&window.parent.__HT_TAURI_MOCK__;
+    if(pm){Object.defineProperty(window,"__HT_TAURI_MOCK__",{value:pm,configurable:true})}
+  }catch(_){/* cross-origin parent — production */}
 }
-function saveStore(){
-  const s={root:S.root,liked:[...S.liked],playlists:S.playlists.map(p=>({name:p.name,paths:[...p.paths]})),
-           vol:S.vol,lastTrack:S.i,lyricsOpen:S.lyricsOpen,pinned:S.pinned,
-           shuffle:S.shuffle,repeat:S.repeat,cfg:S.cfg};
-  localStorage.setItem("halftone.store",JSON.stringify(s));
+const el={};
+window.el=el;
+const T=window.__TAURI__||window.__HT_TAURI_MOCK__||null;
+window.T=T;
+const IS_OWNER=!T||!T.window||!window.IS_VIEWER;   /* widget page sets window.IS_VIEWER=true */
+window.IS_OWNER=IS_OWNER;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function invoke(cmd,args){
+  args=args||{};
+  if(window.__invoke&&window.__invoke._ht)return window.__invoke(cmd,args);   /* test harness mock */
+  if(T&&T.core&&T.core.invoke)return T.core.invoke(cmd,args);
+  return Promise.resolve(null);
 }
-const S={lib:[],i:-1,playing:false,vol:.8,pinned:false,drag:null,lidx:-1,
-         lyricsOpen:false,lyrics:[],meta:null,root:null,
-         liked:new Set(),playlists:[],view:"tracks",
-         shuffle:false,repeat:"off",_npLyrics:false,
-         _pos:0,_dur:0,_barsRcv:null,_barsNew:false,
-         cfg:{cover:"small",grid:32,queueSide:true,tech:true,art:"real",ambient:"dither",
-          lyrics:true,side:true,acc:"album",
-          eq:{on:false,pre:0,bands:[0,0,0,0,0,0,0,0,0,0],qs:null},rg:"off",
-          sink:"",sleep:0},
-         _managed:true,_prog:false,_img:null};
-window.S=S;
-
-(()=>{const st=loadStore();
-  /* migrate stale cfg shapes from older builds */
-  if(st.cfg){
-    if(typeof st.cfg.ambient==="boolean")st.cfg.ambient=st.cfg.ambient?"dither":"off";
-    if(st.cfg.acc&&typeof st.cfg.acc==="object")st.cfg.acc="album";
-  }
-  if(st.vol!=null)S.vol=st.vol;
-  if(st.liked)S.liked=new Set(st.liked);
-  if(st.playlists)S.playlists=st.playlists.map(p=>({name:p.name,paths:new Set(p.paths)}));
-  if(st.lyricsOpen)S.lyricsOpen=true;
-  if(st.pinned)S.pinned=true;
-  if(st.root)S.root=st.root;
-  if(st.lastTrack!=null)S._lastTrack=st.lastTrack;
-  if(st.shuffle)S.shuffle=true;
-  if(st.repeat)S.repeat=st.repeat;
-  if(st.cfg)S.cfg=Object.assign(S.cfg,st.cfg);
-})();
-
-const trk=()=>S.lib[S.i];
-const fmt=s=>{s=Math.max(0,Math.round(s));return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0")};
-
-/* ============ window lookup (withGlobalTauri has no WebviewWindow) ============ */
-async function winByLabel(label){
-  try{const all=await T.window.getAllWindows();return all.find(w=>w.label===label)||null}
-  catch(e){console.warn(e);return null}
-}
-
-/* external browser helper — the opener plugin command */
-async function openExternal(url){
-  try{await invoke("plugin:opener|open_url",{url})}
-  catch(e){console.warn("open_url",e)}
-}
-
-/* ============ shared accent ============
-   Each surface (widget / main) follows the album art by default
-   but can lock to a fixed hue, so widget and app can differ. */
-var ACC_HUES={
-  mint:{h:.44,s:.62,l:.56},sky:{h:.57,s:.62,l:.58},violet:{h:.76,s:.55,l:.62},
-  rose:{h:.965,s:.62,l:.62},amber:{h:.10,s:.68,l:.56},red:{h:1.0,s:.66,l:.56}};
-var UIZ=1;  /* widget UI zoom factor; main window stays 1 */
-window.UIZgetter=()=>UIZ;
-/* ONE shared theme: both windows follow cfg.acc ("album" or a fixed hue). */
-function accMode(){return S.cfg.acc||"album"}
-function setAccentMode(m){
-  S.cfg.acc=m;saveStore();emitSync({acc:m});
-  if(m==="album"){S._img?tweenAccent(clampAccent(extractAccent(S._img))):tweenAccent({h:.44,s:.62,l:.56})}
-  else{tweenAccent(clampAccent(ACC_HUES[m]))}
-}
-function initAccent(){const m=accMode();if(m!=="album")ACC.cur={...clampAccent(ACC_HUES[m])};applyAccent()}
-function accentMenuItems(){return [
-  {label:"FROM ALBUM ART",checked:accMode()==="album",onClick:()=>setAccentMode("album")},
-  ...Object.keys(ACC_HUES).map(k=>({label:k.toUpperCase(),checked:accMode()===k,onClick:()=>setAccentMode(k)})),
-]}
-function nudgeVol(d){setVol(S.vol+d)}
+window.invoke=invoke;
+const NBARS=32;   /* spectrum band count (owner analyser + viewer bars) */
+window.NBARS=NBARS;
 
 /* ============================================================
-   SINGLE AUDIO OWNER
-   The MAIN window is the permanent, sole audio owner: the only
-   window that constructs an <audio> element, AudioContext, gain
-   or analyser. The widget is a pure view + controller: it sends
-   halftone:cmd messages and renders the owner's halftone:sync /
-   halftone:time / halftone:bars broadcasts. It never decodes,
-   never taps an analyser, never estimates position.
-
-   WINDOW LIFECYCLE IS LOAD-BEARING: hiding a window does not
-   destroy its WebView, so the owner keeps decoding while hidden
-   (widget-only mode). The main window's close button HIDES, it
-   never destroys; only the widget's close or the tray Quit ends
-   the app. Do not "fix" that - audio dies with the owner.
+   GLOBAL STATE
    ============================================================ */
-const IS_OWNER=!curWin||curWin.label==="main";
-window.IS_OWNER=IS_OWNER;
-function emitX(evt,payload){
-  if(!(T&&T.event&&T.event.emit&&curWin))return;
-  try{T.event.emit(evt,payload).catch(()=>{})}catch(_){}
-}
-/* viewer -> owner command */
-function emitCmd(p){
-  if(IS_OWNER)return;
-  emitX("halftone:cmd",Object.assign({src:curWin.label},p));
-}
-/* owner -> viewers: full authoritative state */
-function emitSync(extra){
-  if(!IS_OWNER)return;
-  if(!S._syncReady)return;
-  const p={src:"main",i:S.i,playing:S.playing,t:posSec(),dur:durSec(),
-           vol:S.vol,shuffle:S.shuffle,repeat:S.repeat,acc:accMode(),
-           liked:[...S.liked],
-           eq:{...S.cfg.eq},rg:S.cfg.rg,sleepLeft:SLEEP.until?Math.max(0,SLEEP.until-Date.now()):0,
-           playlists:S.playlists.map(pl=>({name:pl.name,paths:[...pl.paths]}))};
-  if(extra)Object.assign(p,extra);
-  emitX("halftone:sync",p);
-}
-function emitFullState(){  /* meta + lyrics + lib - heavier, on track change */
-  if(!IS_OWNER)return;
-  emitSync({
-    meta:S.meta?{title:S.meta.title,artist:S.meta.artist,album:S.meta.album,
-      streaminfo:S.meta.streaminfo,duration_s:S.meta.duration,
-      cover:S.meta.cover?{mime:S.meta.cover.mime,data_b64:S.meta.cover.data_b64}:null}:null,
-    lyrics:S.lyrics,lib:S.lib.map(t=>({path:t.path,title:t.title,artist:t.artist,
-      album:t.album,duration_s:t.duration_s,streaminfo:t.streaminfo})),
-    root:S.root});
-}
-/* viewer: apply authoritative state (no estimation, no drift math) */
-function applySync(d){
-  if(IS_OWNER||!d)return;
-  let trackChanged=false;
-  if(d.acc&&d.acc!==accMode()){S.cfg.acc=d.acc;saveStore();
-    tweenAccent(d.acc==="album"?(S._img?clampAccent(extractAccent(S._img)):{h:.44,s:.62,l:.56})
-                               :clampAccent(ACC_HUES[d.acc]))}
-  if(d.liked)S.liked=new Set(d.liked);
-  if(d.playlists)S.playlists=d.playlists.map(pl=>({name:pl.name,paths:new Set(pl.paths)}));
-  if(d.lib){S.lib=d.lib;
-    if(d.root&&d.root!==S.root){S.root=d.root;
-      document.dispatchEvent(new CustomEvent("halftone:root"))}}
-  if(d.vol!=null&&Math.abs(d.vol-S.vol)>.001){S.vol=d.vol;
-    document.dispatchEvent(new CustomEvent("halftone:vol"))}
-  if(d.shuffle!=null)S.shuffle=d.shuffle;
-  if(d.repeat!=null)S.repeat=d.repeat;
-  if(d.eq)S.cfg.eq=d.eq;
-  if(d.rg)S.cfg.rg=d.rg;
-  if(d.sleepLeft!=null)S._sleepLeft=d.sleepLeft;
-  if(d.playing!=null&&d.playing!==S.playing){
-    S.playing=d.playing;
-    document.dispatchEvent(new CustomEvent("halftone:state"))}
-  if(d.meta&&(d.i!==S.i||!S.meta)){
-    S.i=d.i;S.meta=d.meta;S.lyrics=d.lyrics||[];trackChanged=true;
-    /* viewer keeps its own S._img in lockstep so ACCENT extraction,
-       dither slots and the perimeter edge all color from THIS art */
-    if(d.meta.cover){
-      const img=new Image();
-      img.onload=()=>{
-        S._img=img;
-        const m=accMode();
-        if(!ACC.anim)tweenAccent(m==="album"?clampAccent(extractAccent(img)):clampAccent(ACC_HUES[m]));
-        document.dispatchEvent(new CustomEvent("halftone:art"));
-      };
-      img.src="data:"+d.meta.cover.mime+";base64,"+d.meta.cover.data_b64;
-    }else{S._img=null;document.dispatchEvent(new CustomEvent("halftone:art"))}
-  }
-  if(d.t!=null){S._pos=d.t;document.dispatchEvent(new CustomEvent("halftone:tick"))}
-  if(d.dur!=null)S._dur=d.dur;
-  if(trackChanged){document.dispatchEvent(new CustomEvent("halftone:track"));S.lidx=-1;S._lyrManual=false}
-  updTransportAll();
-}
-function updTransportAll(){document.dispatchEvent(new CustomEvent("halftone:state"))}
-/* position/duration helpers - owner reads the element, viewer reads broadcasts */
-function posSec(){return IS_OWNER?(el.aud?el.aud.currentTime:0):(S._pos||0)}
-function durSec(){return IS_OWNER?(el.aud?el.aud.duration||0:0):(S._dur||0)}
-function setVol(v){
-  S.vol=Math.min(1,Math.max(0,v));
-  if(IS_OWNER){el.aud.volume=S.vol;if(gainNode)gainNode.gain.value=S.vol}
-  saveStore();
-  document.dispatchEvent(new CustomEvent("halftone:vol"));
-  if(IS_OWNER)emitSync({vol:S.vol});else emitCmd({cmd:"vol",v:S.vol});
-}
+const S={
+  lib:[], root:"", i:-1, meta:null, playing:false,
+  shuffle:false, repeat:"off", vol:.8,
+  liked:new Set(), playlists:[],
+  queue:[],               /* play queue: {path,title,artist,album,duration_s,streaminfo,format,lossless,bitrate_kbps,coverUrl} */
+  queueHistory:[],
+  cfg:{},                 /* merged settings mirror (populated at boot) */
+  lyrics:[], lidx:-1,
+  lyricsStatus:"none",    /* none|searching|sidecar|embedded|cache|lrclib|notfound|error */
+  lyricsPlain:null,
+  view:"nowplaying",
+  drag:null, pinned:false, lyricsOpen:false,
+  _img:null, _artUrl:null, _barsRcv:new Float32Array(NBARS), _pos:0,
+};
+window.S=S;
+const ACC={hex:[102,224,194],cur:[102,224,194],anim:false,from:null,to:null,t0:0,mode:"album",custom:null};
+const BG_LUM=.07;               /* fallback; recomputed from --bg on theme change */
+let themeCanvas={bg:[18,23,26],off:[35,42,46],ink:[242,232,207]};
+let themeSeekStyle="led", themeVolStyle="leds", themeArtDefault="dither", themeAmbientDefault="dither";
+const SLEEP={until:0,stopAfterTrack:false,timer:null};
+const SWEEP={t:0,dir:0,v:0};    /* seek sweep state (drag scrub) */
+window.SWEEP=SWEEP;
+let AC=null,EQ_NODES=[null,null,null,null,null,null,null,null,null,null],gainIn=null,gainOut=null,analyser=null,SRC=null,MEDIA=null;
+const EMA=new Float32Array(NBARS);
+window.EMA=EMA;
 
-/* command dispatch (owner side) + state listeners (viewer side) */
-if(T&&T.event&&T.event.listen&&curWin){
-  if(IS_OWNER){
-    T.event.listen("halftone:cmd",e=>{
-      const c=e.payload||{};
-      (async()=>{
-        try{
-          if(c.cmd==="play")await setPlaying(true);
-          else if(c.cmd==="pause")await setPlaying(false);
-          else if(c.cmd==="toggle")await setPlaying(!S.playing);
-          else if(c.cmd==="next")await nextTrack();
-          else if(c.cmd==="prev")await prevTrack();
-          else if(c.cmd==="seek"&&c.t!=null){el.aud.currentTime=Math.max(0,Math.min(durSec(),c.t));
-            document.dispatchEvent(new CustomEvent("halftone:seeked"))}
-          else if(c.cmd==="nudge")el.aud.currentTime=Math.max(0,Math.min(durSec(),posSec()+c.d));
-          else if(c.cmd==="vol")setVol(c.v);
-          else if(c.cmd==="load"&&c.i!=null)await loadTrack(c.i,true);
-          else if(c.cmd==="scan")await scanLibrary(c.dir||S.root||"");
-          else if(c.cmd==="lrcfetch"&&c.path){
-            try{await invoke("lrc_fetch",{path:c.path,artist:c.artist,title:c.title});
-              if(S.i!=null&&S.lib[S.i]&&S.lib[S.i].path===c.path){
-                S.lyrics=await invoke("read_lyrics",{path:c.path});
-                if(el.lyrWrap)el.lyrWrap.classList.toggle("show",!!S.lyrics.length);
-                S.lidx=-1;updateLyrics();buildLyrics&&buildLyrics()}
-              toast("Lyrics fetched from LRCLIB.","ok");emitSync()}
-            catch(e){toast("Lyrics fetch failed: "+e,"error")}}
-          else if(c.cmd==="repeat")cycleRepeat();
-          else if(c.cmd==="shuffle"){S.shuffle=!S.shuffle;saveStore();updTransportAll();emitSync({shuffle:S.shuffle})}
-          else if(c.cmd==="like"&&c.path){toggleLike(c.path);emitSync()}
-          else if(c.cmd==="pl"&&c.name){makePlaylist(c.name,c.paths||[]);emitSync()}
-          else if(c.cmd==="eq"){S.cfg.eq=Object.assign(S.cfg.eq,c.eq||{});saveStore();
-            if(c.rebuild)reconnectEq();else applyEqGains();emitSync()}
-          else if(c.cmd==="rg"){S.cfg.rg=c.mode||"off";saveStore();applyEqGains();emitSync()}
-          else if(c.cmd==="sink"){setSink(c.id)}
-          else if(c.cmd==="sleep"){if(c.mode==="track")sleepEndOfTrack();
-            else if(c.mode==="off")sleepCancel();else sleepSet(c.mins||0)}
-        }catch(err){console.warn("cmd",c.cmd,err)}
-      })();
-    }).catch(()=>{});
-  }else{
-    T.event.listen("halftone:sync",e=>applySync(e.payload)).catch(()=>{});
-    T.event.listen("halftone:time",e=>{const d=e.payload||{};S._pos=d.t||0;
-      document.dispatchEvent(new CustomEvent("halftone:tick"))}).catch(()=>{});
-    T.event.listen("halftone:bars",e=>{const d=e.payload||{};
-      if(!S._barsRcv)S._barsRcv=new Float32Array(NBARS);
-      if(d.b&&d.b.length===NBARS){for(let k=0;k<NBARS;k++)S._barsRcv[k]=(d.b.charCodeAt(k)-33)/255;
-        S._barsNew=true}}).catch(()=>{});
-  }
-}
-
-/* ============ output device (owner; setSinkId = shared mixer, NOT exclusive) ==== */
-async function listSinks(){
-  if(!IS_OWNER||!navigator.mediaDevices)return [];
-  try{const ds=await navigator.mediaDevices.enumerateDevices();
-    return ds.filter(d=>d.kind==="audiooutput").map(d=>({id:d.deviceId,label:d.label||"speaker"}));
-  }catch(e){return []}
-}
-async function setSink(id){
-  S.cfg.sink=id||"";
-  if(IS_OWNER&&el.aud&&el.aud.setSinkId){
-    try{await el.aud.setSinkId(id||"");saveStore();return true}
-    catch(e){console.warn("setSinkId",e);S.cfg.sink="";saveStore();return false}
-  }
-  saveStore();return false;
-}
-if(IS_OWNER&&navigator.mediaDevices){
-  try{navigator.mediaDevices.addEventListener("devicechange",async()=>{
-    /* hot-plug: if the saved sink vanished, fall back to default */
-    if(S.cfg.sink){
-      const ds=await listSinks();
-      if(!ds.some(d=>d.deviceId===S.cfg.sink))setSink("");
-    }})}catch(_){}
-}
-
-/* ============ sleep timer (owner) ============ */
-let SLEEP={until:0,stopAfterTrack:false};
-function sleepSet(mins){
-  SLEEP.stopAfterTrack=false;
-  SLEEP.until=mins>0?Date.now()+mins*60000:0;
-  if(IS_OWNER)document.dispatchEvent(new CustomEvent("halftone:sleep"));
-}
-function sleepEndOfTrack(){
-  SLEEP.until=0;SLEEP.stopAfterTrack=true;
-  if(IS_OWNER)document.dispatchEvent(new CustomEvent("halftone:sleep"));
-}
-function sleepCancel(){SLEEP.until=0;SLEEP.stopAfterTrack=false;
-  if(IS_OWNER)document.dispatchEvent(new CustomEvent("halftone:sleep"))}
-setInterval(()=>{
-  if(!IS_OWNER||!SLEEP.until)return;
-  if(SLEEP.until&&Date.now()>=SLEEP.until){setPlaying(false);sleepCancel()}
-},1000);
-
-/* owner pump: authoritative clock + spectrum broadcast.
-   setInterval (not rAF) so it keeps running while the main
-   window is HIDDEN - audible playback exempts the page from
-   timer throttling, which is exactly when bars matter. */
-if(IS_OWNER){
-  setInterval(()=>{
-    if(!S._syncReady)return;
-    const b=bars();let out="";
-    for(let k=0;k<NBARS;k++){const q=Math.max(0,Math.min(255,Math.round(b[k]*255)));out+=String.fromCharCode(q+33)}
-    emitX("halftone:bars",{b:out});
-    emitX("halftone:time",{t:el.aud?el.aud.currentTime:0});
-  },33);
-}
-
-/* ============ accent system ============ */
-function rgb2hsl(r,g,b){const mx=Math.max(r,g,b),mn=Math.min(r,g,b);let h=0,s=0;const l=(mx+mn)/2;
-  if(mx!==mn){const d=mx-mn;s=l>.5?d/(2-mx-mn):d/(mx+mn);
-    switch(mx){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;default:h=(r-g)/d+4}h/=6}
-  return {h,s,l}}
-function hsl2rgb(h,s,l){const f=n=>{const k=(n+h*12)%12;const a=s*Math.min(l,1-l);return l-a*Math.max(-1,Math.min(k-3,9-k,1))};return [f(0)*255,f(8)*255,f(4)*255]}
-const lin=c=>{c/=255;return c<=.03928?c/12.92:Math.pow((c+.055)/1.055,2.4)};
-const lum=(r,g,b)=>.2126*lin(r)+.7152*lin(g)+.0722*lin(b);
-const ratio=(l1,l2)=>(Math.max(l1,l2)+.05)/(Math.min(l1,l2)+.05);
-const BG_LUM=lum(0x16,0x18,0x1A);
-function extractAccent(img){const c=document.createElement("canvas");c.width=c.height=24;
-  const g=c.getContext("2d",{willReadFrequently:true});g.drawImage(img,0,0,24,24);
-  const d=g.getImageData(0,0,24,24).data;
-  const W=new Array(12).fill(0),Hh=new Array(12).fill(0),Ss=new Array(12).fill(0),Ll=new Array(12).fill(0);
-  for(let i=0;i<d.length;i+=4){const {h,s,l}=rgb2hsl(d[i]/255,d[i+1]/255,d[i+2]/255);
-    if(s>.25&&l>.12&&l<.92){const w=s*Math.max(l,.15),b=Math.min(11,Math.floor(h*12));
-      W[b]+=w;Hh[b]+=h*w;Ss[b]+=s*w;Ll[b]+=l*w}}
-  let best=-1;for(let i=0;i<12;i++)if(W[i]>0&&(best<0||W[i]>W[best]))best=i;
-  if(best<0)return {h:.44,s:.62,l:.56};
-  return {h:Hh[best]/W[best],s:Ss[best]/W[best],l:Ll[best]/W[best]}}
-function clampAccent(a){const h=a.h,s=Math.min(.9,Math.max(.5,a.s));let l=Math.min(.68,Math.max(.45,a.l));
-  while(l<.82){const [r,g,b]=hsl2rgb(h,s,l);if(ratio(lum(r,g,b),BG_LUM)>=3)break;l+=.02}
-  return {h,s,l}}
-const ACC={cur:{h:.44,s:.62,l:.56},from:null,to:null,t0:0,dur:420,anim:false,hex:[102,224,194]};
-const easeIO=k=>k<.5?4*k*k*k:1-Math.pow(-2*k+2,3)/2;
-const lerpHue=(a,b,k)=>{let d=b-a;if(d>.5)d-=1;if(d<-.5)d+=1;return (a+d*k+1)%1};
-function applyAccent(){const [r,g,b]=hsl2rgb(ACC.cur.h,ACC.cur.s,ACC.cur.l).map(v=>Math.round(v));
-  ACC.hex=[r,g,b];const rs=document.documentElement.style;
-  rs.setProperty("--accent",`rgb(${r},${g},${b})`);
-  rs.setProperty("--accent-22",`rgba(${r},${g},${b},.22)`);
-  rs.setProperty("--accent-12",`rgba(${r},${g},${b},.12)`)}
-function tweenAccent(to){ACC.from={...ACC.cur};ACC.to=to;ACC.t0=performance.now();ACC.anim=true}
-function tickAccent(now){if(!ACC.anim)return false;
-  const k=easeIO(Math.min(1,(now-ACC.t0)/ACC.dur));
-  ACC.cur.h=lerpHue(ACC.from.h,ACC.to.h,k);ACC.cur.s=ACC.from.s+(ACC.to.s-ACC.from.s)*k;
-  ACC.cur.l=ACC.from.l+(ACC.to.l-ACC.from.l)*k;applyAccent();
-  if(k>=1)ACC.anim=false;return true}
-
-/* ============ art: Bayer dither LED grid ============
-   cfg.grid = cells per 96px of canvas (32 standard / 48 fine /
-   64 ultra) so the CELL SIZE is the design constant. gridFor()
-   maps that cell size onto any canvas — widget art, album cards,
-   hero art, now-playing thumbnail all share one halftone scale. */
-const BAYER=[[0,32,8,40,2,34,10,42],[48,16,56,24,50,18,58,26],[12,44,4,36,14,46,6,38],
-  [60,28,52,20,62,30,54,22],[3,35,11,43,1,33,9,41],[51,19,59,27,49,17,57,25],
-  [15,47,7,39,13,45,5,37],[63,31,55,23,61,29,53,21]].map(r=>r.map(v=>v/64));
-function gridFor(size){const cellPx=96/(S.cfg.grid||32);return Math.max(10,Math.round(size/cellPx))}
-function drawDither(cv,img,grid){
-  const dpr=Math.min(2,devicePixelRatio||1);
-  const W=cv.clientWidth||cv.width/dpr,H=cv.clientHeight||cv.height/dpr;
-  if(!grid)grid=gridFor(Math.min(W,H));
-  cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
-  const g=cv.getContext("2d");
-  g.fillStyle="#12171A";g.fillRect(0,0,cv.width,cv.height);
-  if(!img)return;
-  const off=document.createElement("canvas");off.width=off.height=grid;
-  const og=off.getContext("2d",{willReadFrequently:true});og.drawImage(img,0,0,grid,grid);
-  const px=og.getImageData(0,0,grid,grid).data;const cell=cv.width/grid;const [ar,ag,ab]=ACC.hex;
-  for(let y=0;y<grid;y++)for(let x=0;x<grid;x++){
-    const i=(y*grid+x)*4;
-    const lumv=(px[i]*.2126+px[i+1]*.7152+px[i+2]*.0722)/255;
-    const v=lumv+(BAYER[y%8][x%8]-.5)*.55;
-    if(v>.62)g.fillStyle=`rgb(${ar},${ag},${ab})`;
-    else if(v>.38)g.fillStyle=`rgba(${ar},${ag},${ab},.45)`;
-    else continue;
-    g.fillRect(x*cell,y*cell,cell-.75,cell-.75)}}
-function artSrc(){const m=S.meta;return m&&m.cover?("data:"+m.cover.mime+";base64,"+m.cover.data_b64):null}
-
-/* ============ album-themed edge: perimeter dither band ============ */
-function edgePixels(img){
-  if(S._edgeImg===img&&S._edgePx)return S._edgePx;
-  const c=document.createElement("canvas");c.width=c.height=64;
-  const g=c.getContext("2d",{willReadFrequently:true});
-  if(img)g.drawImage(img,0,0,64,64);
-  S._edgeImg=img;S._edgePx=g.getImageData(0,0,64,64).data;
-  return S._edgePx;
-}
-function drawEdge(cv,img){
-  const dpr=Math.min(2,devicePixelRatio||1);
-  const W=cv.clientWidth,H=cv.clientHeight;if(!W||!H)return;
-  const dw=Math.round(W*dpr),dh=Math.round(H*dpr);
-  if(cv.width!==dw||cv.height!==dh){cv.width=dw;cv.height=dh}
-  const g=cv.getContext("2d");g.clearRect(0,0,dw,dh);
-  if(!img)return;                    /* no art -> plain accent border only */
-  const px=edgePixels(img),N=64,[ar,ag,ab]=ACC.hex;
-  const C=Math.max(3,Math.round(4*dpr)),in1=Math.round(dpr);
-  const nx=Math.max(1,Math.floor((dw-2*in1)/C)),ny=Math.max(1,Math.floor((dh-2*in1)/C));
-  const lumAt=(ix,iy)=>{const i=(iy*N+ix)*4;return (px[i]*.2126+px[i+1]*.7152+px[i+2]*.0722)/255};
-  const cell=(x,y,bx,by,v0)=>{
-    const v=v0+(BAYER[by%8][bx%8]-.5)*.5;
-    if(v>.58)g.fillStyle=`rgba(${ar},${ag},${ab},.5)`;
-    else if(v>.38)g.fillStyle=`rgba(${ar},${ag},${ab},.26)`;
-    else return;
-    g.fillRect(x,y,C-.75,C-.75)};
-  for(let i=0;i<nx;i++){const u=Math.min(63,Math.round(i/nx*(N-1))),x=in1+i*C;
-    cell(x,in1,i,0,lumAt(u,0));
-    cell(x,dh-in1-C,i,0,lumAt(u,N-1))}
-  for(let j=0;j<ny;j++){const v=Math.min(63,Math.round(j/ny*(N-1))),y=in1+j*C;
-    cell(in1,y,0,j,lumAt(0,v));
-    cell(dw-in1-C,y,0,j,lumAt(N-1,v))}
-}
-
-/* ============ ambient background: music-reactive accent dither field ============
-   Big Bayer cells in the album accent, drifting slowly; each
-   column's brightness rides the analyser bar for that frequency —
-   the whole background breathes with the track.           */
-function drawHalo(cv,t){
-  /* HALO GLOW: large soft radial light blobs breathing with the
-     music + a sparse dither veil. Gentle on the eyes. */
-  const dpr=Math.min(2,devicePixelRatio||1);
-  const W=cv.clientWidth,H=cv.clientHeight;if(!W||!H)return;
-  const dw=Math.round(W*dpr),dh=Math.round(H*dpr);
-  if(cv.width!==dw||cv.height!==dh){cv.width=dw;cv.height=dh}
-  const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
-  const [ar,ag,ab]=ACC.hex,spec=bars();
-  const blobs=[[.22,.32,0],[.74,.28,1],[.32,.76,2],[.7,.72,3]];
-  for(let k=0;k<blobs.length;k++){
-    const bx=blobs[k][0],by=blobs[k][1],bi=blobs[k][2];
-    const e=.18+spec[(bi*7)%NBARS]*.5;
-    const x=(bx+.04*Math.sin(t*.21+k*1.7))*W,y=(by+.05*Math.cos(t*.17+k*2.1))*H;
-    const R=(0.34+0.06*Math.sin(t*.13+k))*Math.min(W,H);
-    const gr=g.createRadialGradient(x,y,0,x,y,R);
-    gr.addColorStop(0,`rgba(${ar},${ag},${ab},${(0.085*e).toFixed(3)})`);
-    gr.addColorStop(1,`rgba(${ar},${ag},${ab},0)`);
-    g.fillStyle=gr;g.fillRect(x-R,y-R,2*R,2*R);
-  }
-  const cell=64,off=Math.floor(t*.4);
-  for(let y=0;y<Math.ceil(H/cell);y++)for(let x=0;x<Math.ceil(W/cell);x++){
-    const b=BAYER[(y+off)%8][(x+off)%8];if(b<.8)continue;
-    g.fillStyle=`rgba(${ar},${ag},${ab},.05)`;
-    g.fillRect(x*cell,y*cell,3,3)}
-}
-function drawAmbient(cv,t){
-  const dpr=Math.min(2,devicePixelRatio||1);
-  const W=cv.clientWidth,H=cv.clientHeight;if(!W||!H)return;
-  const dw=Math.round(W*dpr),dh=Math.round(H*dpr);
-  if(cv.width!==dw||cv.height!==dh){cv.width=dw;cv.height=dh}
-  const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
-  const [ar,ag,ab]=ACC.hex,cell=46;
-  const dx=(t*9)%cell,dy=(t*5)%cell,off=Math.floor(t*.7);
-  const spec=bars();
-  const cols=Math.ceil(W/cell)+1,rows=Math.ceil(H/cell)+1;
-  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
-    const b=BAYER[(y+off)%8][(x+off*2)%8];if(b<.28)continue;
-    const bi=(x*7)%NBARS,energy=.35+spec[bi]*1.5;
-    const a=(b-.25)*.3*energy;if(a<=.012)continue;
-    g.fillStyle=`rgba(${ar},${ag},${ab},${Math.min(.22,a).toFixed(3)})`;
-    g.fillRect(x*cell-dx,y*cell-dy,cell*.92,cell*.92)}
-}
-
-/* ============ owner audio graph: source -> [EQ chain] -> gain -> dest ====
-   EQ = 10 peaking biquads + preamp gain. Bypass physically disconnects
-   the filters (true bypass), zeroing them would still color the sound. */
-let AC=null,analyser=null,DATA=null,BINS=null,gainNode=null,preNode=null,eqIn=null,eqOut=null;
-const NBARS=48,EMA=new Float32Array(NBARS);
-const EQ_BANDS=[
-  {f:31,type:"lowshelf"},{f:62,type:"peaking"},{f:125,type:"peaking"},{f:250,type:"peaking"},
-  {f:500,type:"peaking"},{f:1000,type:"peaking"},{f:2000,type:"peaking"},{f:4000,type:"peaking"},
-  {f:8000,type:"peaking"},{f:16000,type:"highshelf"}];
-const EQ_NODES=EQ_BANDS.map(()=>null);
-function eqEnabled(){return S.cfg.eq&&S.cfg.eq.on}
-function eqTotalDb(){  /* worst-case sum = clipping risk */
-  if(!eqEnabled())return 0;
-  return (S.cfg.eq.pre||0)+S.cfg.eq.bands.reduce((a,b)=>a+Math.abs(b),0);
-}
-function buildEqChain(src){
-  if(!eqEnabled()){eqIn=null;eqOut=null;return src}     /* TRUE bypass: not connected */
-  preNode=AC.createGain();
-  preNode.gain.value=Math.pow(10,(S.cfg.eq.pre||0)/20);
-  src.connect(preNode);   /* SOURCE -> preamp: without this the chain is a dead end */
-  let node=preNode;eqIn=preNode;
-  EQ_BANDS.forEach((b,k)=>{
-    const f=AC.createBiquadFilter();f.type=b.type;f.frequency.value=b.f;
-    f.Q.value=S.cfg.eq.qs&&S.cfg.eq.qs[k]?S.cfg.eq.qs[k]:1.1;
-    f.gain.value=S.cfg.eq.bands[k]||0;
-    node.connect(f);node=f;EQ_NODES[k]=f});
-  eqOut=node;node.connect(analyser);
-  return preNode;
-}
-function reconnectEq(){  /* toggle/preset change: rebuild the chain */
-  if(!AC||!S._srcNode)return;
-  try{S._srcNode.disconnect()}catch(_){}
-  if(eqIn){try{eqOut.disconnect()}catch(_){} }
-  EQ_NODES.forEach(n=>{if(n){try{n.disconnect()}catch(_){}}});
-  const tail=buildEqChain(S._srcNode);
-  tail.connect(analyser);
-}
-function applyEqGains(){  /* gain tweaks don't need rewiring */
-  if(!AC)return;
-  if(preNode)preNode.gain.value=Math.pow(10,((S.cfg.eq.pre||0)+rgDb()+headroomDb())/20);
-  EQ_BANDS.forEach((b,k)=>{const n=EQ_NODES[k];
-    if(n)n.gain.value=S.cfg.eq.bands[k]||0});
-}
-/* ReplayGain mode: off | track | album (values in dB from VORBIS_COMMENT) */
-function rgDb(){
-  if(!S.meta||!S.meta.replaygain||S.cfg.rg==="off")return 0;
-  const key=S.cfg.rg==="album"?"album_gain":"track_gain";
-  const v=S.meta.replaygain[key];
-  return typeof v==="number"?v:parseFloat(v)||0;
-}
-/* clipping guard: boosting beyond 0dBFS risks clip; auto-trim preamp */
-function headroomDb(){
-  if(!eqEnabled())return rgDb()>0?-rgDb():0;
-  const total=(S.cfg.eq.pre||0)+rgDb()+S.cfg.eq.bands.reduce((a,b)=>a+Math.max(0,b),0);
-  return total>0?-total:0;   /* reduce preamp by the positive sum */
-}
-function ensureAudio(){if(AC)return true;
-  try{
-    AC=new (window.AudioContext||window.webkitAudioContext)();
-    analyser=AC.createAnalyser();analyser.fftSize=2048;analyser.smoothingTimeConstant=.8;
-    gainNode=AC.createGain();gainNode.gain.value=S.vol;
-    const ms=AC.createMediaElementSource(el.aud);S._srcNode=ms;
-    const tail=buildEqChain(ms);   /* source -> [pre+EQ] -> analyser */
-    tail.connect(analyser);
-    analyser.connect(gainNode);gainNode.connect(AC.destination);
-    DATA=new Uint8Array(analyser.frequencyBinCount);
-    const fMin=40,fMax=Math.min(15000,AC.sampleRate/2),K=AC.sampleRate/analyser.fftSize;BINS=[];
-    for(let i=0;i<NBARS;i++){const f0=fMin*Math.pow(fMax/fMin,i/NBARS),f1=fMin*Math.pow(fMax/fMin,(i+1)/NBARS);
-      let b0=Math.max(0,Math.floor(f0/K)),b1=Math.min(DATA.length,Math.max(b0+1,Math.ceil(f1/K)));BINS.push([b0,b1])}
-    return true;
-  }catch(e){console.error("audio init",e);return false}}
-function bars(){const out=new Float32Array(NBARS);
-  if(!IS_OWNER){if(!S._barsRcv)S._barsRcv=new Float32Array(NBARS);
-    for(let i=0;i<NBARS;i++)out[i]=S._barsRcv[i];return out}  /* painted from owner broadcast */
-  if(analyser&&S.playing)analyser.getByteFrequencyData(DATA);
-  for(let i=0;i<NBARS;i++){let v=0;
-    if(analyser&&S.playing){const [b0,b1]=BINS[i];let s=0;for(let b=b0;b<b1;b++)s+=DATA[b];
-      v=Math.min(1,(s/(b1-b0))/255*(.55+.75*Math.pow((i+1)/NBARS,.6)))}
-    const p=EMA[i];EMA[i]=v>p?p+(v-p)*.5:p+(v-p)*.14;if(!S.playing)EMA[i]*=.9;out[i]=EMA[i]}
-  return out}
-
-/* ============ meter with ILLUMINATION SWEEP drag physics ============ */
-const SWEEP={t:0,dir:1,v:0};
-function sweepTick(){
-  if(S.drag==null){SWEEP.v*=.88;if(SWEEP.v<.01)SWEEP.v=0}
-  else SWEEP.v+=(1-SWEEP.v)*.35;
-}
-function drawMeter(cv,H){
-  const box=cv.parentElement,W=box.clientWidth;if(!W||!H)return;
-  const dpr=Math.min(2,devicePixelRatio||1);
-  if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr)}
-  const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
-  const spec=bars(),gap=2,cw=Math.max(2,(W-gap*(NBARS-1))/NBARS);
-  const rows=Math.max(2,Math.floor((H-2)/4));
-  const dur=durSec();
-  const prog=dur>0?posSec()/dur:0;
-  const dragP=S.drag!=null?S.drag.p:prog;
-  const [ar,ag,ab]=ACC.hex;
-  const durS=dur||1;
-  for(let i=0;i<NBARS;i++){
-    const segT=(i+.5)/NBARS*durS;
-    const played=(i+.5)/NBARS<dragP;
-    const lit=Math.round(Math.max(.08,spec[i])*rows);
-    let alpha=played?1:.22;
-    if(S.drag!=null){
-      const dist=(segT-SWEEP.t)/durS*NBARS;
-      if(dist>0){const decay=Math.exp(-dist*.14);alpha=.22+.6*decay*SWEEP.v}
-      else alpha=1;
-    }
-    for(let r=0;r<rows;r++){
-      const y=H-2-(r+1)*4;
-      if(r<lit){
-        g.fillStyle=played?`rgba(${ar},${ag},${ab},${alpha})`:`rgba(${ar},${ag},${ab},${.22*alpha})`;
-      }else{
-        g.fillStyle=played?`rgba(${ar},${ag},${ab},${.08})`:"#232A2E";
-      }
-      g.fillRect(i*(cw+gap),y,cw,3);
-    }
-    if(S.drag!=null&&Math.abs(segT-SWEEP.t)<durS/NBARS){
-      g.fillStyle=`rgba(255,255,255,${.85*SWEEP.v})`;
-      g.fillRect(i*(cw+gap),H-2-rows*4,cw,rows*4-1);
-    }
-  }
-  const px=dragP*W;
-  g.fillStyle="#F2E8CF";g.fillRect(px-.75,0,1.5,H);
-  g.beginPath();g.moveTo(px-3,0);g.lineTo(px+3,0);g.lineTo(px,4);g.closePath();g.fill();
-}
-
-/* ============ lyrics ============ */
-function buildLyrics(){el.lyrWrap.innerHTML="";
-  S.lyrics.forEach(L=>{const d=document.createElement("div");d.className="line";d.textContent=L.text;d.dataset.t=L.t;
-    d.onclick=()=>{if(IS_OWNER)el.aud.currentTime=L.t;else emitCmd({cmd:"seek",t:L.t});
-      S.lidx=-1;S._lyrManual=false};  /* click a line to seek + resume follow */
-    el.lyrWrap.appendChild(d)});S.lidx=-1;S._lyrManual=false}
-/* shared lyrics follow: NATIVE scrollTo (widget + app panes are both real
-   scroll containers now). Manual wheel sets S._lyrManual=true to pause the
-   follow; seeking (line click / drag) clears it. No transform juggling. */
-function updateLyrics(){
-  if(!(S.lyricsOpen||S._npLyrics))return;
-  const view=el.lyrView||(el.lyrWrap&&el.lyrWrap.parentElement);
-  const lines=[...el.lyrWrap.children];
-  if(!view||!lines.length)return;
-  const t=posSec();
-  let idx=-1;for(let k=0;k<lines.length;k++){if(t>=+lines[k].dataset.t)idx=k}
-  if(idx===S.lidx)return;S.lidx=idx;
-  lines.forEach((l,i)=>l.classList.toggle("active",i===idx));
-  if(idx>=0&&!S._lyrManual){
-    const ln=lines[idx];
-    const top=ln.offsetTop-view.clientHeight/2+ln.offsetHeight/2;
-    view.scrollTo({top:Math.max(0,top),behavior:"smooth"});
-  }
-  if(idx<0)S._lyrManual=false;
-}
-
-/* ============ error/status toast (visible, non-blocking, dismissible) ============ */
-function toast(msg, kind="info", ms=4200){
-  let host=document.getElementById("htToasts");
-  if(!host){
-    host=document.createElement("div");host.id="htToasts";
-    host.style.cssText="position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:95;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none";
-    document.body.appendChild(host);
-  }
+/* ============================================================
+   TINY HELPERS
+   ============================================================ */
+function $(id){return document.getElementById(id)}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function fmt(sec){sec=Math.max(0,sec|0);const m=(sec/60)|0,s=sec%60;return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")}
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function lum(r,g,b){return (0.2126*(r/255)+0.7152*(g/255)+0.0722*(b/255))}
+function contrast(a,b){const l1=lum(...a),l2=lum(...b);const [hi,lo]=l1>l2?[l1,l2]:[l2,l1];return (hi+.05)/(lo+.05)}
+function css(c,a){return a==null?`rgb(${c[0]},${c[1]},${c[2]})`:`rgba(${c[0]},${c[1]},${c[2]},${a})`}
+function toast(msg,kind){
+  let box=document.getElementById("htToasts");
+  if(!box){box=document.createElement("div");box.id="htToasts";document.body.appendChild(box)}
   const t=document.createElement("div");
-  t.className="ht-toast";
-  t.style.cssText="pointer-events:auto;max-width:70vw;padding:8px 14px;border:1px solid var(--line2);border-radius:var(--r-m);background:var(--bg2);color:var(--cream);font:11px var(--mono);letter-spacing:.04em;box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer";
-  if(kind==="error"){t.style.borderColor="#E06666";t.style.color="#E06666"}
-  if(kind==="warn"){t.style.borderColor="#E0B966"}
+  t.className="toast"+(kind?" "+kind:"");
   t.textContent=msg;
   t.onclick=()=>t.remove();
-  host.appendChild(t);
-  if(ms)setTimeout(()=>t.remove(),ms);
-  return t;
+  box.appendChild(t);
+  setTimeout(()=>{t.style.transition="opacity .3s";t.style.opacity="0";setTimeout(()=>t.remove(),320)},3600);
 }
 window.toast=toast;
-
-/* ============ library ============ */
-async function scanLibrary(dir){
-  if(el.libstat)el.libstat.textContent="scanning...";
+function openExternal(url){
   try{
-    if(!IS_OWNER){
-      /* viewer: forward to owner; result comes back via sync */
-      emitCmd({cmd:"scan",dir});
-      toast("Scan requested \u2014 the player window does the scanning.","info");
-      return {tracks:S.lib,skipped:[],unsupported:0};
+    if(T&&T.opener&&T.opener.openUrl)return T.opener.openUrl(url);
+    if(T&&T.shell&&T.shell.open)return T.shell.open(url);
+  }catch(e){console.warn("openExternal",e)}
+  try{window.open(url,"_blank")}catch(_){}
+}
+window.openExternal=openExternal;
+
+/* ============================================================
+   THEME ADAPTERS
+   common.js reads every color through these. theme.js caches
+   tokens on <html>; we mirror them here and re-render.
+   ============================================================ */
+function parseTok(name){
+  const v=getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if(!v)return null;
+  let m=v.match(/rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
+  if(m)return [+m[1],+m[2],+m[3]];
+  if(/^#[0-9a-f]{6}$/i.test(v))return [parseInt(v.slice(1,3),16),parseInt(v.slice(3,5),16),parseInt(v.slice(5,7),16)];
+  if(/^#[0-9a-f]{3}$/i.test(v))return [parseInt(v[1]+v[1],16),parseInt(v[2]+v[2],16),parseInt(v[3]+v[3],16)];
+  return null;
+}
+function rgbStr(c){return c?`rgb(${c[0]|0},${c[1]|0},${c[2]|0})`:"#000"}
+function windowBgColor(){
+  const cs=getComputedStyle(document.body);
+  return cs&&cs.backgroundColor?cs.backgroundColor:"#12171A";
+}
+document.addEventListener("halftone:theme",e=>{
+  const d=e.detail||{};
+  const t=window.Theme||{};
+  if(t.canvas)themeCanvas={bg:[...t.canvas.bg],off:[...t.canvas.off],ink:[...t.canvas.ink]};
+  themeSeekStyle=t.seekStyle||"led";
+  themeVolStyle=t.volStyle||"leds";
+  themeArtDefault=t.artDefault||"dither";
+  themeAmbientDefault=t.ambientDefault||"dither";
+  S.cfg.theme=d.theme||S.cfg.theme;
+  S.cfg.mode=d.mode||S.cfg.mode;
+  recalibrateBgLum();
+  updateSwitchStyles();
+  requestRedraw("theme");
+});
+
+/* ---------- accent: extraction + clamp + tween ---------- */
+let bgLum=BG_LUM;
+function recalibrateBgLum(){
+  const bg=parseTok("--bg")||[22,24,26];
+  bgLum=lum(...bg);
+  if(bgLum<0.02)bgLum=0.02;
+}
+function clampAccent(rgb){
+  let [h,s,l]=rgbToHsl(rgb);
+  const C=window.Theme?themeCanvas.bg:[18,23,26];
+  let ratio=contrast([rgb[0]|0,rgb[1]|0,rgb[2]|0],C);
+  while(ratio<3&&l<92){l++;[rgb[0],rgb[1],rgb[2]]=hslToRgb(h,s,l);ratio=contrast([rgb[0]|0,rgb[1]|0,rgb[2]|0],C)}
+  while(ratio<3&&l>8){l--;[rgb[0],rgb[1],rgb[2]]=hslToRgb(h,s,l);ratio=contrast([rgb[0]|0,rgb[1]|0,rgb[2]|0],C)}
+  return {rgb:[rgb[0]|0,rgb[1]|0,rgb[2]|0]};
+}
+function rgbToHsl([r,g,b]){
+  r/=255;g/=255;b/=255;
+  const mx=Math.max(r,g,b),mn=Math.min(r,g,b);let h,s,l=(mx+mn)/2;
+  if(mx===mn){h=s=0}else{
+    const d=mx-mn;
+    s=l>.5?d/(2-mx-mn):d/(mx+mn);
+    switch(mx){
+      case r:h=(g-b)/d+(g<b?6:0);break;
+      case g:h=(b-r)/d+2;break;
+      default:h=(r-g)/d+4;
     }
+    h/=6;
+  }
+  return [h*360,s*100,l*100];
+}
+function hslToRgb(h,s,l){
+  h/=360;s/=100;l/=100;
+  if(s===0){const v=Math.round(l*255);return [v,v,v]}
+  const hue2rgb=(p,q,t)=>{t=(t+1)%1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p};
+  const q=l<.5?l*(1+s):l+s-l*s,p=2*l-q;
+  return [Math.round(hue2rgb(p,q,h+1/3)*255),Math.round(hue2rgb(p,q,h)*255),Math.round(hue2rgb(p,q,h-1/3)*255)];
+}
+function extractAccent(img){
+  try{
+    const cv=document.createElement("canvas");cv.width=24;cv.height=24;
+    const g=cv.getContext("2d",{willReadFrequently:true});
+    g.drawImage(img,0,0,24,24);
+    const d=g.getImageData(0,0,24,24).data;
+    const buckets=new Map();
+    for(let i=0;i<d.length;i+=4){
+      const [h,s,l]=rgbToHsl([d[i],d[i+1],d[i+2]]);
+      if(s<18||l<12||l>90)continue;
+      const key=((h/24)|0)+":"+((s/25)|0);
+      const b=buckets.get(key)||{n:0,h:0,s:0,l:0};
+      b.n++;b.h+=h;b.s+=s;b.l+=l;
+      buckets.set(key,b);
+    }
+    let best=null;
+    buckets.forEach(b=>{if(!best||(b.n>best.n||(b.n===best.n&&b.s>best.s)))best=b});
+    if(!best)return null;
+    let [h,s,l]=[best.h/best.n,Math.min(80,best.s/best.n),clamp(best.l/best.n,45,70)];
+    return hslToRgb(h,s,l);
+  }catch(e){return null}
+}
+function setAccentRGB(rgb,inst){
+  ACC.from=ACC.cur.slice();
+  ACC.to=rgb;
+  ACC.t0=performance.now();
+  if(inst){ACC.cur=[...rgb];ACC.anim=false;applyAccentVars()}
+  else ACC.anim=true;
+}
+function applyAccentVars(){
+  const c=ACC.cur.map(v=>v|0);
+  document.documentElement.style.setProperty("--accent",`rgb(${c[0]},${c[1]},${c[2]})`);
+  document.documentElement.style.setProperty("--accent-22",`rgba(${c[0]},${c[1]},${c[2]},.22)`);
+  document.documentElement.style.setProperty("--accent-12",`rgba(${c[0]},${c[1]},${c[2]},.12)`);
+  document.dispatchEvent(new CustomEvent("halftone:accent"));
+}
+function tickAccent(now){
+  if(!ACC.anim)return false;
+  const p=clamp((now-ACC.t0)/500,0,1);
+  for(let k=0;k<3;k++)ACC.cur[k]=ACC.from[k]+(ACC.to[k]-ACC.from[k])*p;
+  applyAccentVars();
+  if(p>=1)ACC.anim=false;
+  return true;
+}
+function accMode(){return ACC.mode}
+function setAccentMode(m){
+  ACC.mode=["album","mint","sky","violet","rose","amber","red","custom"].includes(m)?m:"album";
+  const preset={mint:[102,224,194],sky:[110,197,232],violet:[167,139,250],rose:[242,125,160],amber:[224,185,102],red:[224,102,102]};
+  if(ACC.mode==="custom"&&ACC.custom)setAccentRGB(clampAccent(ACC.custom).rgb);
+  else if(preset[ACC.mode])setAccentRGB(clampAccent(preset[ACC.mode]).rgb);
+  else if(S._img)setAccentRGB(clampAccent(extractAccent(S._img)||preset.mint).rgb);
+  else setAccentRGB(preset.mint);
+  window.__ACC_SILENT=true;
+  try{window.htSet&&window.htSet("accent",ACC.mode,{noSave:false,force:true})}finally{window.__ACC_SILENT=false}
+}
+window.setAccentMode=setAccentMode;
+function setCustomAccent(c){
+  ACC.custom=hexToRgb(c);
+  ACC.mode="custom";
+  setAccentRGB(clampAccent(ACC.custom).rgb);
+}
+window.setCustomAccent=setCustomAccent;
+function hexToRgb(h){if(/^#[0-9a-f]{6}$/i.test(h))return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];return [102,224,194]}
+
+/* ============================================================
+   DITHER / DRAW HELPERS  (theme-token driven)
+   fitCanvas: backing store from ResizeObserver
+   devicePixelContentBoxSize (fallback rect*dpr) — correct under
+   the widget stage transform, never clientWidth.
+   drawDither: integer device-pixel cells, backing = N*cell,
+   one putImageData per frame, cached per (image,N,accent,size,
+   theme) — repaints only when a key changes.
+   ============================================================ */
+const _fitCache=new WeakMap();
+function fitCanvas(cv){
+  if(!cv)return 0;
+  const cached=_fitCache.get(cv);
+  if(cached&&cached.w&&cv.width!==undefined){
+    if(cv.width!==cached.w||cv.height!==cached.h){cv.width=cached.w;cv.height=cached.h}
+    return cached.w;
+  }
+  const dpr=window.devicePixelRatio||1;
+  const r=cv.getBoundingClientRect();
+  const w=Math.max(2,Math.round(r.width*dpr));
+  const h=Math.max(2,Math.round(r.height*dpr));
+  if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h}
+  return w;
+}
+function observeCanvas(cv,onsize){
+  if(!cv||_fitCache.get(cv))return;
+  _fitCache.set(cv,{w:0,h:0});
+  if(typeof ResizeObserver!=="function")return;
+  const ro=new ResizeObserver(es=>{
+    for(const e of es){
+      const box=e.devicePixelContentBoxSize&&e.devicePixelContentBoxSize[0];
+      let w,h;
+      if(box){w=box.inlineSize;h=box.blockSize}
+      else{const r=cv.getBoundingClientRect();const dpr=window.devicePixelRatio||1;
+        w=Math.max(2,Math.round(r.width*dpr));h=Math.max(2,Math.round(r.height*dpr))}
+      _fitCache.set(cv,{w,h});
+      onsize&&onsize();
+    }
+  });
+  ro.observe(cv);
+}
+window.observeCanvas=observeCanvas;
+const BAYER4=[[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]].map(r=>r.map(v=>(v+.5)/16));
+const ditherCache=new Map();   /* key → {cv-key parts} to skip repaints */
+function ditherKey(img,N,cell,W,H){
+  return [img?img.src.slice(-48):"none",N,cell,W,H,ACC.cur.map(v=>v|0).join(","),themeName(),themeMode(),(S.cfg&&S.cfg.grid)||32].join("|");
+}
+function themeName(){return (window.Theme&&window.Theme.name)||"analogue"}
+function themeMode(){return (window.Theme&&window.Theme.resolved)||"dark"}
+function drawDither(cv,img,opts){
+  opts=opts||{};
+  if(!cv)return;
+  fitCanvas(cv);
+  const g=cv.getContext("2d");
+  if(!g)return;
+  const W=cv.width,H=cv.height;
+  if(!img||(!img.naturalWidth&&!img.naturalHeight)){g.clearRect(0,0,W,H);return}
+  const density=(S.cfg&&S.cfg.grid)||32;
+  const cell=Math.max(2,Math.round(W/density));
+  const N=Math.max(2,Math.floor(W/cell));
+  const M=Math.max(1,Math.round(H/cell));
+  /* BACKING = N*cell exactly (brief T5); re-derive W from N*cell */
+  const BW=N*cell,BH=M*cell;
+  if(cv.width!==BW||cv.height!==BH){cv.width=BW;cv.height=BH}
+  /* fitCanvas enforces css*dpr (e.g. 137) while the dither needs N*cell
+     (136): on the next loop tick fitCanvas would resize 136->137, WIPING
+     the canvas, and the ditherCache key (unchanged) would skip the
+     repaint — blank art forever. Align the fit cache with the dither
+     backing so the two stops fighting. */
+  _fitCache.set(cv,{w:BW,h:BH});
+  const key=ditherKey(img,N,cell,BW,BH);
+  if(!opts.force&&ditherCache.get("_k")===key&&ditherCache.get("_cv")===cv)return;
+  ditherCache.set("_k",key);ditherCache.set("_cv",cv);
+  console.log("[dither] backing="+BW+"x"+BH+" N="+N+" cell="+cell+" N*cell="+(N*cell)+" (exact="+((BW===N*cell&&BH===M*cell)?"YES":"NO")+")");
+  g.imageSmoothingEnabled=false;
+  const fg=ACC.cur,bg=themeCanvas.bg;
+  /* downsample to N×M once, threshold with a 4×4 Bayer matrix */
+  const tmp=drawDither._tmp||(drawDither._tmp=document.createElement("canvas"));
+  if(tmp.width!==N||tmp.height!==M){tmp.width=N;tmp.height=M}
+  const tg=tmp.getContext("2d",{willReadFrequently:true});
+  tg.imageSmoothingEnabled=true;
+  tg.clearRect(0,0,N,M);
+  tg.drawImage(img,0,0,N,M);
+  const src=tg.getImageData(0,0,N,M).data;
+  const out=g.createImageData(BW,BH);
+  const od=out.data;
+  for(let y=0;y<BH;y++){
+    const ci=(y/cell)|0;
+    const rowOff=ci*N;
+    for(let x=0;x<BW;x++){
+      const pi=(y*BW+x)*4;
+      const cj=(x/cell)|0;
+      const si=((rowOff+cj))*4;
+      /* lum() already returns 0..1 (it /255s internally) */
+      const l=lum(src[si],src[si+1],src[si+2]);
+      const thr=BAYER4[y&3][x&3];
+      const on=l>thr;
+      od[pi]=on?fg[0]:bg[0];od[pi+1]=on?fg[1]:bg[1];od[pi+2]=on?fg[2]:bg[2];od[pi+3]=255;
+    }
+  }
+  g.putImageData(out,0,0);
+}
+function drawEdge(cv,img){
+  if(!cv||!cv.parentElement)return;
+  fitCanvas(cv);
+  const g=cv.getContext("2d");
+  if(!g)return;
+  const W=cv.width,H=cv.height;
+  g.clearRect(0,0,W,H);
+  const cell=4;
+  g.fillStyle=css(ACC.cur,.85);
+  for(let y=0;y<H;y+=cell*2)for(let x=0;x<W;x+=cell*2){
+    const edge=Math.min(x,W-x,y,H-y);
+    if(edge<26&&((x/cell+y/cell)%3===0))g.fillRect(x,y,cell,cell);
+  }
+}
+function drawMeter(cv,h){
+  if(!cv)return;
+  fitCanvas(cv);
+  const g=cv.getContext("2d");if(!g)return;
+  const W=cv.width,H=cv.height;
+  g.clearRect(0,0,W,H);
+  const B=S._barsRcv||new Float32Array(NBARS);
+  const segW=Math.max(3,Math.round(W/60));
+  const gap=2;
+  const n=Math.max(1,Math.floor(W/(segW+gap)));
+  for(let i=0;i<n;i++){
+    const v=B[Math.floor(i/n*NBARS)]||0;
+    const litH=Math.round(v*H);
+    const x=i*(segW+gap);
+    /* unlit rail (theme canvas-off), lit portion accent */
+    g.fillStyle=css(themeCanvas.off,.9);
+    g.fillRect(x,0,segW,H);
+    if(litH>0){g.fillStyle=css(ACC.cur,.95);g.fillRect(x,H-litH,segW,litH)}
+  }
+}
+function drawAmbient(cv,now){
+  if(!cv)return;
+  fitCanvas(cv);
+  const g=cv.getContext("2d");if(!g)return;
+  const W=cv.width,H=cv.height;
+  g.clearRect(0,0,W,H);
+  const B=S._barsRcv||new Float32Array(NBARS);
+  const cx=W/2,cy=H*.42;
+  const rMin=Math.min(W,H)*.18;
+  for(let i=0;i<NBARS;i++){
+    const a=(i/NBARS)*Math.PI*2+now*.05;
+    const v=B[i]||0;
+    const r=rMin*(1.25+v*1.6);
+    const x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r*.8;
+    const s=Math.max(2,rMin*.06*(0.5+v*2));
+    g.fillStyle=css(ACC.cur,.10+v*.5);
+    g.fillRect(x-s/2,y-s/2,s,s);
+  }
+}
+function drawHalo(cv,now){
+  if(!cv)return;
+  fitCanvas(cv);
+  const g=cv.getContext("2d");if(!g)return;
+  const W=cv.width,H=cv.height;
+  g.clearRect(0,0,W,H);
+  const grd=g.createRadialGradient(W/2,H*.36,10,W/2,H*.36,Math.max(W,H)*.55);
+  const [r,gg,b]=ACC.cur;
+  const pulse=.16+.04*Math.sin(now*.8);
+  grd.addColorStop(0,`rgba(${r},${gg},${b},${pulse})`);
+  grd.addColorStop(1,"rgba(0,0,0,0)");
+  g.fillStyle=grd;g.fillRect(0,0,W,H);
+}
+function sweepTick(){
+  if(SWEEP.dir!==0){
+    SWEEP.v=clamp(SWEEP.v+SWEEP.dir*.016,0,1);
+    if(SWEEP.v<=0||SWEEP.v>=1)SWEEP.dir=0;
+  }
+}
+
+/* ============================================================
+   UPDATE SWITCH ATTRIBUTES FROM THEME TOKENS
+   .seek[data-seek], .vol[data-vol], art default, ambient default
+   ============================================================ */
+function updateSwitchStyles(){
+  document.querySelectorAll(".seek").forEach(sk=>sk.setAttribute("data-seek",themeSeekStyle));
+  document.querySelectorAll(".vol").forEach(vb=>vb.setAttribute("data-vol",themeVolStyle));
+  if(window.htSettings){
+    /* art style "theme" follows --art-default; explicit value wins */
+    if(S.cfg.art==="theme"||S.cfg.art==null)S.cfg.art=themeArtDefault;
+    if(S.cfg.ambient==="theme"||S.cfg.ambient==null)S.cfg.ambient=themeAmbientDefault;
+  }
+}
+
+/* ============================================================
+   AUDIO OWNER (main only)
+   ============================================================ */
+function ensureAudio(){
+  if(!IS_OWNER||AC)return;
+  try{
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    const media=AC.createMediaElementSource(document.getElementById("aud"));
+    gainIn=AC.createGain();
+    EQ_NODES=EQ_NODES.map(()=>{const f=AC.createBiquadFilter();f.type="peaking";f.Q.value=1.1;return f});
+    gainOut=AC.createGain();
+    analyser=AC.createAnalyser();analyser.fftSize=256;analyser.smoothingTimeConstant=.82;
+    let prev=media;
+    prev.connect(gainIn);prev=gainIn;
+    EQ_NODES.forEach(f=>{prev.connect(f);prev=f});
+    prev.connect(gainOut);prev=gainOut;
+    prev.connect(analyser);analyser.connect(AC.destination);
+    MEDIA=media;
+    applyEqGains();
+  }catch(e){console.warn("audio graph",e)}
+}
+function reconnectEq(){
+  if(!AC)return;
+  try{
+    try{gainIn.disconnect()}catch(_){}
+    EQ_NODES.forEach(f=>{try{f.disconnect()}catch(_){}});
+    try{gainOut.disconnect()}catch(_){}
+    let prev=MEDIA;prev.connect(gainIn);prev=gainIn;
+    EQ_NODES.forEach(f=>{prev.connect(f);prev=f});
+    prev.connect(gainOut);prev=gainOut;
+    prev.connect(analyser);analyser.connect(AC.destination);
+  }catch(e){console.warn("reconnectEq",e)}
+}
+function applyEqGains(){
+  if(!AC)return;
+  const eq=S.cfg.eq||{on:false,pre:0,bands:new Array(10).fill(0)};
+  const on=eq.on!==false;
+  EQ_NODES.forEach((f,k)=>{f.gain.value=on?(eq.bands[k]||0):0});
+  if(gainIn)gainIn.gain.value=1;
+  if(gainOut)gainOut.gain.value=on?Math.pow(10,((eq.pre||0))/20):1;
+  document.dispatchEvent(new CustomEvent("halftone:eq"));
+}
+window.applyEqGains=applyEqGains;
+window.reconnectEq=reconnectEq;
+function listSinks(){
+  return invoke("list_sinks").then(r=>(r&&r.devices)||[]).catch(()=>[]);
+}
+window.listSinks=listSinks;
+async function setSink(id){
+  S.cfg.sink=id||"";
+  try{await invoke("set_sink",{id:id||null})}catch(e){console.warn(e)}
+  window.htSet&&window.htSet("sink",S.cfg.sink,{noSave:true});
+  window.htSaveSettingsNow&&window.htSaveSettingsNow();
+  emitSync();
+}
+window.setSink=setSink;
+function sleepSet(mins){
+  SLEEP.until=Date.now()+mins*60000;SLEEP.stopAfterTrack=false;
+  clearTimeout(SLEEP.timer);
+  SLEEP.timer=setTimeout(()=>{setPlaying(false);SLEEP.until=0;toast("Sleep timer: playback stopped","ok")},mins*60000);
+  toast("Sleep timer: "+mins+" min","ok");
+  emitSync();
+}
+function sleepEndOfTrack(){
+  SLEEP.until=0;SLEEP.stopAfterTrack=true;clearTimeout(SLEEP.timer);
+  toast("Sleep: after this track","ok");emitSync();
+}
+function sleepCancel(){SLEEP.until=0;SLEEP.stopAfterTrack=false;clearTimeout(SLEEP.timer);emitSync()}
+window.sleepSet=sleepSet;window.sleepEndOfTrack=sleepEndOfTrack;window.sleepCancel=sleepCancel;
+
+/* ============================================================
+   BARS (owner analyses; viewers receive halftone:bars)
+   ============================================================ */
+const BAR_TMP=new Uint8Array(256);
+function sampleBars(){
+  if(!analyser)return;
+  analyser.getByteFrequencyData(BAR_TMP);
+  const NB=NBARS,per=Math.floor(BAR_TMP.length/NB);
+  for(let i=0;i<NB;i++){
+    let s=0;for(let k=0;k<per;k++)s+=BAR_TMP[i*per+k];
+    const v=s/(per*255);
+    EMA[i]=EMA[i]*.82+v*.18;
+    S._barsRcv[i]=EMA[i];
+  }
+}
+
+/* ============================================================
+   PERSISTENCE (settings.js is the store; this is a mirror)
+   ============================================================ */
+function saveStore(){
+  /* settings.js owns persistence; this mirror is a boot-time fallback.
+     NEVER stringify S wholesale (DOM refs like S._img are circular). */
+  try{
+    const pick={
+      liked:[...S.liked],
+      playlists:S.playlists.map(p=>({name:p.name,paths:[...p.paths]})),
+      root:S.root,i:S.i,vol:S.vol,shuffle:S.shuffle,repeat:S.repeat,
+      lastTrack:S.i,sink:S.cfg.sink||""
+    };
+    localStorage.setItem("halftone.store",JSON.stringify({v:pick}));
+  }catch(e){}
+  window.htSaveSettingsNow&&window.htSaveSettingsNow();
+}
+window.saveStore=saveStore;
+function applyPersisted(){
+  /* settings.js owns persistence now; S.cfg is hydrated from the
+     settings store at boot (htSettings.ready) and via setCfg. */
+}
+function pushEq(rebuild){
+  if(IS_OWNER){if(rebuild)reconnectEq();else applyEqGains();emitSync()}
+  else emitCmd({cmd:"eq",eq:{on:S.cfg.eq.on!==false,pre:S.cfg.eq.pre||0,bands:[...(S.cfg.eq.bands||[])],rebuild:!!rebuild}});
+}
+window.pushEq=pushEq;
+
+/* ============================================================
+   IPC: OWNER <-> VIEWER
+   ============================================================ */
+function curWin(){try{return T&&T.window?T.window.getCurrentWindow():null}catch(e){return null}}
+window.curWin=curWin();
+function wireDrag(elm){
+  if(!elm)return;
+  elm.addEventListener("pointerdown",e=>{
+    if(e.target.closest("button,input,select,a,.seek,.slider,.menu,.sheet"))return;
+    if(e.button!==0)return;
+    const w=window.curWin;
+    if(w&&w.startDragging){try{w.startDragging()}catch(err){console.warn(err)}}
+  });
+}
+window.wireDrag=wireDrag;
+/* shared small helpers (widget page reuses these) */
+window.clamp=clamp;window.esc=esc;window.fmt=fmt;window.css=css;
+function emitCmd(o){
+  if(!(T&&T.event&&T.event.emit))return;
+  try{T.event.emit("halftone:cmd",o).catch(()=>{})}catch(_){}
+}
+window.emitCmd=emitCmd;
+function emitSync(extra){
+  if(!(T&&T.event&&T.event.emit))return;
+  const p=Object.assign(syncState(),extra||{});
+  try{T.event.emit("halftone:sync",p).catch(()=>{})}catch(_){}
+}
+window.emitSync=emitSync;
+function syncState(){
+  return {
+    i:S.i,playing:S.playing,shuffle:S.shuffle,repeat:S.repeat,vol:S.vol,
+    pos:S._pos,libN:S.lib.length,
+    meta:S.meta?{...S.meta,cover:null,coverUrl:S.meta.coverUrl||null}:null,
+    lyrics:{lines:S.lyrics,plain:S.lyricsPlain,status:S.lyricsStatus,synced:S.lyrics.length>0},
+    pinned:S.pinned,lyricsOpen:S.lyricsOpen,
+    root:S.root,liked:[...S.liked],
+    playlists:S.playlists.map(p=>({name:p.name,paths:[...(p.paths||[])]})),
+    sleepLeft:SLEEP.until?SLEEP.until-Date.now():0,
+    sleepTrack:SLEEP.stopAfterTrack,
+    sink:S.cfg.sink||"",
+  };
+}
+window.syncState=syncState;
+function emitTick(t){
+  if(!(T&&T.event&&T.event.emit))return;
+  try{T.event.emit("halftone:tick",{t,pos:t,playing:S.playing,dur:durSec()}).catch(()=>{})}catch(_){}
+}
+let lastBarsEmit=0;
+function emitBars(force){
+  if(!(T&&T.event&&T.event.emit))return;
+  const now=performance.now();
+  if(!force&&now-lastBarsEmit<1000/30)return;
+  lastBarsEmit=now;
+  try{T.event.emit("halftone:bars",{bars:Array.from(S._barsRcv)}).catch(()=>{})}catch(_){}
+}
+function durSec(){const a=document.getElementById("aud");return (a&&a.duration&&!isNaN(a.duration))?a.duration:(S.meta?S.meta.duration_s:0)}
+function posSec(){
+  if(IS_OWNER){const a=document.getElementById("aud");return (a&&!isNaN(a.currentTime))?a.currentTime:S._pos||0}
+  return window.viewerSmoothTick?viewerSmoothTick():(S._pos||0);
+}
+window.posSec=posSec;window.durSec=durSec;
+
+/* ---------- commands from the viewer (or main) ---------- */
+const CMD={
+  async play(o){await setPlaying(!S.playing)},
+  async load(o){if(o&&o.i!=null)await loadTrack(o.i)},
+  async next(){await nextTrack()},
+  async prev(){posSec()>3?seekTo(0):await loadTrack(S.i-1)},
+  async seek(o){seekTo(o&&o.t||0)},
+  async nudge(o){seekTo(clamp(posSec()+((o&&o.d)||5),0,durSec()))},
+  async vol(o){setVol(o&&o.v!=null?o.v:S.vol)},
+  async shuffle(){S.shuffle=!S.shuffle;updTransport();emitSync()},
+  async repeat(){cycleRepeat();updTransport()},
+  async eq(o){
+    if(!o||!o.eq)return;
+    S.cfg.eq={on:o.eq.on!==false,pre:o.eq.pre||0,bands:[...(o.eq.bands||new Array(10).fill(0))],profile:null};
+    if(IS_OWNER){if(o.eq.rebuild)reconnectEq();else applyEqGains()}
+    emitSync();
+  },
+  async sink(o){if(IS_OWNER)await setSink(o&&o.id);else S.cfg.sink=(o&&o.id)||""},
+  async sleep(o){
+    if(!IS_OWNER)return;
+    const m=o&&o.mode;
+    if(m==="min")sleepSet((o&&o.mins)||15);
+    else if(m==="track")sleepEndOfTrack();
+    else sleepCancel();
+  },
+  async lrcfetch(o){if(IS_OWNER&&o&&o.path){try{await invoke("lrc_fetch",{path:o.path,artist:o.artist,title:o.title});await loadLyrics(S.meta,true)}catch(e){console.warn(e)}}},
+  async scan(o){if(o&&o.dir)await scanLibrary(o.dir)},
+  async pin(o){S.pinned=!!(o&&o.v);if(window.applyWidgetPin)applyWidgetPin(S.pinned);emitSync()},
+  async hello(){
+    emitSync();
+    if(!IS_OWNER)return;
+  },
+  async opennp(o){
+    if(IS_OWNER&&window.takeNP)window.takeNP(o||{});
+  },
+  /* widget art right-click -> "Change cover art" (task 10): the full
+     import/search/reset sheet lives in the owner window, like opennp */
+  async cover(o){
+    if(IS_OWNER&&o&&o.path&&window.openCoverSheet){
+      const t=S.lib.find(x=>x.path===o.path)||S.meta;
+      if(t)window.openCoverSheet(t);
+    }
+  },
+};
+async function handleCmd(o){
+  try{const fn=CMD[o&&o.cmd];if(fn)await fn(o)}catch(e){console.warn("cmd",o&&o.cmd,e)}
+}
+window.handleCmd=handleCmd;
+
+/* ---------- Tauri event wiring ---------- */
+function listen(name,fn){
+  if(T&&T.event&&T.event.listen){try{T.event.listen(name,fn).catch(()=>{})}catch(e){console.warn(e)}}
+  else document.addEventListener(name.replace("halftone:","halftone-ev-"),fn);
+}
+window.listen=listen;
+function wireEvents(){
+  listen("halftone:cmd",e=>handleCmd(e.payload));
+  if(IS_OWNER){
+    /* owner: viewers ask for state; owner pushes sync on changes */
+    listen("halftone:hello",()=>emitSync());
+    listen("halftone:lib-changed",()=>{
+      if(S.cfg.watch===false)return;
+      if(!S.root)return;
+      scanLibrary(S.root).then(()=>render&&render());
+    });
+  }else{
+    listen("halftone:sync",e=>applySync(e.payload));
+    listen("halftone:tick",e=>{const p=e.payload||{};if(window.viewerReconcile)viewerReconcile(p.pos!=null?p.pos:p.t);updClockText()});
+    listen("halftone:bars",e=>{const b=e.payload&&e.payload.bars;if(b)for(let i=0;i<NBARS;i++)S._barsRcv[i]=b[i]||0});
+    listen("halftone:lib",e=>{refreshLibSnapshot()});
+  }
+}
+window.applySync=applySync;
+window.wireEvents=wireEvents;
+function applySync(p){
+  if(!p)return;
+  const had=S.meta?S.meta.path:null;
+  S.i=p.i!=null?p.i:S.i;
+  S.playing=!!p.playing;
+  S.shuffle=!!p.shuffle;
+  S.repeat=p.repeat||"off";
+  S.vol=p.vol!=null?p.vol:S.vol;
+  S.root=p.root||S.root;
+  S.pinned=!!p.pinned;
+  S.lyricsOpen=!!p.lyricsOpen;
+  S.meta=p.meta||null;
+  if(p.liked)S.liked=new Set(p.liked);
+  if(p.playlists)S.playlists=p.playlists.map(x=>({name:x.name,paths:new Set(x.paths)}));
+  if(p.lyrics){
+    S.lyrics=p.lyrics.lines||[];
+    S.lyricsPlain=p.lyrics.plain||null;
+    S.lyricsStatus=p.lyrics.status||"none";
+    buildLyrics();
+  }
+  if(p.sleepLeft!=null)S._sleepLeft=p.sleepLeft;
+  if(p.sleepTrack!=null)S._sleepTrack=p.sleepTrack;
+  if(p.sink!=null)S.cfg.sink=p.sink;
+  if(S.meta&&S.meta.path!==had)loadArtFromMeta(S.meta);
+  document.dispatchEvent(new CustomEvent("halftone:track"));
+  document.dispatchEvent(new CustomEvent("halftone:state"));
+  document.dispatchEvent(new CustomEvent("halftone:vol"));
+  if(p.pos!=null&&window.viewerReconcile)viewerReconcile(p.pos);
+  updTransport&&updTransport();
+}
+
+/* ============================================================
+   LIBRARY (scan / snapshot / rescan / watcher)
+   ============================================================ */
+function trackCoverUrl(t){return t&&t.path?invoke("cover_url",{path:t.path}).then(u=>u||""):Promise.resolve("")}
+/* page render hook: main.html overrides with its router; widget = no-op */
+function render(){}
+window.render=render;window.trackCoverUrl=trackCoverUrl;
+let scanAbort=false;
+async function scanLibrary(dir){
+  if(!dir){toast("Set a music folder first","warn");return null}
+  S.root=dir;
+  scanAbort=false;
+  document.dispatchEvent(new CustomEvent("halftone:scan-start"));
+  try{
     const res=await invoke("scan_library",{dir});
-    S.lib=res.tracks;S.root=dir;saveStore();
-    emitSync();emitFullState();
-    if(el.libstat)el.libstat.textContent=res.tracks.length+" TRACKS"+(res.skipped.length?" / "+res.skipped.length+" SKIPPED":"");
-    if(!res.tracks.length&&!res.unsupported)toast("No audio files found in that folder.","warn");
-    else if(!res.tracks.length&&res.unsupported)toast(res.unsupported+" audio files found \u2014 Halftone plays FLAC only (MP3/M4A/WAV not yet).","warn",7000);
-    if(res.unsupported)toast(res.unsupported+" files can't be played \u2014 FLAC only for now.","warn",6000);
-    if(res.skipped.length)toast(res.skipped.length+" files skipped (corrupt or unreadable).","warn",6000);
+    if(res&&res.tracks){
+      S.lib=res.tracks.map(t=>Object.assign({},t,{coverUrl:null}));
+      toast(`Library: ${S.lib.length} tracks`+
+        (res.skipped&&res.skipped.length?` \u00b7 ${res.skipped.length} skipped`:"")+
+        (res.unsupported?` \u00b7 ${res.unsupported} unsupported`:""),"ok");
+    }
+    if(res&&res.skipped&&res.skipped.length)console.info("skipped:",res.skipped.slice(0,10));
+    render&&render();
+    emitSync();
+    if(T&&T.event&&T.event.emit){try{T.event.emit("halftone:lib",{n:S.lib.length}).catch(()=>{})}catch(_){}}
     return res;
   }catch(e){
-    toast("Scan failed: "+e,"error",7000);
-    if(el.libstat)el.libstat.textContent="scan failed";
-    return null}}
+    console.warn("scan",e);
+    toast("Scan failed: "+e,"error");
+    return null;
+  }
+}
+window.scanLibrary=scanLibrary;
+async function refreshLibSnapshot(){
+  try{
+    const r=await invoke("library_snapshot");
+    /* BACKEND_API.md: library_snapshot returns a PLAIN TrackMeta[]
+       (older builds wrapped it as {tracks:[...]} — accept both) */
+    const arr=Array.isArray(r)?r:(r&&r.tracks);
+    if(Array.isArray(arr)){S.lib=arr.map(t=>Object.assign({},t,{coverUrl:null}));render&&render()}
+  }catch(e){console.warn("snapshot",e)}
+}
+window.refreshLibSnapshot=refreshLibSnapshot;
+function rescanLibrary(){if(S.root)return scanLibrary(S.root);toast("No folder set","warn")}
+window.rescanLibrary=rescanLibrary;
 
+/* ============================================================
+   PLAYBACK
+   ============================================================ */
+async function setPlaying(v){
+  S.playing=v;
+  const a=document.getElementById("aud");
+  if(IS_OWNER&&a){
+    ensureAudio();
+    if(AC&&AC.state==="suspended"){try{await AC.resume()}catch(e){}}
+    if(v){try{await a.play()}catch(e){console.warn("play",e);S.playing=false}}
+    else a.pause();
+  }
+  updTransport&&updTransport();
+  emitSync();
+  document.dispatchEvent(new CustomEvent("halftone:state"));
+}
+window.setPlaying=setPlaying;
+function setVol(v){
+  S.vol=clamp(v,0,1);
+  const a=document.getElementById("aud");
+  if(a)a.volume=S.vol;
+  document.dispatchEvent(new CustomEvent("halftone:vol"));
+  emitSync();
+}
+window.setVol=setVol;
+function nudgeVol(d){setVol(S.vol+d)}
+window.nudgeVol=nudgeVol;
+function cycleRepeat(){S.repeat=S.repeat==="off"?"all":S.repeat==="all"?"one":"off"}
+window.cycleRepeat=cycleRepeat;
+function updTransport(){}
+window.updTransport=updTransport;
+function updClockText(){}
+
+/* ---------- queue (real play-queue support) ---------- */
+function findIdxByPath(p){return S.lib.findIndex(t=>t.path===p)}
+function queueAdd(paths,mode){
+  for(const p of paths){
+    const t=S.lib[findIdxByPath(p)];
+    if(!t)continue;
+    if(mode==="next")S.queue.unshift({path:t.path});
+    else S.queue.push({path:t.path});
+  }
+  emitSync();
+  document.dispatchEvent(new CustomEvent("halftone:queue"));
+}
+window.queueAdd=queueAdd;
+function queueRemove(i){S.queue.splice(i,1);emitSync();document.dispatchEvent(new CustomEvent("halftone:queue"))}
+window.queueRemove=queueRemove;
+function queueClear(){S.queue=[];S.queueHistory=[];emitSync();document.dispatchEvent(new CustomEvent("halftone:queue"))}
+window.queueClear=queueClear;
+function nextIndex(){
+  if(S.queue.length){
+    const q0=S.queue.shift();
+    const idx=findIdxByPath(q0.path);
+    if(idx>=0)return idx;
+    return nextIndex();
+  }
+  if(S.repeat==="one")return S.i;
+  if(S.shuffle){
+    if(S.lib.length<=1)return S.i;
+    let n;do{n=Math.floor(Math.random()*S.lib.length)}while(n===S.i);
+    return n;
+  }
+  if(S.i+1<S.lib.length)return S.i+1;
+  return S.repeat==="all"?0:S.i;   /* stop at end unless repeat-all */
+}
+window.nextIndex=nextIndex;
+function prevIndex(){return S.i-1>=0?S.i-1:(S.repeat==="all"?S.lib.length-1:S.i)}
+
+/* ============================================================
+   TRACK LOADING (owner only)
+   ============================================================ */
+let loadSeq=0;
 async function loadTrack(i,autoplay=true){
   if(!S.lib.length)return;
-  if(!IS_OWNER){emitCmd({cmd:"load",i:(i+S.lib.length)%S.lib.length});
-    S.i=(i+S.lib.length)%S.lib.length;   /* optimistic; authoritative via sync */
-    return}
-  S.i=(i+S.lib.length)%S.lib.length;
-  let meta;
-  try{meta=await invoke("open_track",{path:S.lib[S.i].path})}
-  catch(e){
-    toast("Can't read this file: "+S.lib[S.i].title+" \u2014 skipped.","error",6000);
-    /* skip to next playable in the current order */
-    if(S.lib.length>1){setTimeout(()=>loadTrack(S.i+1,autoplay),50)}
-    return;
+  i=clamp(i,0,S.lib.length-1);
+  const seq=++loadSeq;
+  S.i=i;
+  const t=S.lib[i];
+  if(!t)return;
+  if(autoplay||S.playing){S.playing=true}
+  /* 1. open_track: full meta + cover + embedded lyrics (owner only) */
+  let full=null;
+  try{full=await invoke("open_track",{path:t.path})}catch(e){console.warn("open_track",e)}
+  if(seq!==loadSeq)return;   /* track changed mid-flight */
+  S.meta=full||Object.assign({},t);
+  if(S.meta&&!S.meta.coverUrl)S.meta.coverUrl=null;
+  S._pos=0;S.lidx=-1;
+  /* 2. playback URL + audio element */
+  if(IS_OWNER){
+    const a=document.getElementById("aud");
+    try{
+      const url=await invoke("media_url",{path:t.path});
+      if(seq!==loadSeq)return;
+      if(url&&a){a.src=url;S.playing?a.play().catch(()=>{}):0}
+    }catch(e){console.warn("media_url",e)}
   }
-  S.meta=meta;
-  try{S.lyrics=await invoke("read_lyrics",{path:S.lib[S.i].path})}
-  catch(e){S.lyrics=[];toast("Lyrics file unreadable for this track.","warn",4000)}
-  const url=await invoke("flac_url",{path:S.lib[S.i].path});
-  el.aud.src=url;
-  el.aud.addEventListener("error",function onErr(){
-    el.aud.removeEventListener("error",onErr);
-    toast("Playback failed \u2014 file missing or drive disconnected.","error",7000);
-    if(S.lib.length>1)setTimeout(()=>nextTrack(true),400);
-  },{once:true});
-  buildLyrics();
-  const mode=accMode();
-  if(meta.cover){
-    const img=new Image();
-    img.onload=()=>{S._img=img;
-      tweenAccent(mode==="album"?clampAccent(extractAccent(img)):clampAccent(ACC_HUES[mode]));
-      /* art pixels are actually ready NOW — dither slots repaint in the new color */
-      document.dispatchEvent(new CustomEvent("halftone:art"))};
-    img.src="data:"+meta.cover.mime+";base64,"+meta.cover.data_b64;
-  }else{S._img=null;tweenAccent(mode==="album"?{h:.44,s:.62,l:.56}:clampAccent(ACC_HUES[mode]));
-    document.dispatchEvent(new CustomEvent("halftone:art"))}
-  saveStore();
-  /* Apple-style: explicitly loading a track always plays it; only
-     boot/restore passes autoplay=false to stay where the user was. */
-  if(autoplay)await setPlaying(true);
+  /* 3. cover art (lazy URL, never base64 over IPC) */
+  loadArtFromMeta(S.meta);
+  /* 3b. no embedded art? auto-fetch (task 10) */
+  coverAutoMaybe(S.meta);
+  /* 4. lyrics: auto-fetch (T6) */
+  loadLyrics(S.meta,false);
+  /* 5. broadcast */
   document.dispatchEvent(new CustomEvent("halftone:track"));
-  emitSync({i:S.i,t:0,playing:S.playing});
-  emitFullState();   /* viewers need the new meta/lyrics/cover */
+  emitSync();
 }
-async function setPlaying(p){
-  if(!IS_OWNER){
-    if(p&&S.i<0)emitCmd({cmd:"load",i:0});
-    emitCmd({cmd:p?"play":"pause"});
-    S.playing=p;updTransportAll();   /* optimistic; authoritative via sync */
-    return;
-  }
-  if(p&&S.i<0)await loadTrack(0);
-  if(p&&!ensureAudio())return;
-  S.playing=p;
-  const ip=document.getElementById("icoPlay"),ipa=document.getElementById("icoPause");
-  if(ip)ip.style.display=p?"none":"block";
-  if(ipa)ipa.style.display=p?"block":"none";
-  if(p){AC.resume();el.aud.play().catch(e=>console.warn("play",e))}
-  else el.aud.pause();
-  document.dispatchEvent(new CustomEvent("halftone:state"));
-  emitSync({t:posSec(),playing:p});
-}
-
-/* ============ transport: shuffle / repeat ============ */
-async function nextTrack(auto=false){
-  if(!S.lib.length)return;
-  if(!IS_OWNER){emitCmd({cmd:"next"});return}
-  if(S.repeat==="one"&&auto){el.aud.currentTime=0;el.aud.play();return}
-  let i;
-  if(S.shuffle){
-    if(S.lib.length===1){el.aud.currentTime=0;el.aud.play();return}
-    do{i=Math.floor(Math.random()*S.lib.length)}while(i===S.i);
-  }else{
-    i=S.i+1;
-  }
-  if(i>=S.lib.length){
-    if(S.repeat==="all"||!auto)i=0;
-    else{await setPlaying(false);return}
-  }
-  loadTrack(i);
-}
-function prevTrack(){ /* owner-side helper, wired by pages */
-  if(!S.lib.length)return;
-  if(posSec()>3)el.aud.currentTime=0;else loadTrack(S.i-1);
-}
-function cycleRepeat(){
-  if(!IS_OWNER){emitCmd({cmd:"repeat"});return}
-  S.repeat=S.repeat==="off"?"all":S.repeat==="all"?"one":"off";saveStore();
-  document.dispatchEvent(new CustomEvent("halftone:state"));emitSync({repeat:S.repeat})}
-
-/* ============ seek pointer wiring (shared) ============ */
-function wireSeek(seek){
-  seek.addEventListener("pointerenter",()=>seek.classList.add("open"));
-  seek.addEventListener("pointerleave",()=>{if(S.drag==null)seek.classList.remove("open")});
-  seek.addEventListener("pointerdown",e=>{
-    try{seek.setPointerCapture(e.pointerId)}catch(_){}
-    const r=seek.getBoundingClientRect();
-    const p=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width));
-    S.drag={p};SWEEP.t=p*durSec();SWEEP.v=0;
-    seek.classList.add("open","dragging");
-    seekTip();
-  });
-  seek.addEventListener("pointermove",e=>{
-    if(S.drag==null)return;
-    const r=seek.getBoundingClientRect();
-    const p=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width));
-    SWEEP.dir=p>S.drag.p?1:-1;
-    S.drag.p=p;SWEEP.t=p*(el.aud.duration||0);
-    seekTip();
-  });
-  const end=()=>{
-    if(S.drag==null)return;
-    const t=S.drag.p*durSec();
-    if(IS_OWNER)el.aud.currentTime=t;else emitCmd({cmd:"seek",t});
-    document.dispatchEvent(new CustomEvent("halftone:seeked"));
-    S.drag=null;S.lidx=-1;
-    seek.classList.remove("dragging");
-    if(!seek.matches(":hover"))seek.classList.remove("open");
-  };
-  seek.addEventListener("pointerup",end);
-  seek.addEventListener("pointercancel",end);
-  seek.addEventListener("wheel",e=>{
-    e.preventDefault();
-    const d=e.deltaY<0?5:-5;
-    if(IS_OWNER)el.aud.currentTime=Math.max(0,Math.min(durSec(),posSec()+d));
-    else emitCmd({cmd:"nudge",d});
-  },{passive:false});
-}
-function seekTip(){
-  const seek=el.seek;const dur=durSec();
-  if(el.tip){el.tip.textContent=fmt(S.drag.p*dur)+" / "+fmt(dur);
-    el.tip.style.left=(S.drag.p*seek.clientWidth/UIZ)+"px"}
-}
-
-/* ============ JS window dragging ============ */
-function wireDrag(zone){
-  let sx=0,sy=0,armed=false;
-  zone.addEventListener("pointerdown",e=>{
-    if(e.button!==0||!curWin)return;
-    if(e.target.closest("button,input,a,.seek,.leds,.lyr-view,.pop,.tbtn,.cbtn"))return;
-    sx=e.clientX;sy=e.clientY;armed=true;
-  });
-  zone.addEventListener("pointermove",e=>{
-    if(!armed)return;
-    if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>4){
-      armed=false;
-      curWin.startDragging().catch(()=>{});
-    }
-  });
-  const done=()=>armed=false;
-  zone.addEventListener("pointerup",done);
-  zone.addEventListener("pointercancel",done);
-}
-
-/* ============ drag-and-drop folder scan ============ */
-function wireDropZone(zone){
-  if(!zone)return;
-  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
-  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-  zone.addEventListener('drop', async (e) => {
-    e.preventDefault(); zone.classList.remove('drag-over');
-    const items = e.dataTransfer?.files;
-    if(!items?.length)return;
-    for(const f of items){
-      // if user drops an audio file, treat its parent folder as the music library
-      if(f.name.match(/\.(flac|m4a|mp3|wav|ogg)$/i)){
-        const parent = f.webkitRelativePath?.split(/[/\\]/).slice(0,-1).join('/') || f.path?.split(/[/\\]/).slice(0,-1).join('/');
-        if(parent){
-          // main library empty-state
-          if(el.libpath && el.libpath.value){
-            el.libpath.value = parent; await scanLibrary(parent); render();
-          }
-          // widget settings (index.html)
-          if(el.libbrowse && el.libpath){
-            el.libpath.value = parent; await scanLibrary(parent);
+window.loadTrack=loadTrack;
+async function loadArtFromMeta(m){
+  if(!m)return;
+  const a=document.getElementById("aud");
+  if(m&&m.path){
+    try{
+      const u=await invoke("cover_url",{path:m.path});
+      if(!u)return;
+      S._artUrl=u;
+      const im=new Image();
+      im.crossOrigin="anonymous";
+      im.onload=()=>{
+        if(S.meta&&S.meta.path===m.path){
+          S._img=im;
+          document.dispatchEvent(new CustomEvent("halftone:art"));
+          if(ACC.mode==="album"){
+            const acc=extractAccent(im);
+            if(acc)setAccentRGB(clampAccent(acc).rgb);
           }
         }
+      };
+      im.src=u;
+    }catch(e){console.warn("cover_url",e)}
+  }
+}
+window.loadArtFromMeta=loadArtFromMeta;
+
+/* ============================================================
+   COVER ART (task 10)
+   - auto: tracks without art get cover_auto() (throttled queue,
+     max 2 in flight; allowNet from the privacy setting)
+   - manual: "Change cover art" context menu -> import / search /
+     reset (main.html wires the menu; shared helpers live here)
+   ============================================================ */
+const COVER_AUTO_MAX=2;
+const coverAutoQ=[];          /* paths pending cover_auto */
+let coverAutoInFlight=0;
+const coverAutoTried=new Set();   /* album keys already attempted this run */
+const albumKeyOf=t=>((t&&t.album)||"").toLowerCase()+"|"+((t&&t.artist)||"");
+
+function coverAutoPump(){
+  while(coverAutoInFlight<COVER_AUTO_MAX&&coverAutoQ.length){
+    const t=coverAutoQ.shift();
+    coverAutoInFlight++;
+    const allowNet=window.htSettings?window.htSettings.all().coverAutoNet!==false:true;
+    invoke("cover_auto",{path:t.path,artist:t.artist||"",album:t.album||"",allowNet})
+      .then(r=>{
+        if(r&&r.url){
+          /* album art changed: refresh every view (cover_url / this url
+             carries the ?v= cache buster per BACKEND_API.md) */
+          S.lib.forEach(x=>{if(albumKeyOf(x)===albumKeyOf(t))x.coverUrl=r.url});
+          if(S.meta&&albumKeyOf(S.meta)===albumKeyOf(t)){S.meta.coverUrl=r.url;loadArtFromMeta(S.meta)}
+          document.dispatchEvent(new CustomEvent("halftone:lib"));
+        }
+      })
+      .catch(()=>{})
+      .finally(()=>{
+        coverAutoInFlight--;
+        coverAutoPump();
+      });
+  }
+}
+/* Enqueue auto-fetch for tracks shown/played without art (dedup per album) */
+function coverAutoMaybe(t){
+  if(!t||t.has_cover||coverAutoTried.has(albumKeyOf(t)))return;
+  coverAutoTried.add(albumKeyOf(t));
+  coverAutoQ.push(t);
+  coverAutoPump();
+}
+window.coverAutoMaybe=coverAutoMaybe;
+
+/* "Change cover art" action set (shared by context menu + row sheet) */
+async function coverImportFor(t){
+  try{
+    const u=await invoke("cover_import",{path:t.path});   /* null = cancelled */
+    if(u!==null&&u!==undefined)await coverRefreshTrack(t);
+    return u;
+  }catch(e){toast("Import failed: "+e,"error");return undefined}
+}
+async function coverApplyFor(t,url){
+  try{
+    const u=await invoke("cover_apply_url",{path:t.path,url:url||""});
+    await coverRefreshTrack(t);
+    return u;
+  }catch(e){toast("Apply failed: "+e,"error");return undefined}
+}
+async function coverResetFor(t){
+  try{
+    await invoke("cover_reset",{path:t.path});
+    await coverRefreshTrack(t);
+  }catch(e){toast("Reset failed: "+e,"error")}
+}
+/* after any override change: re-pull cover_url (new ?v=) + refresh views */
+async function coverRefreshTrack(t){
+  const u=await invoke("cover_url",{path:t.path}).catch(()=>null);
+  S.lib.forEach(x=>{if(albumKeyOf(x)===albumKeyOf(t))x.coverUrl=u||null});
+  if(S.meta&&albumKeyOf(S.meta)===albumKeyOf(t)){S.meta.coverUrl=u||null;S._artUrl=u||null;loadArtFromMeta(S.meta)}
+  coverAutoTried.delete(albumKeyOf(t));   /* reset allows auto again later */
+  document.dispatchEvent(new CustomEvent("halftone:lib"));
+  render&&render();
+}
+window.coverImportFor=coverImportFor;
+window.coverApplyFor=coverApplyFor;
+window.coverResetFor=coverResetFor;
+window.coverInfoFor=t=>invoke("cover_info",{path:t.path}).catch(()=>({source:"none",url:null}));
+
+/* ============================================================
+   LYRICS (T6: auto-fetch, sources, status, no auto-browser)
+   ============================================================ */
+let lyricsSeq=0;
+async function loadLyrics(m,force){
+  if(!m)return;
+  const seq=++lyricsSeq;
+  S.lyricsStatus="searching";
+  document.dispatchEvent(new CustomEvent("halftone:lyrics-status"));
+  let res=null;
+  try{
+    res=await invoke("lyrics_get",{path:m.path,artist:m.artist||"",title:m.title||"",
+      album:m.album||"",duration:Math.round(m.duration_s||0),
+      allowNet:S.cfg.lyricsAuto!==false,force:!!force});
+  }catch(e){console.warn("lyrics_get",e)}
+  if(seq!==lyricsSeq)return;   /* stale: track changed meanwhile */
+  if(res&&(res.lines&&res.lines.length||res.plain)){
+    S.lyrics=res.lines||[];
+    S.lyricsPlain=res.plain||null;
+    S.lyricsStatus=res.source||"cache";
+    S._lyricsSynced=!!res.synced;
+  }else{
+    S.lyrics=[];
+    S.lyricsPlain=null;
+    S.lyricsStatus=res&&res.source==="none"?"notfound":"error";
+    S._lyricsSynced=false;
+  }
+  buildLyrics();
+  document.dispatchEvent(new CustomEvent("halftone:lyrics"));
+  emitSync();
+}
+window.loadLyrics=loadLyrics;
+function retryLyrics(){
+  const m=S.meta;
+  if(m)loadLyrics(m,true);
+}
+window.retryLyrics=retryLyrics;
+function openLrcSearch(){
+  const t=S.meta||{};
+  openExternal("https://lrclib.net/search?q="+encodeURIComponent((t.artist||"")+" "+(t.title||"")));
+}
+window.openLrcSearch=openLrcSearch;
+
+/* ---------- lyric line DOM builders (both surfaces) ---------- */
+function buildLyrics(){
+  const wrap=document.getElementById("lyrWrap")||document.getElementById("lyr-wrap");
+  if(!wrap)return;
+  wrap.innerHTML="";
+  S.lidx=-1;
+  const box=wrap.closest(".lyr-view")||wrap.closest(".lyr-view".toLowerCase())||wrap.parentElement;
+  if(S.lyrics.length){
+    const host=wrap.closest(".lyrics")||wrap.closest(".widget-lyrics");
+    if(host)host.classList.remove("plain");
+    S.lyrics.forEach(l=>{
+      const d=document.createElement("div");
+      d.className="lyric-line";
+      d.dataset.t=(l.t||0)/1000;
+      d.textContent=l.text||"";
+      d.onclick=()=>seekTo((l.t||0)/1000+(S.cfg.lyricsOffset||0)/1000*-1);
+      wrap.appendChild(d);
+    });
+  }else if(S.lyricsPlain){
+    const host=wrap.closest(".lyrics")||wrap.closest(".widget-lyrics");
+    if(host)host.classList.add("plain");
+    S.lyricsPlain.split(/\r?\n/).forEach(txt=>{
+      const d=document.createElement("div");
+      d.className="lyric-line";
+      d.textContent=txt;
+      wrap.appendChild(d);
+    });
+  }
+}
+window.buildLyrics=buildLyrics;
+function lyricFollow(){
+  const wrap=document.getElementById("lyrWrap")||document.getElementById("lyr-wrap");
+  if(!wrap||!S.lyrics.length)return;
+  const view=wrap.closest(".lyr-view");
+  if(!view)return;
+  const lines=[...wrap.children];
+  if(!lines.length)return;
+  const t=posSec()-((S.cfg.lyricsOffset||0)/1000);
+  let idx=-1;
+  for(let k=0;k<lines.length;k++){if(t>=+lines[k].dataset.t)idx=k}
+  if(idx!==S.lidx){
+    S.lidx=idx;
+    lines.forEach((l,k)=>{l.classList.toggle("active",k===idx);l.classList.toggle("past",idx>=0&&k<idx);l.classList.toggle("future",idx>=0&&k>idx)});
+    if(idx>=0&&!S._lyrManual){
+      const ln=lines[idx];
+      const top=ln.offsetTop-view.clientHeight/2+ln.offsetHeight/2;
+      view.scrollTo({top:Math.max(0,top),behavior:"smooth"});
+    }
+  }
+}
+window.lyricFollow=lyricFollow;
+
+/* ---------- seek helper ---------- */
+function seekTo(t){
+  const a=document.getElementById("aud");
+  if(IS_OWNER&&a&&a.duration){a.currentTime=clamp(t,0,a.duration);S._pos=a.currentTime}
+  else S._pos=t;
+  document.dispatchEvent(new CustomEvent("halftone:seeked"));
+  emitSync();
+}
+window.seekTo=seekTo;
+
+/* ============================================================
+   SEEKBAR WIRING (per-element; canvas + gel both supported)
+   ============================================================ */
+function wireSeek(seekEl){
+  if(!seekEl)return;
+  const apply=e=>{
+    const r=seekEl.getBoundingClientRect();   /* transform-aware */
+    return clamp((e.clientX-r.left)/Math.max(1,r.width),0,1);
+  };
+  seekEl.addEventListener("pointerdown",e=>{
+    try{seekEl.setPointerCapture(e.pointerId)}catch(_){}
+    S.drag={p:apply(e),el:seekEl};
+    seekEl.classList.add("dragging");
+  });
+  seekEl.addEventListener("pointermove",e=>{if(S.drag&&S.drag.el===seekEl)S.drag.p=apply(e)});
+  const end=()=>{
+    if(!S.drag||S.drag.el!==seekEl)return;
+    seekTo(S.drag.p*durSec());
+    S.drag=null;S.lidx=-1;
+    seekEl.classList.remove("dragging");
+  };
+  seekEl.addEventListener("pointerup",end);
+  seekEl.addEventListener("pointercancel",end);
+  seekEl.addEventListener("wheel",e=>{
+    e.preventDefault();
+    seekTo(posSec()+(e.deltaY<0?5:-5));
+  },{passive:false});
+}
+window.wireSeek=wireSeek;
+
+/* ============================================================
+   GEL FILL SYNC (DOM variant: --val + knob, per contract)
+   ============================================================ */
+function paintGel(root,p){
+  if(!root)return;
+  root.style.setProperty("--val",(p*100).toFixed(2)+"%");
+}
+function paintSeek(){
+  const p=durSec()?posSec()/durSec():0;
+  document.querySelectorAll(".seek").forEach(sk=>{
+    const cv=sk.querySelector(".seek-led");
+    if(cv&&getComputedStyle(cv).display!=="none"){
+      /* LED canvas meter draws bars along the strip */
+      const B=S._barsRcv;
+      const g=cv.getContext("2d");
+      if(g&&S.drag&&S.drag.el===sk){/* scrub shows sweep */}
+      drawMeter(cv,cv.clientHeight);
+      const prog=Math.round(p*cv.width);
+      g&&g.fillStyle&&0;
+      /* playhead marker */
+      if(g&&cv.width){
+        g.fillStyle=css(themeCanvas.ink,.9);
+        g.fillRect(clamp(prog-1,0,cv.width-2),0,2,cv.height);
       }
     }
+    const gel=sk.querySelector(".seek-gel");
+    if(gel&&getComputedStyle(gel).display!=="none")paintGel(sk,p);
   });
 }
 
-/* ============ collections ============ */
-function toggleLike(path){
-  if(!IS_OWNER){emitCmd({cmd:"like",path});return}
-  S.liked.has(path)?S.liked.delete(path):S.liked.add(path);saveStore();
-  document.dispatchEvent(new CustomEvent("halftone:collect"));emitSync()}
-function makePlaylist(name,paths){
-  if(!IS_OWNER){emitCmd({cmd:"pl",name,paths:[...paths]});return}
-  S.playlists.push({name,paths:new Set(paths)});saveStore();
-  document.dispatchEvent(new CustomEvent("halftone:collect"));emitSync()}
+/* ============================================================
+   VOLUME CONTROL (LED ladder + gel slider, per contract)
+   ============================================================ */
+function buildVol(box){
+  if(!box)return;
+  box.innerHTML="";
+  if(themeVolStyle==="gel"){
+    const wrap=document.createElement("div");wrap.className="vol-gel";
+    wrap.innerHTML='<div class="track"><div class="fill"></div><div class="knob"></div></div>';
+    box.appendChild(wrap);
+    const set=e=>{const r=wrap.getBoundingClientRect();setVol((e.clientX-r.left)/Math.max(1,r.width))};
+    let down=false;
+    wrap.addEventListener("pointerdown",e=>{down=true;try{wrap.setPointerCapture(e.pointerId)}catch(_){};set(e)});
+    wrap.addEventListener("pointermove",e=>down&&set(e));
+    wrap.addEventListener("pointerup",()=>down=false);
+    wrap.addEventListener("pointercancel",()=>down=false);
+  }else{
+    const wrap=document.createElement("canvas");wrap.className="vol-leds";wrap.width=64;wrap.height=14;
+    box.appendChild(wrap);
+    const paint=()=>{
+      fitCanvas(wrap);
+      const g=wrap.getContext("2d");if(!g)return;
+      const W=wrap.width,H=wrap.height;
+      g.clearRect(0,0,W,H);
+      const n=Math.max(4,Math.floor(W/9));
+      const segW=Math.max(3,Math.floor(W/n)-3);
+      for(let i=0;i<n;i++){
+        const on=S.vol>=(i+1)/n-.01;
+        g.fillStyle=on?css(ACC.cur,.95):css(themeCanvas.off,.9);
+        g.fillRect(i*(segW+3),1,segW,H-2);
+      }
+    };
+    paint();
+    box._paintLeds=paint;
+    const set=e=>{const r=wrap.getBoundingClientRect();setVol((e.clientX-r.left)/Math.max(1,r.width))};
+    let down=false;
+    wrap.addEventListener("pointerdown",e=>{down=true;try{wrap.setPointerCapture(e.pointerId)}catch(_){};set(e)});
+    wrap.addEventListener("pointermove",e=>{if(down){set(e);paint()}});
+    wrap.addEventListener("pointerup",()=>down=false);
+    wrap.addEventListener("pointercancel",()=>down=false);
+  }
+}
+window.buildVol=buildVol;
 
-/* ============ context menu with submenus ============
-   items: {label, checked, onClick} | {label, children:[...]} |
-   {sep:1}. children render as a hover-open submenu.          */
-function buildCtxMenu(items){
-  const m=document.createElement("div");
-  m.className="pop ctxmenu";
-  items.forEach(it=>{
-    if(it.sep){const s=document.createElement("div");s.className="ctxsep";m.appendChild(s);return}
-    const b=document.createElement("button");
-    b.className="mitem ctxitem"+(it.checked?" on":"");
-    if(it.children&&it.children.length){
-      const wrap=document.createElement("div");wrap.className="ctxwrap";
-      b.innerHTML=`<span class="ctxdot"></span>${it.label}<span class="ctxarrow">\u25B8</span>`;
-      wrap.appendChild(b);
-      const sub=buildCtxMenu(it.children);sub.classList.add("ctxsub");
-      wrap.appendChild(sub);
-      m.appendChild(wrap);
-    }else{
-      b.innerHTML=`<span class="ctxdot"></span>${it.label}`;
-      b.onclick=()=>{closeCtx();it.onClick&&it.onClick()};
-      m.appendChild(b);
+/* ============================================================
+   RENDER LOOP (one per window; skips hidden work)
+   ============================================================ */
+let rafPending=false,artDirty=true,themeDirty=true;
+function requestRedraw(why){artDirty=true}
+window.requestRedraw=requestRedraw;
+let lastTickEmit=0;
+function loop(now){
+  rafPending=false;
+  const hidden=document.hidden;
+  tickAccent(now);
+  if(!hidden){
+    if(IS_OWNER)sampleBars();
+    /* paint any visible canvas meters */
+    paintSeek();
+    document.querySelectorAll(".vol-leds").forEach(c=>{if(c.parentElement&&c.parentElement._paintLeds)c.parentElement._paintLeds()});
+    /* page-level paint hook (widget page paints its ids through this) */
+    if(window.htPagePaint)window.htPagePaint(now);
+    /* ambient (main np view only) */
+    const amb=document.querySelector(".fx-ambient");
+    if(amb&&amb.offsetParent!==null){
+      const mode=S.cfg.ambient==="theme"?themeAmbientDefault:(S.cfg.ambient||themeAmbientDefault);
+      if(mode==="dither")drawAmbient(amb,now/1000);
+      else if(mode==="halo")drawHalo(amb,now/1000);
+      else if(mode==="aurora"){/* pure CSS (theme-owned) */}
+      else g_clear(amb);
     }
-  });
+    /* dither repaint when accent tweens */
+    if(artDirty||ACC.anim){
+      document.querySelectorAll("canvas.art-dither").forEach(cv=>drawDither(cv,S._img));
+      artDirty=false;
+    }
+  }
+  lyricFollow();
+  /* owner broadcast: merged time+bars tick @30Hz (T7) */
+  if(IS_OWNER&&!hidden){
+    const t=now-lastTickEmit;
+    if(t>=1000/30){
+      lastTickEmit=now;
+      emitTick(posSec());
+      emitBars();
+    }
+  }
+  if(!rafPending){rafPending=true;requestAnimationFrame(loop)}
+}
+function g_clear(cv){const g=cv.getContext("2d");if(g)g.clearRect(0,0,cv.width,cv.height)}
+window.requestAnimationFrame(loop);
+
+/* ============================================================
+   CONTEXT MENU (DOM fallback; widget may prefer native)
+   ============================================================ */
+function openCtx(x,y,items){
+  document.querySelectorAll(".menu.ctxroot").forEach(m=>m.remove());
+  const m=document.createElement("div");
+  m.className="menu ctxroot open";
+  const build=(list,host)=>{
+    for(const it of list){
+      if(it.sep){const s=document.createElement("div");s.className="menu-sep";host.appendChild(s);continue}
+      const w=document.createElement("div");
+      if(it.children){
+        w.className="ctxwrap";
+        const b=document.createElement("button");b.className="menu-item";
+        b.innerHTML=`<span class="ctxdot"></span>${esc(it.label)}<span class="ctxarrow">\u25B8</span>`;
+        w.appendChild(b);
+        const sub=document.createElement("div");sub.className="menu sub open";
+        build(it.children,sub);
+        w.appendChild(sub);
+      }else{
+        const b=document.createElement("button");b.className="menu-item"+(it.checked?" on":"");
+        b.innerHTML=`<span class="ctxdot"></span>${esc(it.label)}`;
+        b.onclick=()=>{closeCtx();it.onClick&&it.onClick()};
+        w.appendChild(b);
+      }
+      host.appendChild(w);
+    }
+  };
+  build(items,m);
+  document.body.appendChild(m);
+  const r=m.getBoundingClientRect();
+  m.style.left=clamp(x,4,innerWidth-r.width-4)+"px";
+  m.style.top=clamp(y,4,innerHeight-r.height-4)+"px";
+  setTimeout(()=>{
+    const close=e=>{if(!m.contains(e.target)){closeCtx();document.removeEventListener("pointerdown",close)}};
+    document.addEventListener("pointerdown",close);
+  },10);
   return m;
 }
-function closeCtx(){document.querySelectorAll(".ctxmenu").forEach(m=>m.remove())}
-function openCtx(x,y,items){
-  closeCtx();
-  const m=buildCtxMenu(items);
-  document.body.appendChild(m);
-  m.classList.add("open");
-  const w=m.offsetWidth/UIZ,h=m.offsetHeight/UIZ;
-  m.style.left=Math.min(x/UIZ,innerWidth/UIZ-w-8)+"px";
-  m.style.top=Math.min(y/UIZ,innerHeight/UIZ-h-8)+"px";
-  setTimeout(()=>addEventListener("pointerdown",function h(ev){
-    if(!m.contains(ev.target)){closeCtx();removeEventListener("pointerdown",h)}},0),0);
+function closeCtx(){document.querySelectorAll(".menu.ctxroot").forEach(m=>m.remove())}
+window.openCtx=openCtx;window.closeCtx=closeCtx;
+function accentMenuItems(){
+  return [["album","FROM ALBUM ART"],["mint","MINT"],["sky","SKY"],["violet","VIOLET"],["rose","ROSE"],["amber","AMBER"],["red","RED"],["custom","CUSTOM"]].map(([v,l])=>({
+    label:l,checked:ACC.mode===v,onClick:()=>setAccentMode(v)
+  }));
 }
-addEventListener("keydown",e=>{if(e.key==="Escape")closeCtx()});
+window.accentMenuItems=accentMenuItems;
 
-/* end-of-track: sleep-timer stopAfterTrack handled before advancing (owner) */
-if(IS_OWNER){
-  document.addEventListener("halftone:ended",()=>{ /* dispatched by page's ended listener */ });
+/* ============================================================
+   DRAG-AND-DROP FOLDER SCAN
+   ============================================================ */
+function wireDropZone(target){
+  if(!target)return;
+  target.addEventListener("dragover",e=>{e.preventDefault();e.dataTransfer.dropEffect="copy"});
+  target.addEventListener("drop",async e=>{
+    e.preventDefault();
+    const files=[...(e.dataTransfer.files||[])];
+    if(!files.length)return;
+    const path=files[0].path||files[0].name;
+    if(!path)return;
+    const dir=path.replace(/[\\/][^\\/]+$/,"");
+    await scanLibrary(dir);
+    render&&render();
+  });
 }
+window.wireDropZone=wireDropZone;
 
-/* single-audio: superseded by the OWNER model above - there is
-   exactly one <audio> element in the whole app (main window), so
-   takeover/drift-correction are structurally obsolete. */
-
-/* ============ shared element refs (page fills el) ============ */
-var el={};
-window.el=el;
+/* ============================================================
+   BOOT SEQUENCE
+   ============================================================ */
+(async function boot(){
+  wireEvents();
+  /* 1. settings load (shared JSON via backend, debounced saves) */
+  if(window.__htSettingsReady){await window.__htSettingsReady}
+  else if(window.htSettings){await window.htSettings.ready()}
+  if(window.htSettings){
+    const v=window.htSettings.all()||{};
+    /* mirror into S.cfg for engine code */
+    for(const [k,val] of Object.entries(v))S.cfg[k]=val;
+  }
+  recalibrateBgLum();
+  updateSwitchStyles();
+  /* 2. library snapshot (never a full broadcast at boot — T7) */
+  await refreshLibSnapshot();
+  /* 3. owner: restore last track, resume if set */
+  if(IS_OWNER&&S.lib.length){
+    const last=S.cfg.lastTrack||0;
+    if(S.cfg.resume===true&&S.cfg.lastTrack!=null)await loadTrack(clamp(last,0,S.lib.length-1),false);
+    else await loadTrack(clamp(last,0,S.lib.length-1),false);
+  }
+  /* 4. viewer: announce; owner answers with authoritative sync */
+  if(!IS_OWNER&&T&&T.event&&T.event.emit){
+    try{T.event.emit("halftone:hello",{}).catch(()=>{})}catch(_){}
+  }
+  document.dispatchEvent(new CustomEvent("halftone:booted"));
+})();
+window.__booted=true;
+/* QA hook: report the last boot error (set by the onerror reporter in
+   main.html/index.html) to the console so headless runs surface it */
+setTimeout(()=>{
+  if(window.__HT_BOOT_ERR){
+    console.error("HT-BOOT-ERR["+(window.IS_VIEWER?"widget":"main")+"]",
+      __HT_BOOT_ERR.msg,"line",__HT_BOOT_ERR.line,"\n"+(__HT_BOOT_ERR.stack||""));
+  }
+},1200);

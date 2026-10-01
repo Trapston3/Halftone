@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Halftone",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "identifier": "com.trapston3.halftone",
   "build": {
     "frontendDist": "../ui",
@@ -19,16 +19,14 @@
         "transparent": true,
         "alwaysOnTop": true,
         "resizable": true,
-        "minWidth": 380,
-        "minHeight": 260,
+        "minWidth": 240,
+        "minHeight": 140,
         "shadow": false,
         "skipTaskbar": true,
         "dragDropEnabled": false,
         "center": true,
         "width": 400,
-        "height": 254,
-        "maxWidth": 760,
-        "maxHeight": 560
+        "height": 260
       },
       {
         "label": "main",
@@ -49,7 +47,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob:; media-src 'self' blob: flac: http://flac.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://media.localhost media: http://flac.localhost; img-src 'self' data: blob: http://media.localhost media:; media-src 'self' blob: flac: media: http://flac.localhost http://media.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'"
     }
   },
   "bundle": {

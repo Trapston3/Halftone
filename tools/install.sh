@@ -1,0 +1,272 @@
+#!/bin/sh
+# Halftone installer - Linux (x86_64).
+#   curl -fsSL https://github.com/Trapston3/Halftone/raw/main/tools/install.sh | sh
+#
+# Debian/Ubuntu (apt + sudo): installs Halftone_amd64.deb via apt, which pulls
+# the webkit2gtk dependencies. Everything else: installs the AppImage to
+# ~/.local/bin/halftone (+ menu entry + icon). --appimage forces the AppImage
+# path even on apt systems. --uninstall removes Halftone.
+#
+# Checksums: every release asset has a sibling <asset>.sha256 (sha256sum
+# format) uploaded by CI; the download is verified against it.
+#
+# Environment overrides (mainly for testing):
+#   HALFTONE_BASE_URL     fetch latest.json + assets from here instead of
+#                         the GitHub release (flat directory)
+#   HALFTONE_PREFIX       install prefix (default ~/.local -> bin/ + share/)
+#   HALFTONE_ICON_URL     png used for the menu entry icon
+#   HALFTONE_APT_INSTALL  install command for the .deb path
+#                         (default: "sudo apt-get install -y")
+set -eu
+
+REPO="Trapston3/Halftone"
+RELEASES_PAGE="https://github.com/$REPO/releases"
+BASE_URL="${HALFTONE_BASE_URL:-https://github.com/$REPO/releases/latest/download}"
+PREFIX="${HALFTONE_PREFIX:-$HOME/.local}"
+SHARE_DIR="${XDG_DATA_HOME:-$PREFIX/share}"
+BIN_DIR="$PREFIX/bin"
+DESKTOP_DIR="$SHARE_DIR/applications"
+ICON_DIR="$SHARE_DIR/icons/hicolor/256x256/apps"
+APPIMAGE_DIR="$SHARE_DIR/halftone"
+ICON_URL="${HALFTONE_ICON_URL:-https://raw.githubusercontent.com/$REPO/main/src-tauri/icons/256x256.png}"
+APT_INSTALL="${HALFTONE_APT_INSTALL:-sudo apt-get install -y}"
+
+BIN="$BIN_DIR/halftone"
+DESKTOP_FILE="$DESKTOP_DIR/halftone.desktop"
+ICON_FILE="$ICON_DIR/halftone.png"
+
+usage() {
+  cat <<USG
+Halftone installer (Linux x86_64)
+
+  usage: install.sh [--appimage] [--uninstall]
+
+    --appimage   force the AppImage install even on apt systems
+    --uninstall  remove the binary, menu entry and icon
+USG
+}
+
+say()  { printf '%s\n' "$*"; }
+warn() { printf 'warning: %s\n' "$*" >&2; }
+die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+# fetch URL OUTFILE - download with retries (github resets idle conns)
+fetch() {
+  curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 -o "$2" "$1"
+}
+
+# head_ok URL - true if the URL exists (HEAD request)
+head_ok() {
+  curl -fsSI --retry 3 --retry-delay 2 --connect-timeout 15 "$1" >/dev/null 2>&1
+}
+
+# sha256_of FILE - lowercase hex digest
+sha256_of() {
+  sha256sum "$1" | awk '{print tolower($1)}'
+}
+
+# sidecar_hash ASSET_URL - digest from the <asset>.sha256 sidecar, or ""
+sidecar_hash() {
+  curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 "$1.sha256" 2>/dev/null |
+    awk 'NR==1{print tolower($1)}' || true
+}
+
+# verify FILE EXPECTED LABEL - die on mismatch, warn+skip when no checksum
+verify() {
+  if [ -z "$2" ]; then
+    warn "no checksum published for $3 - skipping verification"
+    return 0
+  fi
+  actual=$(sha256_of "$1")
+  if [ "$actual" != "$2" ]; then
+    die "checksum mismatch for $3
+       expected $2
+       got      $actual
+       (delete the downloaded copy and retry; if this keeps happening,
+       report it at $RELEASES_PAGE)"
+  fi
+  say "  checksum ok: $2"
+}
+
+# asset_url NAME - full download URL for a release asset
+asset_url() {
+  if [ -n "${HALFTONE_BASE_URL:-}" ]; then
+    printf '%s/%s\n' "$BASE_URL" "$1"
+  elif [ -n "$version" ]; then
+    printf 'https://github.com/%s/releases/download/v%s/%s\n' "$REPO" "$version" "$1"
+  else
+    printf '%s/%s\n' "$BASE_URL" "$1"
+  fi
+}
+
+have_fuse2() {
+  if command -v ldconfig >/dev/null 2>&1; then
+    ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'
+  else
+    [ -e /usr/lib/x86_64-linux-gnu/libfuse.so.2 ] ||
+      [ -e /lib/x86_64-linux-gnu/libfuse.so.2 ]
+  fi
+}
+
+do_uninstall() {
+  removed=0
+  for f in "$BIN" "$DESKTOP_FILE" "$ICON_FILE" "$APPIMAGE_DIR/Halftone_amd64.AppImage"; do
+    if [ -e "$f" ]; then
+      rm -f "$f"
+      say "  removed $f"
+      removed=1
+    fi
+  done
+  rmdir "$APPIMAGE_DIR" 2>/dev/null || true
+  if [ "$removed" = 1 ]; then
+    say ""
+    say "  Halftone uninstalled."
+  else
+    say "  nothing to uninstall"
+  fi
+}
+
+# remove_appimage_install - clean up what install_appimage created, so a
+# later .deb install doesn't leave two copies of Halftone on the system
+remove_appimage_install() {
+  for f in "$BIN" "$DESKTOP_FILE" "$ICON_FILE"; do
+    [ -e "$f" ] && rm -f "$f"
+  done
+  rm -rf "$APPIMAGE_DIR"
+}
+
+install_deb() {
+  deb_url=$(asset_url "$DEB_NAME")
+  say "  downloading: $deb_url"
+  fetch "$deb_url" "$tmpdir/$DEB_NAME"
+  expected=$(sidecar_hash "$deb_url")
+  verify "$tmpdir/$DEB_NAME" "$expected" "$DEB_NAME"
+  remove_appimage_install
+  say "  installing via apt (pulls the webkit2gtk dependencies) ..."
+  # $APT_INSTALL is intentionally word-split (defaults to several words)
+  # shellcheck disable=SC2086
+  $APT_INSTALL "$tmpdir/$DEB_NAME" </dev/null
+  say ""
+  say "  installed. launch 'Halftone' from your app menu, or 'halftone' in a terminal."
+  say "  (the menu entry and dependencies are managed by the package)"
+}
+
+install_appimage() {
+  appimage_url=$(asset_url "$APPIMAGE_NAME")
+  say "  downloading: $appimage_url"
+  fetch "$appimage_url" "$tmpdir/$APPIMAGE_NAME"
+  expected=$(sidecar_hash "$appimage_url")
+  verify "$tmpdir/$APPIMAGE_NAME" "$expected" "$APPIMAGE_NAME"
+
+  mkdir -p "$BIN_DIR" "$APPIMAGE_DIR"
+  rm -rf "$APPIMAGE_DIR"
+  mkdir -p "$APPIMAGE_DIR"
+
+  if have_fuse2; then
+    # bin/halftone IS the AppImage - it runs normally via FUSE
+    rm -f "$BIN"
+    install -m 0755 "$tmpdir/$APPIMAGE_NAME" "$BIN"
+  else
+    # no libfuse2: keep the AppImage out of bin and wrap it so it still runs
+    say "  libfuse2 not found - installing a launcher that needs no FUSE"
+    install -m 0755 "$tmpdir/$APPIMAGE_NAME" "$APPIMAGE_DIR/$APPIMAGE_NAME"
+    rm -f "$BIN"
+    {
+      printf '#!/bin/sh\n'
+      printf '# Halftone launcher (AppImage without FUSE)\n'
+      printf 'exec "%s" --appimage-extract-and-run "$@"\n' "$APPIMAGE_DIR/$APPIMAGE_NAME"
+    } >"$BIN"
+    chmod 0755 "$BIN"
+  fi
+
+  mkdir -p "$DESKTOP_DIR" "$ICON_DIR"
+  {
+    printf '[Desktop Entry]\n'
+    printf 'Type=Application\n'
+    printf 'Name=Halftone\n'
+    printf 'Comment=Dithered local music player\n'
+    printf 'Exec=%s\n' "$BIN"
+    printf 'Icon=%s\n' "$ICON_FILE"
+    printf 'Terminal=false\n'
+    printf 'Categories=Audio;AudioVideo;Music;\n'
+    printf 'StartupWMClass=com.trapston3.halftone\n'
+  } >"$DESKTOP_FILE"
+  if fetch "$ICON_URL" "$tmpdir/icon.png" 2>/dev/null; then
+    install -m 0644 "$tmpdir/icon.png" "$ICON_FILE"
+  else
+    warn "could not download the app icon (non-fatal)"
+  fi
+
+  case ":$PATH:" in
+    *":$BIN_DIR:"*) : ;;
+    *) warn "$BIN_DIR is not on your PATH - add it to ~/.bashrc or ~/.profile:
+       export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
+  esac
+  say ""
+  say "  installed. launch: 'halftone' in a terminal, or the Halftone menu entry"
+}
+
+main() {
+  FORCE_APPIMAGE=0
+  ACTION="install"
+  for arg in ${1+"$@"}; do
+    case "$arg" in
+      --appimage) FORCE_APPIMAGE=1 ;;
+      --uninstall) ACTION="uninstall" ;;
+      -h | --help) usage; exit 0 ;;
+      *) die "unknown option: $arg (try --help)" ;;
+    esac
+  done
+
+  say ""
+  say "  HALFTONE - dithered local music player"
+  say "  --------------------------------------"
+
+  if [ "$ACTION" = "uninstall" ]; then
+    do_uninstall
+    return 0
+  fi
+
+  case "$(uname -m)" in
+    x86_64 | amd64) : ;;
+    *)
+      die "unsupported architecture: $(uname -m)
+       Halftone ships x86_64 Linux builds only. See $RELEASES_PAGE"
+      ;;
+  esac
+
+  version=""
+  tmp_meta="$tmpdir/latest.json"
+  if fetch "$BASE_URL/latest.json" "$tmp_meta" 2>/dev/null; then
+    version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tmp_meta" | head -n1)
+  else
+    say "  no latest.json - falling back to the latest release assets"
+  fi
+
+  APPIMAGE_NAME="Halftone_amd64.AppImage"
+  DEB_NAME="Halftone_amd64.deb"
+
+  appimage_url=$(asset_url "$APPIMAGE_NAME")
+  if ! head_ok "$appimage_url"; then
+    die "the latest Halftone release has no Linux builds yet.
+       Linux installers ship with v0.2.0 - meanwhile everything available is at:
+         $RELEASES_PAGE"
+  fi
+
+  if [ "$FORCE_APPIMAGE" = 1 ]; then
+    install_appimage
+  elif command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then
+    if head_ok "$(asset_url "$DEB_NAME")"; then
+      install_deb
+    else
+      warn "this release has no .deb - using the AppImage instead"
+      install_appimage
+    fi
+  else
+    install_appimage
+  fi
+}
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+main "$@"
