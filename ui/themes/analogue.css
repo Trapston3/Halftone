@@ -375,14 +375,33 @@
   font-size: 10px;
 }
 :root[data-theme="analogue"] .titlebar .win-btn {
-  width: 12px; height: 12px; border-radius: 50%;
+  width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center;
   margin-left: 8px; border: 1px solid var(--line-2);
   background: transparent;
   padding: 0;
   letter-spacing: 0;
   cursor: pointer;
 }
+:root[data-theme="analogue"] .titlebar .win-btn svg { width: 13px; height: 13px; }
+:root[data-theme="analogue"] .titlebar .win-btn.danger:hover {
+  border-color: var(--danger); color: var(--danger);
+}
+/* list header prints as a rule, not a black band: paper-matched strip
+   (dark: dim panel tone) closed by a double printed rule below */
+:root[data-theme="analogue"] .list-head {
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line-2);
+  box-shadow: 0 3px 0 -2px var(--line);
+}
 :root[data-theme="analogue"] .titlebar .win-btn:hover { border-color: var(--fg-2); }
+
+/* riso light: the header prints on the paper — same stock, ink rule */
+:root[data-theme="analogue"][data-mode="light"] .list-head {
+  background: transparent;
+  border-bottom: 1.5px solid var(--riso-blue);
+  box-shadow: none;
+}
 
 :root[data-theme="analogue"] .mini-bar {
   display: flex;
