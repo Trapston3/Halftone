@@ -87,7 +87,8 @@ Lists: `.list` > `.row(.cur,.playing)` > `.row-art`, `.row-title`,
 
 Now playing: `.np` > `.np-art` (`canvas.art-dither` or `img.art-real`),
 `.np-title`, `.np-artist`, `.np-meta`, `.np-transport`, `.lyrics` >
-`.lyric-line(.active,.past)`; `.lyrics.plain` for unsynced text;
+`.lyric-line(.active,.past,.future)`; `.past` = already sung, `.future` =
+upcoming (dimmed); `.lyrics.plain` for unsynced text;
 `.lyrics-status` (searching / none found / source label).
 
 Overlays: `.sheet` (bottom sheet) > `.sheet-handle`, `.sheet-head`,
