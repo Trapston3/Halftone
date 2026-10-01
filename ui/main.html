@@ -25,6 +25,9 @@ window.addEventListener("unhandledrejection",function(ev){
 /* ============ main-window page styles (token-driven) ============ */
 body{background:transparent}
 .shell{border-color:var(--accent)}
+/* track list column grid: rows and header share ONE template (--list-cols
+   from base.css) so cells always line up with the column captions */
+#v-content .row,#v-content .list-head{grid-template-columns:var(--list-cols)}
 #edgeCv{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:40}
 
 /* titlebar center: search + caption */
@@ -482,7 +485,7 @@ function render(){
 /* ============ virtualized track list ============ */
 const ROWH={compact:34,cozy:42,comfy:50};
 function rowH(){return ROWH[S.cfg.density]||42}
-function listHead(){return `<div class="list-head"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>`}
+function listHead(){return `<div class="list-head"><span>#</span><span style="text-align:left">TITLE</span><span style="text-align:left">ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>`}
 function renderVirtualList(list,items){
   const st={rows:[],top:0};
   list.style.position="relative";
@@ -517,7 +520,7 @@ function trackRow(t,i){
     <span class="row-sub" style="text-align:right">${esc(t.album)}</span>
     <span class="row-dur">${fmt(t.duration_s)}</span>
     <span class="row-dur mono" style="letter-spacing:.05em">${t.streaminfo.sample_rate/1000}k/${t.streaminfo.bits}</span>
-    <button class="row-more" data-like title="Like">
+    <button class="row-more row-like" data-like title="Like">
       <svg viewBox="0 0 24 24" fill="${liked?"currentColor":"none"}" stroke="currentColor" stroke-width="1.7"><path d="M12 20s-7-4.3-9.3-8.6C.9 8 3 4.5 6.4 4.5c2 0 3.6 1.1 4.4 2.7l1.2 2 1.2-2c.8-1.6 2.4-2.7 4.4-2.7 3.4 0 5.5 3.5 3.7 6.9C19 15.7 12 20 12 20z"/></svg>
     </button>
     <button class="row-more" data-more title="More">

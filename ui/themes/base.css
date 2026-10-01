@@ -35,6 +35,9 @@
   --canvas-bg:#12171A; --canvas-off:#232A2E; --canvas-ink:#F2E8CF;
   /* theme-level switches (string tokens read by JS) */
   --seek-style:led; --vol-style:leds; --art-default:dither; --ambient-default:dither;
+  /* shared track-list column grid: header + rows MUST match.
+     # / title / artist / album / length / format / like / more */
+  --list-cols:48px minmax(180px,2fr) minmax(120px,1.4fr) minmax(120px,1.4fr) 72px 96px 40px 40px;
 }
 
 /* ---------- MINIMAL light-mode fallback (foundation QA only).
@@ -371,7 +374,7 @@ select.field option{background:var(--bg-2);color:var(--fg)}
 /* ---------- lists ---------- */
 .list{display:flex;flex-direction:column;position:relative;overflow-y:auto;flex:1;min-height:0}
 .row{position:absolute;left:0;right:0;display:grid;align-items:center;gap:var(--sp2);
-  grid-template-columns:34px minmax(0,2.2fr) minmax(0,1.4fr) 120px 56px 64px 34px 34px;
+  grid-template-columns:var(--list-cols);
   padding:0 var(--sp2);border-radius:var(--R-m);color:var(--fg-2);cursor:pointer;
   transition:background var(--dur-1)}
 .row:hover{background:var(--bg-3)}
@@ -381,17 +384,18 @@ select.field option{background:var(--bg-2);color:var(--fg)}
   background:var(--accent);margin-left:8px;vertical-align:middle}
 .row-art{width:32px;height:32px;border-radius:var(--R-s);border:1px solid var(--line);
   background:var(--canvas-bg);object-fit:cover;display:block}
-.row-title{font-size:.78125rem;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
-.row-sub{font-size:.6875rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
-.row-dur{font-size:.65625rem;font-family:var(--font-mono);color:var(--fg-3);text-align:right;font-variant-numeric:tabular-nums}
+.row-title{font-size:.78125rem;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;min-width:0}
+.row-sub{font-size:.6875rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;min-width:0}
+.row-dur{font-size:.65625rem;font-family:var(--font-mono);color:var(--fg-3);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .row-more{width:24px;height:24px;display:grid;place-items:center;border:1px solid transparent;
-  border-radius:var(--R-s);color:var(--fg-3)}
+  border-radius:var(--R-s);color:var(--fg-3);justify-self:end}
 .row-more:hover{border-color:var(--line-2);color:var(--fg)}
 .row-more svg{width:13px;height:13px}
-.list-head{display:grid;grid-template-columns:34px minmax(0,2.2fr) minmax(0,1.4fr) 120px 56px 64px 34px 34px;
+.list-head{display:grid;grid-template-columns:var(--list-cols);
   gap:var(--sp2);padding:var(--sp1) var(--sp2);color:var(--fg-3);
   font-size:.5625rem;letter-spacing:.16em;font-family:var(--font-mono);
   border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:2}
+.list-head span:nth-child(5),.list-head span:nth-child(6){text-align:right}
 
 /* ---------- album grid ---------- */
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:var(--sp3);

@@ -891,9 +891,9 @@
    ---------------------------------------------------- */
 :root[data-theme="digital"] .list { display: flex; flex-direction: column; gap: 6px; }
 :root[data-theme="digital"] .row {
-  display: flex;
+  /* keep the FOUNDATION grid (var(--list-cols)) — rows must share the
+     header's column template; flex here packed every cell to the left */
   align-items: center;
-  gap: 14px;
   padding: 10px 14px;
   border-radius: calc(var(--r-m) * var(--radius-scale, 1));
 }
