@@ -17,9 +17,13 @@ rfd = "0.15"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
+semver = "1"
 rayon = "1"
 notify = "7"
 symphonia = { version = "0.5.5", default-features = false, features = ["isomp4", "alac"] }
+
+[target.'cfg(windows)'.dependencies]
 windows-core = "0.58"
 windows = { version = "0.58", features = [
   "Media_Playback",
@@ -32,6 +36,9 @@ windows = { version = "0.58", features = [
   "Win32_Media",
   "Win32_UI_WindowsAndMessaging",
 ] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+souvlaki = { version = "0.8", default-features = true }
 
 [[bin]]
 name = "halftone-verify"
