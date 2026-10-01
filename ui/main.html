@@ -676,8 +676,8 @@ function openTrackSheet(t,i){
   add("Play next",()=>queueAdd([t.path],"next"));
   add("Add to queue",()=>queueAdd([t.path],"add"));
   add(liked?"\u2665 Liked":"\u2661 Like",()=>{toggleLike(t.path);render()});
-  add("Add to playlist\u2026",()=>openPlaylistPicker(t));
-  add("Change cover art\u2026",()=>openCoverSheet(t));
+  add("Add to playlist…",()=>openPlaylistPicker(t));
+  add("Change cover art…",()=>openCoverSheet(t));
   openSheet();
 }
 /* ============ cover art sheet (task 10) ============ */
@@ -688,15 +688,15 @@ function openCoverSheet(t){
   const cap=document.createElement("div");
   cap.className="h-caps mono";
   cap.style.cssText="padding:2px 10px 6px;color:var(--fg-3)";
-  cap.textContent="SOURCE: \u2026";
+  cap.textContent="SOURCE: …";
   el.sheetBody.appendChild(cap);
   coverInfoFor(t).then(info=>{
     cap.textContent="SOURCE: "+({embedded:"EMBEDDED",user:"YOUR CHOICE",web:"WEB",none:"NONE"}[info&&info.source]||(info&&info.source)||"NONE").toUpperCase();
   });
   const add=(label,fn)=>{const b=document.createElement("button");b.className="sheet-row";
     b.innerHTML=`<span style="flex:1">${label}</span>`;b.onclick=()=>{closeSheet();fn&&fn()};el.sheetBody.appendChild(b);return b};
-  add("Import image\u2026",()=>coverImportFor(t));
-  add("Search the web\u2026",()=>openCoverSearch(t));
+  add("Import image…",()=>coverImportFor(t));
+  add("Search the web…",()=>openCoverSearch(t));
   add("Reset to default",()=>coverResetFor(t));
 }
 /* web search sheet: artist+album fields -> results grid -> click applies */
@@ -715,11 +715,11 @@ function openCoverSearch(t){
   const cap=document.createElement("div");
   cap.className="h-caps mono";
   cap.style.cssText="padding:4px 10px;color:var(--fg-3)";
-  cap.textContent="SEARCHING\u2026";
+  cap.textContent="SEARCHING…";
   el.sheetBody.appendChild(cap);
   const run=()=>{
     const artist=frow.querySelector("#cvA").value, album=frow.querySelector("#cvL").value;
-    grid.innerHTML="";cap.textContent="SEARCHING\u2026";
+    grid.innerHTML="";cap.textContent="SEARCHING…";
     invoke("cover_search",{artist,album,limit:12}).then(cands=>{
       grid.innerHTML="";cap.textContent=cands.length?`${cands.length} RESULTS \u00b7 CLICK TO APPLY`:"NO RESULTS";
       (cands||[]).forEach(cand=>{
@@ -833,7 +833,7 @@ function paintLyrStatus(){
     el.npLyrView.style.display="";
     el.lyrCap.textContent="LYRICS \u00b7 "+(S._lyricsSynced===false?"PLAIN":"SYNCED");
   }else if(st==="searching"){
-    el.lyrStatus.innerHTML=`<span class="h-caps mono">SEARCHING\u2026</span>`;
+    el.lyrStatus.innerHTML=`<span class="h-caps mono">SEARCHING…</span>`;
     el.npNoLrc.style.display="none";el.npLyrView.style.display="";
     el.lyrCap.textContent="LYRICS";
   }else{
@@ -1310,8 +1310,8 @@ document.body.addEventListener("contextmenu",e=>{
     e.preventDefault();
     openCtx(e.clientX,e.clientY,[
       {label:"CHANGE COVER ART",children:[
-        {label:"IMPORT IMAGE\u2026",onClick:()=>coverImportFor(ct)},
-        {label:"SEARCH THE WEB\u2026",onClick:()=>openCoverSearch(ct)},
+        {label:"IMPORT IMAGE…",onClick:()=>coverImportFor(ct)},
+        {label:"SEARCH THE WEB…",onClick:()=>openCoverSearch(ct)},
         {label:"RESET TO DEFAULT",onClick:()=>coverResetFor(ct)},
       ]},
       {sep:1},
