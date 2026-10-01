@@ -41,11 +41,12 @@ pub fn parse_m4a(buf: &[u8], path: &Path) -> Result<(TrackMeta, bool), String> {
     let mut artist = String::new();
     let mut album = String::new();
     let mut cover: Option<Picture> = None;
+    let mut lyrics = String::new();
 
     if let Some(udta) = moov.children.iter().find(|b| b.name == "udta") {
         if let Some(meta) = udta.children.iter().find(|b| b.name == "meta") {
             if let Some(ilst) = meta.children.iter().find(|b| b.name == "ilst") {
-                parse_ilst(&ilst.children, &mut title, &mut artist, &mut album, &mut cover)?;
+                parse_ilst(&ilst.children, &mut title, &mut artist, &mut album, &mut cover, &mut lyrics)?;
             }
         }
     }
@@ -77,6 +78,8 @@ pub fn parse_m4a(buf: &[u8], path: &Path) -> Result<(TrackMeta, bool), String> {
             lossless,
             bitrate_kbps,
             block_types: Vec::new(), // M4A doesn't have FLAC-style metadata blocks
+            has_cover: false,
+            embedded_lyrics: if lyrics.trim().is_empty() { None } else { Some(lyrics) },
         },
         is_alac,
     ))
@@ -91,7 +94,7 @@ struct Mp4Box {
 
 impl Mp4Box {
     fn find_box(&self, name: &[u8]) -> Option<&Mp4Box> {
-        let target = String::from_utf8_lossy(name).to_string();
+        let target: String = name.iter().map(|&b| b as char).collect();
         // Search children recursively
         for child in &self.children {
             if child.name == target {
@@ -131,7 +134,7 @@ fn parse_one_box(buf: &[u8], off: &mut usize, end: usize) -> Result<Option<Mp4Bo
     }
     let sz = u32::from_be_bytes([buf[*off], buf[*off + 1], buf[*off + 2], buf[*off + 3]]) as usize;
     let name_bytes = &buf[*off + 4..*off + 8];
-    let name = String::from_utf8_lossy(name_bytes).to_string();
+    let name: String = name_bytes.iter().map(|&b| b as char).collect(); // latin1: keeps 0xA9 ("©nam")
     let hdr = 8;
     // MP4 box size INCLUDES the 8-byte header
     let size = if sz == 1 {
@@ -226,13 +229,30 @@ fn parse_ilst(
     artist: &mut String,
     album: &mut String,
     cover: &mut Option<Picture>,
+    lyrics: &mut String,
 ) -> Result<(), String> {
     for box_item in children {
         match box_item.name.as_str() {
             "\u{a9}nam" => *title = parse_ilst_string(&box_item.data)?,
             "\u{a9}ART" => *artist = parse_ilst_string(&box_item.data)?,
             "\u{a9}alb" => *album = parse_ilst_string(&box_item.data)?,
+            "\u{a9}lyr" => *lyrics = parse_ilst_string(&box_item.data)?,
             "covr" => {
+                // covr is not in the container list, so its `data` atom is
+                // still raw bytes: size(4) "data"(4) type(4) locale(4) image
+                let d = &box_item.data;
+                if box_item.children.is_empty() && d.len() > 16 && &d[4..8] == b"data" {
+                    let end = (u32::from_be_bytes([d[0], d[1], d[2], d[3]]) as usize).clamp(16, d.len());
+                    let img = &d[16..end];
+                    let (mime, w, h) = detect_image(img);
+                    *cover = Some(Picture {
+                        mime,
+                        data_b64: crate::base64_encode(img),
+                        width: w,
+                        height: h,
+                        data_len: img.len() as u32,
+                    });
+                }
                 for child in &box_item.children {
                     if child.name == "data" && !child.data.is_empty() {
                         let (mime, w, h) = detect_image(&child.data);
@@ -297,6 +317,10 @@ pub fn parse_adts(buf: &[u8], path: &Path) -> Result<TrackMeta, String> {
         let frame_len = (((buf[p + 3] & 0x03) as usize) << 11)
             | ((buf[p + 4] as usize) << 3)
             | ((buf[p + 5] >> 5) as usize);
+        if frame_len < 7 {
+            p += 1; // corrupt header: zero/short length would never advance
+            continue;
+        }
         let frame_samples = 1024u64;
         let adts_rates = [
             96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025,
@@ -340,5 +364,7 @@ pub fn parse_adts(buf: &[u8], path: &Path) -> Result<TrackMeta, String> {
         lossless: false,
         bitrate_kbps,
         block_types: Vec::new(),
+        has_cover: false,
+        embedded_lyrics: None,
     })
 }

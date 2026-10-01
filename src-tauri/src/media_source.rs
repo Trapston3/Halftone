@@ -34,6 +34,15 @@ pub fn select_range(header: Option<&str>, len: usize) -> Result<Range, ()> {
     Ok(Range { start, end, partial: true })
 }
 
+/// Cap a range's length. A complete (non-range) request becomes a partial
+/// one so the 206 + Content-Range tells the element how to get the rest.
+pub fn cap_range(r: Range, max: usize) -> Range {
+    if r.end - r.start <= max {
+        return r;
+    }
+    Range { start: r.start, end: r.start + max, partial: true }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -46,6 +55,16 @@ mod tests {
         for h in ["bytes=8-2","bytes=10-","bytes=-0","bytes=1-2,4-5","bytes=x-y","bytes=999999999999999999999999-","bytes=-","units=1-2"] {
             assert!(select_range(Some(h),10).is_err(),"{h}");
         }
+    }
+    #[test] fn cap_open_ended() {
+        let r = select_range(Some("bytes=2-"), 100).unwrap();
+        assert_eq!(cap_range(r, 10), Range{start:2,end:12,partial:true});
+    }
+    #[test] fn cap_complete_becomes_partial() {
+        assert_eq!(cap_range(select_range(None, 100).unwrap(), 10), Range{start:0,end:10,partial:true});
+    }
+    #[test] fn cap_noop_when_small() {
+        assert_eq!(cap_range(select_range(Some("bytes=2-4"), 100).unwrap(), 10), Range{start:2,end:5,partial:true});
     }
     #[test] fn start_beyond_len() { assert!(select_range(Some("bytes=10-"),10).is_err()); }
 }

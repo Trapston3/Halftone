@@ -17,6 +17,9 @@ use std::path::{Path, PathBuf};
 // standalone TDD harness and this crate). They must NOT depend on tauri/serde.
 #[path = "formats.rs"]
 mod formats;
+mod probe;
+mod lyrics;
+mod media_source;
 #[path = "alac.rs"]
 mod alac;
 #[path = "m4a.rs"]
@@ -47,7 +50,7 @@ pub fn base64_decode_pub(s: &str) -> Option<Vec<u8>> {
 /// metadata block happens to extend past this.
 const HEADER_READ: usize = 8 * 1024 * 1024;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct StreamInfo {
     pub sample_rate: u32,
     pub bits: u8,
@@ -55,7 +58,7 @@ pub struct StreamInfo {
     pub total_samples: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct Picture {
     pub mime: String,
     pub data_b64: String,
@@ -64,7 +67,7 @@ pub struct Picture {
     pub data_len: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct TrackMeta {
     pub path: String,
     pub title: String,
@@ -85,9 +88,17 @@ pub struct TrackMeta {
     pub lossless: bool,
     /// Average bitrate in kbps (rounded)
     pub bitrate_kbps: u32,
+    /// Embedded art exists. Scans never ship the bytes (they made the scan
+    /// payload enormous); the UI loads art via the `/cover/` media route.
+    #[serde(default)]
+    pub has_cover: bool,
+    /// Lyrics stored in the file's own tags (LYRICS / USLT / ©lyr). Only
+    /// filled by open_track; scans drop it like the cover.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedded_lyrics: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct ReplayGain {
     pub track_gain: Option<f64>,
     pub album_gain: Option<f64>,
@@ -108,7 +119,7 @@ pub struct ScanResult {
     pub unsupported: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct LyricLine {
     pub t: f64,
     pub text: String,
@@ -287,7 +298,12 @@ pub fn read_track(path: &Path) -> Result<TrackMeta, String> {
         Ok(b) => b,
         Err(_) => fs::read(path).map_err(|e| format!("read {}: {}", path.display(), e))?,
     };
-    let (si, tags, mut pics, block_types) = walk_flac(&buf)?;
+    track_from_flac_buf(&buf, path)
+}
+
+/// FLAC TrackMeta from a buffer holding (at least) the metadata blocks.
+pub(crate) fn track_from_flac_buf(buf: &[u8], path: &Path) -> Result<TrackMeta, String> {
+    let (si, tags, mut pics, block_types) = walk_flac(buf)?;
     let duration_s = if si.sample_rate > 0 {
         si.total_samples as f64 / si.sample_rate as f64
     } else {
@@ -315,6 +331,8 @@ pub fn read_track(path: &Path) -> Result<TrackMeta, String> {
         format_tag: "FLAC".into(),
         lossless: true,
         bitrate_kbps: 0, // FLAC bitrate varies per frame; 0 = unknown/VBR
+        has_cover: !pics.is_empty(),
+        embedded_lyrics: tags.get("LYRICS").or_else(|| tags.get("UNSYNCEDLYRICS")).cloned(),
     })
 }
 
@@ -327,6 +345,11 @@ pub fn read_lrc_file(track_path: &Path) -> Vec<LyricLine> {
     let Ok(text) = fs::read_to_string(&lrc_path) else {
         return Vec::new();
     };
+    parse_lrc(&text)
+}
+
+/// LRC text -> sorted lines (multi-timestamp lines expand to one per stamp).
+pub fn parse_lrc(text: &str) -> Vec<LyricLine> {
     let mut out: Vec<LyricLine> = Vec::new();
     for line in text.lines() {
         let mut rest = line;
@@ -401,8 +424,54 @@ fn try_watch(app: tauri::AppHandle, dir: String) -> Result<(), String> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Persistent scan index: path -> (size, mtime, meta). Rescans of an
+// unchanged library parse nothing.
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Serialize, serde::Deserialize)]
+struct ScanEntry {
+    size: u64,
+    mtime: u64,
+    meta: TrackMeta,
+}
+
+static LIBRARY: std::sync::Mutex<Vec<TrackMeta>> = std::sync::Mutex::new(Vec::new());
+
+fn scan_index_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("scan_index.json"))
+}
+
+fn scan_index_load(app: &tauri::AppHandle) -> HashMap<String, ScanEntry> {
+    scan_index_path(app)
+        .and_then(|p| fs::read(p).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+fn scan_index_save(app: &tauri::AppHandle, idx: &HashMap<String, ScanEntry>) {
+    let Some(p) = scan_index_path(app) else { return };
+    let _ = write_atomic(&p, &serde_json::to_vec(idx).unwrap_or_default());
+}
+
+pub(crate) fn write_atomic(p: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(d) = p.parent() {
+        fs::create_dir_all(d)?;
+    }
+    let tmp = p.with_extension("tmp");
+    fs::write(&tmp, bytes)?;
+    fs::rename(&tmp, p)
+}
+
+/// Last scan result (no covers) so viewer windows can fetch the library
+/// from Rust instead of receiving it inside every sync broadcast.
+#[tauri::command]
+fn library_snapshot() -> Vec<TrackMeta> {
+    LIBRARY.lock().map(|l| l.clone()).unwrap_or_default()
+}
+
 /// Extensions WebView2 can likely play but Halftone does not support yet.
-const UNSUPPORTED_AUDIO: &[&str] = &["ogg", "oga", "opus", "wma", "aiff", "aif"];
+const UNSUPPORTED_AUDIO: &[&str] = &["ogg", "oga", "opus", "wma", "aiff", "aif", "ape", "wv"];
 
 /// Format counters for per-format scan reporting.
 #[derive(Debug, Clone, Serialize)]
@@ -432,132 +501,91 @@ fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> 
     if !Path::new(&dir).is_dir() {
         return Err(format!("folder not found: {}", dir));
     }
-    let mut tracks = Vec::new();
     let mut skipped = Vec::new();
     let mut counts = ScanCounts::new();
     let t0 = std::time::Instant::now();
     let _ = CANCEL_SCAN.swap(false, std::sync::atomic::Ordering::Relaxed);
 
-    // RECURSIVE walk (Artist/Album/ layouts) with progress events.
-    fn walk(
-        dir: &Path,
-        depth: usize,
-        tracks: &mut Vec<TrackMeta>,
-        skipped: &mut Vec<String>,
-        counts: &mut ScanCounts,
-        app: &tauri::AppHandle,
-    ) -> Result<(), String> {
-        if depth > 16 {
-            return Ok(()); // pathological nesting guard
+    // 1. Collect candidate paths (recursive, Artist/Album/ layouts). Only
+    //    audio extensions are opened; magic bytes still decide the format.
+    fn collect(dir: &Path, depth: usize, out: &mut Vec<(PathBuf, u64, u64)>, unsupported: &mut usize) {
+        if depth > 16 || CANCEL_SCAN.load(std::sync::atomic::Ordering::Relaxed) {
+            return; // pathological nesting guard / cancelled
         }
-        let rd = fs::read_dir(dir).map_err(|e| format!("open dir {}: {}", dir.display(), e))?;
+        let Ok(rd) = fs::read_dir(dir) else { return };
         for entry in rd.flatten() {
-            if CANCEL_SCAN.load(std::sync::atomic::Ordering::Relaxed) {
-                return Ok(());
-            }
             let p = entry.path();
-            if p.is_dir() {
-                walk(&p, depth + 1, tracks, skipped, counts, app)?;
-                continue;
+            let Ok(md) = entry.metadata() else { continue };
+            if md.is_dir() {
+                collect(&p, depth + 1, out, unsupported);
+            } else if md.is_file() {
+                if probe::is_candidate(&p) {
+                    let mtime = md.modified().ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs()).unwrap_or(0);
+                    out.push((p, md.len(), mtime));
+                } else if p.extension().and_then(|e| e.to_str())
+                    .map(|e| UNSUPPORTED_AUDIO.contains(&e.to_ascii_lowercase().as_str()))
+                    .unwrap_or(false)
+                {
+                    *unsupported += 1;
+                }
             }
-            if !p.is_file() {
-                continue;
-            }
+        }
+    }
+    let mut cands = Vec::new();
+    collect(Path::new(&dir), 0, &mut cands, &mut counts.unsupported);
 
-            // Read the file bytes once for format detection + parsing
-            let bytes = match fs::read(&p) {
-                Ok(b) => b,
-                Err(e) => { skipped.push(format!("{}: {}", p.display(), e)); continue; }
+    // 2. Parse in parallel with bounded reads; unchanged files (same size +
+    //    mtime) come straight from the persistent scan index.
+    let index = scan_index_load(&app);
+    let done = std::sync::atomic::AtomicUsize::new(0);
+    let results: Vec<(String, u64, u64, Result<TrackMeta, String>)> = {
+        use rayon::prelude::*;
+        cands.par_iter().filter_map(|(p, size, mtime)| {
+            if CANCEL_SCAN.load(std::sync::atomic::Ordering::Relaxed) {
+                return None;
+            }
+            let key = p.to_string_lossy().to_string();
+            let r = match index.get(&key) {
+                Some(e) if e.size == *size && e.mtime == *mtime => Ok(e.meta.clone()),
+                _ => probe::read_meta(p, false).map(|(m, _, _)| m),
             };
-            if bytes.is_empty() {
-                skipped.push(format!("{}: empty file", p.display()));
-                continue;
-            }
-
-            // Try Phase 1 parsers first (WAV, MP3, M4A/AAC/ALAC)
-            match formats::detect(&bytes) {
-                Ok("wav") => {
-                    counts.wav += 1;
-                    match formats::parse(&bytes, &p) {
-                        Ok(mut m) => {
-                            m.format_tag = "WAV".into();
-                            m.lossless = true;
-                            tracks.push(m);
-                        }
-                        Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
-                    }
-                }
-                Ok("mp3") => {
-                    counts.mp3 += 1;
-                    match formats::parse(&bytes, &p) {
-                        Ok(mut m) => {
-                            m.format_tag = "MP3".into();
-                            m.lossless = false;
-                            tracks.push(m);
-                        }
-                        Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
-                    }
-                }
-                Ok("m4a") => {
-                    // Disambiguate AAC vs ALAC via stsd fourcc in parse_m4a
-                    match m4a::parse_m4a(&bytes, &p) {
-                        Ok((mut m, is_alac)) => {
-                            if is_alac {
-                                counts.alac += 1;
-                                m.format_tag = "ALAC".into();
-                                m.lossless = true;
-                            } else {
-                                counts.aac += 1;
-                                m.format_tag = "AAC".into();
-                                m.lossless = false;
-                            }
-                            tracks.push(m);
-                        }
-                        Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
-                    }
-                }
-                Ok("adts") => {
-                    counts.aac += 1;
-                    match formats::parse(&bytes, &p) {
-                        Ok(mut m) => {
-                            m.format_tag = "AAC".into();
-                            m.lossless = false;
-                            tracks.push(m);
-                        }
-                        Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
-                    }
-                }
-                Ok(_) => { counts.unsupported += 1; } // should not happen
-                Err(_) => {
-                    // Fallback: check for FLAC magic
-                    if bytes.len() >= 4 && &bytes[0..4] == b"fLaC" {
-                        counts.flac += 1;
-                        match read_track(&p) {
-                            Ok(t) => tracks.push(t),
-                            Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
-                        }
-                    } else if UNSUPPORTED_AUDIO.iter().any(|e| p.extension().and_then(|s| s.to_str()).map(|s| s.to_ascii_lowercase()).unwrap_or_default() == *e) {
-                        counts.unsupported += 1;
-                    }
-                    // silently ignore other extensions
-                }
-            }
-
-            // progress every 25 files
-            if tracks.len() % 25 == 0 {
+            let n = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            if n % 50 == 0 {
                 let _ = app.emit("halftone:scan-progress", serde_json::json!({
-                    "found": tracks.len(),
+                    "found": n, "total": cands.len(),
                     "folder": p.parent().map(|d| d.display().to_string()).unwrap_or_default(),
                     "done": false,
                 }));
             }
-        }
-        Ok(())
-    }
+            Some((key, *size, *mtime, r))
+        }).collect()
+    };
 
-    walk(Path::new(&dir), 0, &mut tracks, &mut skipped, &mut counts, &app)
-        .map_err(|e| format!("scan failed: {}", e))?;
-    CANCEL_SCAN.store(false, std::sync::atomic::Ordering::Relaxed);
+    let mut tracks = Vec::with_capacity(results.len());
+    let mut new_index = HashMap::with_capacity(results.len());
+    for (key, size, mtime, r) in results {
+        match r {
+            Ok(m) => {
+                match m.format_tag.as_str() {
+                    "FLAC" => counts.flac += 1,
+                    "WAV" => counts.wav += 1,
+                    "MP3" => counts.mp3 += 1,
+                    "ALAC" => counts.alac += 1,
+                    _ => counts.aac += 1,
+                }
+                new_index.insert(key, ScanEntry { size, mtime, meta: m.clone() });
+                tracks.push(m);
+            }
+            // a .mp3-named text file etc: report it, never silently drop
+            Err(e) => skipped.push(format!("{}: {}", key, e)),
+        }
+    }
+    let cancelled = CANCEL_SCAN.load(std::sync::atomic::Ordering::Relaxed);
+    if !cancelled {
+        scan_index_save(&app, &new_index);
+    }
     tracks.sort_by(|a, b| a.path.cmp(&b.path));
 
     // Emit final progress with per-format breakdown
@@ -580,6 +608,9 @@ fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> 
     );
     if let Some(app) = APP.get() {
         watch_folder(app.clone(), &dir);
+    }
+    if let Ok(mut lib) = LIBRARY.lock() {
+        *lib = tracks.clone();
     }
     Ok(ScanResult { tracks, skipped, unsupported: counts.unsupported })
 }
@@ -800,18 +831,9 @@ fn scan_cancel() {
 
 #[tauri::command]
 fn open_track(path: &str) -> Result<TrackMeta, String> {
-    let p = PathBuf::from(path);
-    // Read once; detect by MAGIC bytes, not extension (Phase 1 contract).
-    let buf = fs::read(&p).map_err(|e| format!("read {}: {}", p.display(), e))?;
-    if buf.len() >= 4 && &buf[0..4] == b"fLaC" {
-        return read_track(&p); // existing verified FLAC parser
-    }
-    match formats::detect(&buf) {
-        Ok("wav") | Ok("mp3") => formats::parse(&buf, &p),
-        Ok("m4a") => m4a::parse_m4a(&buf, &p).map(|(m, _)| m),
-        Ok("adts") => m4a::parse_adts(&buf, &p),
-        _ => read_track(&p), // FLAC magic handled above; fall back for errors
-    }
+    // Bounded reads; detect by MAGIC bytes, not extension. Full cover kept
+    // (SMTC + now-playing need it) — this is one track, not the library.
+    probe::read_meta(Path::new(path), true).map(|(m, _, _)| m)
 }
 
 #[tauri::command]
@@ -863,60 +885,207 @@ fn pct_decode(s: &str) -> String {
 
 // LRCLIB auto-fetch: search for a track, download its synced .lrc if present,
 // and save it next to the FLAC so the normal read_lyrics path picks it up.
+/// Legacy button path: force a fresh LRCLIB lookup, and (as before) also
+/// save a sidecar `.lrc` next to the track when synced lyrics were found.
 #[tauri::command]
-async fn lrc_fetch(path: String, artist: String, title: String) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("halftone-lrc/0.1.1")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    // lrclib GET /api/search — docs: https://lrclib.net/docs (also supports
-    // track_name/artist_name params; q= full-text works for odd tags).
-    let search_url = "https://lrclib.net/api/search".to_string();
-    let resp = client.get(&search_url)
-        .query(&[("artist_name", artist.as_str()), ("track_name", title.as_str())])
-        .send().await.map_err(|e| e.to_string())?;
-    let resp = if !resp.status().is_success() {
-        // fallback: generic q= search
-        client.get(&search_url)
-            .query(&[("q", format!("{} {}", artist, title).as_str())])
-            .send().await.map_err(|e| e.to_string())?
-    } else { resp };
-
-    if !resp.status().is_success() {
-        return Err(format!("lrclib search failed ({})", resp.status()));
-    }
-    let results: Vec<serde_json::Value> = resp.json().await.map_err(|e| e.to_string())?;
-    if results.is_empty() {
-        return Err("no lyrics found on lrclib".into());
-    }
-
-    // prefer an exact-ish match with synced lyrics; fall back to any synced result
-    let pick = results.iter().find(|r| {
-        r["syncedLyrics"].as_str().map_or(false, |s: &str| !s.trim().is_empty())
-            && r["trackName"].as_str().map_or(false, |n: &str| n.eq_ignore_ascii_case(&title))
-    }).or_else(|| results.iter().find(|r| {
-        r["syncedLyrics"].as_str().map_or(false, |s: &str| !s.trim().is_empty())
-    }));
-    let lrc_text = match pick.and_then(|r| r["syncedLyrics"].as_str()) {
-        Some(t) if !t.trim().is_empty() => t,
-        _ => return Err("no synced lyrics available".into()),
+async fn lrc_fetch(app: tauri::AppHandle, path: String, artist: String, title: String) -> Result<String, String> {
+    let dur = {
+        let p = PathBuf::from(&path);
+        tauri::async_runtime::spawn_blocking(move || probe::read_meta(&p, false).map(|(m, _, _)| m.duration).unwrap_or(0.0))
+            .await
+            .unwrap_or(0.0)
     };
-
-    // write <audio-basename>.lrc next to the FLAC
-    let src = Path::new(&path);
-    if !src.exists() {
-        return Err("track file not found".into());
+    let r = lyrics::resolve(&app, &path, &artist, &title, "", dur, true, true).await?;
+    if !r.synced {
+        return Err(if r.plain.is_some() { "only unsynced lyrics on lrclib".into() } else { "no lyrics found on lrclib".into() });
     }
-    let lrc_path = src.with_extension("lrc");
-    fs::write(&lrc_path, lrc_text).map_err(|e| format!("cannot write {}: {e}", lrc_path.display()))?;
+    let lrc: String = r.lines.iter().map(|l| {
+        let m = (l.t / 60.0).floor();
+        format!("[{:02}:{:05.2}]{}\n", m as u64, l.t - m * 60.0, l.text)
+    }).collect();
+    let lrc_path = Path::new(&path).with_extension("lrc");
+    fs::write(&lrc_path, lrc).map_err(|e| format!("cannot write {}: {e}", lrc_path.display()))?;
     Ok(lrc_path.to_string_lossy().to_string())
+}
+
+/// Automatic lyrics for the playing track (see lyrics.rs for the order).
+#[tauri::command]
+async fn lyrics_get(
+    app: tauri::AppHandle,
+    path: String,
+    artist: String,
+    title: String,
+    album: String,
+    duration: f64,
+    allow_net: bool,
+    force: bool,
+) -> Result<lyrics::LyricsResult, String> {
+    lyrics::resolve(&app, &path, &artist, &title, &album, duration, allow_net, force).await
+}
+
+/// URL of the track's embedded art via the media protocol (404 if none).
+#[tauri::command]
+fn cover_url(path: &str) -> String {
+    if cfg!(windows) {
+        format!("http://media.localhost/cover/{}", pct_encode(path))
+    } else {
+        format!("media://localhost/cover/{}", pct_encode(path))
+    }
+}
+
+/// One settings file shared by both windows (localStorage is per-webview
+/// on some platforms and gets wiped with WebView2 caches).
+#[tauri::command]
+fn settings_load(app: tauri::AppHandle) -> serde_json::Value {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .and_then(|d| fs::read(d.join("settings.json")).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::Value::Null)
+}
+
+#[tauri::command]
+fn settings_save(app: tauri::AppHandle, v: serde_json::Value) -> Result<(), String> {
+    let d = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let bytes = serde_json::to_vec_pretty(&v).map_err(|e| e.to_string())?;
+    write_atomic(&d.join("settings.json"), &bytes).map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
 // SMTC bridge commands (owner/UI only)
 // ---------------------------------------------------------------------------
+
+/// Longest body returned for an open-ended range (`bytes=N-`). The media
+/// element asks for the rest; nothing ever loads a whole file per request.
+const RANGE_CAP: usize = 2 * 1024 * 1024;
+
+/// One decoded ALAC file (path, mtime) -> WAV bytes. Decoding is the
+/// expensive part; ranges are then sliced out of memory.
+static ALAC_CACHE: std::sync::Mutex<Option<(PathBuf, std::time::SystemTime, std::sync::Arc<Vec<u8>>)>> =
+    std::sync::Mutex::new(None);
+
+/// Small per-file facts (format, ALAC?) so every range request doesn't
+/// re-probe. Keyed by path + mtime.
+static MEDIA_KIND: std::sync::Mutex<Option<HashMap<PathBuf, (std::time::SystemTime, probe::Kind, bool)>>> =
+    std::sync::Mutex::new(None);
+
+/// Embedded-art LRU for the `/cover/` route.
+static COVER_CACHE: std::sync::Mutex<Vec<(PathBuf, std::time::SystemTime, std::sync::Arc<(String, Vec<u8>)>)>> =
+    std::sync::Mutex::new(Vec::new());
+const COVER_CACHE_MAX: usize = 256;
+
+fn http(status: u16, body: Vec<u8>) -> tauri::http::Response<Vec<u8>> {
+    tauri::http::Response::builder()
+        .status(status)
+        .header("Access-Control-Allow-Origin", "*")
+        .body(body)
+        .unwrap_or_default()
+}
+
+fn media_kind(path: &Path, mtime: std::time::SystemTime) -> Result<(probe::Kind, bool), String> {
+    if let Ok(mut g) = MEDIA_KIND.lock() {
+        let map = g.get_or_insert_with(HashMap::new);
+        if let Some((t, k, a)) = map.get(path) {
+            if *t == mtime {
+                return Ok((*k, *a));
+            }
+        }
+        let mut f = fs::File::open(path).map_err(|e| e.to_string())?;
+        let head = probe::sniff_file(&mut f)?;
+        let kind = probe::kind_of(&head).ok_or("unrecognized audio format")?;
+        let alac = kind == probe::Kind::M4a
+            && probe::read_meta(path, false).map(|(_, _, a)| a).unwrap_or(false);
+        if map.len() > 64 {
+            map.clear();
+        }
+        map.insert(path.to_path_buf(), (mtime, kind, alac));
+        return Ok((kind, alac));
+    }
+    Err("media state poisoned".into())
+}
+
+fn alac_wav(path: &Path, mtime: std::time::SystemTime) -> Result<std::sync::Arc<Vec<u8>>, String> {
+    let mut g = ALAC_CACHE.lock().map_err(|_| "alac cache poisoned")?;
+    if let Some((p, t, w)) = g.as_ref() {
+        if p == path && *t == mtime {
+            return Ok(w.clone());
+        }
+    }
+    let wav = std::sync::Arc::new(alac::decode(fs::read(path).map_err(|e| e.to_string())?)?);
+    *g = Some((path.to_path_buf(), mtime, wav.clone()));
+    Ok(wav)
+}
+
+fn serve_cover(path: &Path) -> tauri::http::Response<Vec<u8>> {
+    let Ok(mtime) = fs::metadata(path).and_then(|m| m.modified()) else {
+        return http(404, b"no such file".to_vec());
+    };
+    let hit = COVER_CACHE.lock().ok().and_then(|mut c| {
+        let i = c.iter().position(|(p, t, _)| p == path && *t == mtime)?;
+        let e = c.remove(i);
+        let v = e.2.clone();
+        c.push(e); // most recently used at the end
+        Some(v)
+    });
+    let art = match hit {
+        Some(a) => a,
+        None => {
+            let pic = probe::read_meta(path, true).ok().and_then(|(m, _, _)| m.cover);
+            let Some(pic) = pic else { return http(404, b"no embedded art".to_vec()) };
+            let Some(bytes) = base64_decode(&pic.data_b64) else { return http(500, b"bad art".to_vec()) };
+            let a = std::sync::Arc::new((pic.mime, bytes));
+            if let Ok(mut c) = COVER_CACHE.lock() {
+                if c.len() >= COVER_CACHE_MAX {
+                    c.remove(0);
+                }
+                c.push((path.to_path_buf(), mtime, a.clone()));
+            }
+            a
+        }
+    };
+    tauri::http::Response::builder()
+        .status(200)
+        .header("Content-Type", if art.0.is_empty() { "image/jpeg" } else { art.0.as_str() })
+        .header("Cache-Control", "max-age=31536000")
+        .header("Access-Control-Allow-Origin", "*")
+        .body(art.1.clone())
+        .unwrap_or_default()
+}
+
+fn range_response(
+    total: usize,
+    range: Option<&str>,
+    content_type: &str,
+    read: impl FnOnce(usize, usize) -> Result<Vec<u8>, String>,
+) -> tauri::http::Response<Vec<u8>> {
+    let r = match media_source::select_range(range, total) {
+        Ok(r) => r,
+        Err(()) => {
+            return tauri::http::Response::builder()
+                .status(416)
+                .header("Content-Range", format!("bytes */{}", total))
+                .body(Vec::new())
+                .unwrap_or_default()
+        }
+    };
+    let r = media_source::cap_range(r, RANGE_CAP);
+    let body = match read(r.start, r.end) {
+        Ok(b) => b,
+        Err(e) => return http(500, e.into_bytes()),
+    };
+    let mut b = tauri::http::Response::builder()
+        .header("Content-Type", content_type)
+        .header("Content-Length", body.len().to_string())
+        .header("Accept-Ranges", "bytes")
+        .header("Access-Control-Allow-Origin", "*");
+    b = if r.partial {
+        b.status(206).header("Content-Range", format!("bytes {}-{}/{}", r.start, r.end - 1, total))
+    } else {
+        b.status(200)
+    };
+    b.body(body).unwrap_or_default()
+}
 
 fn serve_media(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
     let uri = request.uri().to_string();
@@ -927,83 +1096,38 @@ fn serve_media(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<
         .or_else(|| uri.strip_prefix("flac://localhost/"))          // legacy fallback
         .or_else(|| uri.strip_prefix("http://flac.localhost/"))     // legacy fallback
         .unwrap_or("");
-    let path = pct_decode(enc);
-
-    let range: Option<(u64, u64)> = request
-        .headers()
-        .get("range")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|r| r.strip_prefix("bytes="))
-        .and_then(|r| {
-            let (a, b) = r.split_once('-')?;
-            let start: u64 = a.parse().ok()?;
-            let end: u64 = if b.is_empty() { u64::MAX } else { b.parse().ok()? };
-            Some((start, end))
-        });
-
-    // --- ALAC path: decode once to PCM WAV, serve byte ranges from memory ---
-    // Detection is by content (ftyp + stsd fourcc), not extension.
-    let is_alac = {
-        match fs::read(&path) {
-            Ok(b) => b.len() > 12
-                && &b[4..8.min(b.len())] == b"ftyp"
-                && m4a::parse_m4a(&b, Path::new(&path)).map(|(_, alac)| alac).unwrap_or(false),
-            Err(_) => false,
-        }
-    };
-
-    let (body, content_type): (Vec<u8>, &str) = if is_alac {
-        match fs::read(&path).map_err(|e| e.to_string()).and_then(alac::decode) {
-            Ok(wav) => (wav, "audio/wav"),
-            Err(_e) => {
-                return tauri::http::Response::builder()
-                    .status(500)
-                    .body(b"alac decode failed".to_vec())
-                    .unwrap()
-            }
-        }
-    } else {
-        match fs::read(&path) {
-            Ok(b) => (b, "audio/flac"),
-            Err(e) => {
-                return tauri::http::Response::builder()
-                    .status(404)
-                    .body(format!("halftone: cannot read {}: {}", path, e).into_bytes())
-                    .unwrap()
-            }
-        }
-    };
-
-    let total = body.len() as u64;
-    match range {
-        Some((start, end)) if start < total => {
-            let end = end.min(total - 1);
-            let len = (end - start + 1) as usize;
-            let buf = body[start as usize..(start as usize + len)].to_vec();
-            tauri::http::Response::builder()
-                .status(206)
-                .header("Content-Type", content_type)
-                .header("Content-Length", len.to_string())
-                .header("Accept-Ranges", "bytes")
-                .header("Access-Control-Allow-Origin", "*")
-                .header("Content-Range", format!("bytes {}-{}/{}", start, end, total))
-                .body(buf)
-                .unwrap()
-        }
-        Some(_) => tauri::http::Response::builder()
-            .status(416)
-            .header("Content-Range", format!("bytes */{}", total))
-            .body(Vec::new())
-            .unwrap(),
-        None => tauri::http::Response::builder()
-            .status(200)
-            .header("Content-Type", content_type)
-            .header("Content-Length", total.to_string())
-            .header("Accept-Ranges", "bytes")
-            .header("Access-Control-Allow-Origin", "*")
-            .body(body)
-            .unwrap(),
+    if let Some(c) = enc.strip_prefix("cover/") {
+        return serve_cover(Path::new(&pct_decode(c)));
     }
+    let path = PathBuf::from(pct_decode(enc));
+    let range = request.headers().get("range").and_then(|v| v.to_str().ok());
+
+    let md = match fs::metadata(&path) {
+        Ok(m) => m,
+        Err(e) => return http(404, format!("halftone: cannot read {}: {}", path.display(), e).into_bytes()),
+    };
+    let mtime = md.modified().unwrap_or(std::time::UNIX_EPOCH);
+    let (kind, is_alac) = match media_kind(&path, mtime) {
+        Ok(k) => k,
+        Err(e) => return http(415, e.into_bytes()),
+    };
+
+    if is_alac {
+        // Lossless decompression (see audio-pipeline.md), decoded ONCE.
+        return match alac_wav(&path, mtime) {
+            Ok(wav) => range_response(wav.len(), range, "audio/wav", |a, b| Ok(wav[a..b].to_vec())),
+            Err(_) => http(500, b"alac decode failed".to_vec()),
+        };
+    }
+    // Original bytes: seek + read only the requested window.
+    range_response(md.len() as usize, range, kind.mime(), |a, b| {
+        use std::io::{Seek, SeekFrom};
+        let mut f = fs::File::open(&path).map_err(|e| e.to_string())?;
+        f.seek(SeekFrom::Start(a as u64)).map_err(|e| e.to_string())?;
+        let mut buf = vec![0u8; b - a];
+        f.read_exact(&mut buf).map_err(|e| e.to_string())?;
+        Ok(buf)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1139,6 +1263,11 @@ pub fn run() {
             media_url,
             pick_folder,
             lrc_fetch,
+            lyrics_get,
+            cover_url,
+            library_snapshot,
+            settings_load,
+            settings_save,
             ota_check,
             ota_download,
             ota_apply

@@ -248,7 +248,23 @@ fn walk_id3(buf: &[u8]) -> Id3Tags {
                 }
             }
             _ => {
-                if id[0] == b'T' {
+                if id.as_slice() == b"TXXX" && data.len() > 1 {
+                    // user text: enc, description\0, value -> key "TXXX:DESC"
+                    let enc = data[0];
+                    let rest = &data[1..];
+                    let split = if enc == 1 || enc == 2 {
+                        rest.chunks(2).position(|c| c == [0, 0]).map(|i| (i * 2, i * 2 + 2))
+                    } else {
+                        rest.iter().position(|&b| b == 0).map(|i| (i, i + 1))
+                    };
+                    if let Some((a, b)) = split.filter(|&(_, b)| b <= rest.len()) {
+                        let desc = decode_id3_string(enc, &rest[..a]).to_uppercase();
+                        let val = decode_id3_string(enc, &rest[b..]);
+                        if !val.is_empty() {
+                            out.text.entry(format!("TXXX:{desc}")).or_insert(val);
+                        }
+                    }
+                } else if id[0] == b'T' {
                     // Text frame: first byte = encoding, rest = value.
                     let enc = data.first().copied().unwrap_or(0);
                     let val = data.get(1..).unwrap_or(&[]);
@@ -256,6 +272,25 @@ fn walk_id3(buf: &[u8]) -> Id3Tags {
                     let key = String::from_utf8_lossy(&id).to_uppercase();
                     if !s.is_empty() {
                         out.text.entry(key).or_insert(s);
+                    }
+                }
+                if id.as_slice() == b"USLT" && data.len() > 4 && !out.text.contains_key("USLT") {
+                    // enc(1) lang(3) descriptor(terminated) text
+                    let enc = data[0];
+                    let rest = &data[4..];
+                    let skip = if enc == 1 || enc == 2 {
+                        rest.chunks(2).position(|c| c == [0, 0]).map(|i| i * 2 + 2)
+                    } else {
+                        rest.iter().position(|&b| b == 0).map(|i| i + 1)
+                    };
+                    if let Some(k) = skip.filter(|&k| k <= rest.len()) {
+                        let mut lyr = &rest[k..];
+                        // UTF-16 text after the descriptor carries its own BOM
+                        if enc == 1 && lyr.len() < 2 { lyr = &[]; }
+                        let t = decode_id3_string(enc, lyr);
+                        if !t.trim().is_empty() {
+                            out.text.insert("USLT".into(), t);
+                        }
                     }
                 }
                 // Everything else (COMM, TSSE, ...) ignored.
@@ -345,8 +380,10 @@ fn parse_wav(buf: &[u8], path: &Path) -> Result<TrackMeta, String> {
         // Chunk extends past the buffer?
         if body.checked_add(sz).map(|e| e > buf.len()).unwrap_or(true) {
             if id == b"data" {
-                // streaming-written files may have a placeholder size; clamp
-                data_len = Some((buf.len() - body) as u64);
+                // Header-only data chunk (probe.rs synthesizes these so the
+                // audio payload is never read): trust the declared size.
+                // Otherwise a streaming writer left a placeholder; clamp.
+                data_len = Some(if body == buf.len() { sz as u64 } else { (buf.len() - body) as u64 });
             }
             break; // truncated/corrupt chunk list — parse what we have
         }
@@ -451,6 +488,8 @@ fn parse_wav(buf: &[u8], path: &Path) -> Result<TrackMeta, String> {
         lossless: true,
         bitrate_kbps,
         block_types: Vec::new(),
+        has_cover: false,
+        embedded_lyrics: None,
     })
 }
 
@@ -670,6 +709,14 @@ fn mp3_detect_cbr(buf: &[u8], mut p: usize) -> Option<u32> {
 }
 
 fn parse_mp3(buf: &[u8], path: &Path) -> Result<TrackMeta, String> {
+    parse_mp3_sized(buf, path, buf.len() as u64)
+}
+
+/// MP3 from a HEAD window of a file that is `file_len` bytes long. Without
+/// Xing/Info/VBRI, duration is estimated from `file_len` instead of
+/// frame-scanning the whole file.
+pub fn parse_mp3_sized(buf: &[u8], path: &Path, file_len: u64) -> Result<TrackMeta, String> {
+    let partial = (buf.len() as u64) < file_len;
     // Tags first (ID3v2.3/v2.4 — also handles the 'id3 ' chunk case).
     let tags = walk_id3(buf);
     let audio_start = id3_tag_size(buf).unwrap_or(0).min(buf.len());
@@ -695,13 +742,27 @@ fn parse_mp3(buf: &[u8], path: &Path) -> Result<TrackMeta, String> {
         } else {
             (bytes as f64 * 8.0 / (frames as f64 * spf as f64 / sample_rate as f64) / 1000.0).round() as u32
         };
+        if bytes == 0 && duration > 0.0 {
+            // Xing without the byte-count field: average over the real file
+            bitrate_kbps = ((file_len.saturating_sub(audio_start as u64)) as f64 * 8.0 / duration / 1000.0).round() as u32;
+        }
         if bitrate_kbps == 0 {
             bitrate_kbps = first_bitrate / 1000;
         }
     } else {
         // Full frame scan (buf is the whole file — see parse() docs).
         let frames = mp3_count_frames(buf, frame_off);
-        if frames > 0 {
+        if frames > 0 && partial {
+            // Head window only: CBR estimate over the real audio length,
+            // VBR-without-header estimate from the average frame size seen.
+            let audio = file_len.saturating_sub(frame_off as u64) as f64;
+            let seen = (buf.len() - frame_off) as f64;
+            bitrate_kbps = match mp3_detect_cbr(buf, frame_off) {
+                Some(br) => br / 1000,
+                None => ((seen * 8.0) / (frames as f64 * spf as f64 / sample_rate as f64) / 1000.0).round() as u32,
+            };
+            duration = if bitrate_kbps > 0 { audio * 8.0 / (bitrate_kbps as f64 * 1000.0) } else { 0.0 };
+        } else if frames > 0 {
             duration = frames as f64 * spf as f64 / sample_rate as f64;
             // CBR: constant frame bitrates -> report the exact bitrate.
             // VBR without Xing -> whole-file average.
@@ -742,6 +803,10 @@ fn parse_mp3(buf: &[u8], path: &Path) -> Result<TrackMeta, String> {
         lossless: false,
         bitrate_kbps,
         block_types: Vec::new(),
+        has_cover: false,
+        embedded_lyrics: ["USLT", "TXXX:LYRICS", "TXXX:UNSYNCEDLYRICS", "TXXX:USLT"]
+            .iter()
+            .find_map(|k| tags.text.get(*k).cloned()),
     })
 }
 
@@ -751,4 +816,39 @@ fn parse_m4a(_buf: &[u8], _path: &Path) -> Result<TrackMeta, String> {
 
 fn parse_adts(_buf: &[u8], _path: &Path) -> Result<TrackMeta, String> {
     Err("adts parsing not yet implemented".into())
+}
+
+#[cfg(test)]
+mod lyrics_tag_tests {
+    use super::*;
+
+    fn id3(frames: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+        let mut body = Vec::new();
+        for (id, data) in frames {
+            body.extend_from_slice(*id);
+            body.extend((data.len() as u32).to_be_bytes()); // v2.3: plain BE size
+            body.extend([0, 0]);
+            body.extend(data);
+        }
+        let n = body.len() as u32;
+        let mut out = b"ID3\x03\x00\x00".to_vec();
+        out.extend([(n >> 21 & 0x7f) as u8, (n >> 14 & 0x7f) as u8, (n >> 7 & 0x7f) as u8, (n & 0x7f) as u8]);
+        out.extend(body);
+        out
+    }
+
+    #[test]
+    fn uslt_and_txxx() {
+        let mut uslt = vec![3u8]; // utf-8
+        uslt.extend(b"eng");
+        uslt.extend(b"desc\0");
+        uslt.extend(b"[00:01.00]real uslt");
+        let t = walk_id3(&id3(&[(b"USLT", uslt)]));
+        assert_eq!(t.text.get("USLT").map(String::as_str), Some("[00:01.00]real uslt"));
+
+        let mut txxx = vec![0u8];
+        txxx.extend(b"LYRICS\0hello");
+        let t = walk_id3(&id3(&[(b"TXXX", txxx)]));
+        assert_eq!(t.text.get("TXXX:LYRICS").map(String::as_str), Some("hello"));
+    }
 }
