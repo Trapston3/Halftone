@@ -230,6 +230,16 @@ window.hlog=log;
    page's loader.js picks up the mock before its scripts parse.
    ============================================================ */
 const Q=new URLSearchParams(location.search);
+if(!Q.get("page")){
+  /* interactive mode: boot both frames with mocks pre-installed */
+  const bootFrame=(frame,page,label)=>{
+    const fq=new URLSearchParams();
+    fq.set("harness","1");
+    frame.src=(page==="widget"?"../index.html":"../"+page+".html")+"?"+fq.toString();
+  };
+  bootFrame(document.getElementById("fMain"),"main","main");
+  bootFrame(document.getElementById("fWidget"),"widget","widget");
+}
 if(Q.get("page")){
   const page=Q.get("page");
   const w=+Q.get("w")||1200,h=+Q.get("h")||740;
@@ -319,6 +329,29 @@ if(Q.get("page")){
     setTimeout(apply,1000);   /* second pass after boot settles */
     setTimeout(apply,2400);   /* final pass after settings/art settle */
     iw.addEventListener("halftone:booted",apply);
+    /* ?probe=1 — dump layout rects to the console (headless layout QA) */
+    if(Q.get("probe")){
+      setTimeout(()=>{
+        try{
+          const d=iw.document,q=s=>d.querySelector(s);
+          const r=e=>{if(!e)return null;const b=e.getBoundingClientRect();
+            return {h:Math.round(b.height),w:Math.round(b.width),bottom:Math.round(b.bottom),
+                    display:e.style.display||getComputedStyle(e).display}};
+          console.log("PROBE " + JSON.stringify({
+            inner:[iw.innerWidth,iw.innerHeight],
+            shellBody:r(q(".shell-body")),
+            appShell:r(q(".app-shell")),
+            miniBar:r(q(".mini-bar")),
+            miniBarId:r(d.getElementById("npbar")),
+            view:r(q(".view")),
+            bodyScrollH:d.body.scrollHeight,iwInnerH:iw.innerHeight,
+            miniBarCfg:iw.S&&iw.S.cfg?iw.S.cfg.miniBar:null,
+            viewName:iw.S?iw.S.view:null,
+            npbarHTML:(d.getElementById("npbar")||{}).outerHTML||null
+          }));
+        }catch(e){console.error("probe failed",e&&(e.stack||e))}
+      },3000);
+    }
   });
 }
 
