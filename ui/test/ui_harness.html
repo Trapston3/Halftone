@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Halftone UI harness</title>
+<title>Halftone UI harness r2</title>
 <style>
 body{background:#0B0D0E;color:#9AA4AA;font:12px/1.4 Consolas,monospace;margin:0;padding:8px}
 button{font:inherit;background:#1B1E21;color:#F2E8CF;border:1px solid #3A4147;border-radius:4px;padding:3px 10px;cursor:pointer;margin:2px}
@@ -319,13 +319,28 @@ if(Q.get("page")){
           }
           /* staged scenarios for the shot matrix */
           const sheet=Q.get("sheet");
-          if(sheet&&iw.S.meta){
-            setTimeout(()=>{
+          if(sheet){
+            /* deterministic: wait for S.meta, then open and VERIFY the
+               sheet title (late apply passes can clobber the first open);
+               retry until the expected sheet is actually up. */
+            const wantTitle={cover:"CHANGE COVER ART",search:"SEARCH COVER ART",pl:"ADD TO PLAYLIST"};
+            const openIt=()=>{
+              if(!iw.S.meta)return;
               if(sheet==="cover")iw.openCoverSheet&&iw.openCoverSheet(iw.S.meta);
               else if(sheet==="search")iw.openCoverSearch&&iw.openCoverSearch(iw.S.meta);
               else if(sheet==="pl")iw.openPlaylistPicker&&iw.openPlaylistPicker(iw.S.meta);
               else iw.openTrackSheet&&iw.openTrackSheet(iw.S.meta,iw.S.i);
-            },2600);   /* after the final apply pass */
+            };
+            const title=wantTitle[sheet]||"TRACK";
+            let tries=0;
+            const tick=setInterval(()=>{
+              tries++;
+              let cur="";
+              try{cur=iw.document.getElementById("sheetTitle").textContent}catch(e){}
+              if(cur===title&&iw.document.querySelector(".sheet.open")){clearInterval(tick);return}
+              if(tries>40){clearInterval(tick);return}
+              openIt();
+            },300);
           }
           if(Q.get("ctx")&&iw.S.meta){
             setTimeout(()=>{

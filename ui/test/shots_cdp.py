@@ -13,6 +13,7 @@ Env:   CHROME (binary), BASE (default http://127.0.0.1:8791), OUT (shots dir)
 import base64
 import json
 import os
+import re
 import socket
 import struct
 import subprocess
@@ -240,6 +241,14 @@ def main():
             join = "&" if "?" in suffix else "?"
             want = "light" if "mode=light" in suffix else ("dark" if "mode=dark" in suffix else None)
             wantT = "digital" if "theme=digital" in suffix else ("analogue" if "theme=analogue" in suffix else None)
+            # expected sheet title, if this scenario stages one (harness poller
+            # re-opens until it matches; runner must WAIT for it, or the capture
+            # races a late apply pass that swapped the sheet content)
+            wantSheet = None
+            m2 = re.search(r"[?&]sheet=([\w-]+)", suffix)
+            if m2:
+                wantSheet = {"cover":"CHANGE COVER ART","search":"SEARCH COVER ART",
+                             "pl":"ADD TO PLAYLIST"}.get(m2.group(1), "TRACK")
             for attempt in range(3):
                 ws.cmd("Page.navigate", url=f"{BASE}/test/ui_harness.html?{suffix}{join}w={w}&h={h}")
                 time.sleep(1.2)   # boot
@@ -252,6 +261,16 @@ def main():
                         returnByValue=True).get("result", {}).get("value")
                     if got != want:
                         print(f"RETRY {out}: data-mode={got}, want {want}", flush=True)
+                        continue
+                if wantSheet:
+                    gotS = ws.cmd("Runtime.evaluate", expression=(
+                        "(()=>{try{return document.querySelector('#fShot')"
+                        ".contentDocument.getElementById('sheetTitle').textContent+' | '+document.title}"
+                        "catch(e){return ''}})()"),
+                        returnByValue=True).get("result", {}).get("value")
+                    if gotS != wantSheet:
+                        print(f"RETRY {out}: sheetTitle={gotS!r}, want {wantSheet!r}", flush=True)
+                        time.sleep(1.5)
                         continue
                 break
             # FINAL brute-force: write attrs RIGHT BEFORE capture (app can flip after settle)
