@@ -416,8 +416,14 @@ function applyMiniBarDom(){
   const pos=S.cfg.miniBar||"bottom";
   el.npbar.style.display=(np||pos==="off")?"none":"flex";
   el.npbar.classList.toggle("top",pos==="top");
-  if(pos==="top"){el.views.parentElement.insertBefore(el.npbar,el.views)}
-  else{el.views.parentElement.appendChild(el.npbar)}
+  /* mini-bar is a FLEX sibling of .app-shell inside .shell-body — NOT a
+     grid child of appShell. Inserting it into appShell (views' parent)
+     made it a grid item in the nav column: its content width inflated
+     the auto column (the "~90px dead band" bug) and it rendered as a
+     phantom bottom-dock row. Keep it outside the grid. */
+  const body=el.appShell.parentElement;
+  if(pos==="top"){body.insertBefore(el.npbar,el.appShell)}
+  else{body.appendChild(el.npbar)}
 }
 function applyQueueSideDom(){
   const side=S.cfg.queueSide||"off";
@@ -1101,8 +1107,12 @@ function applyMiniBarDom(){
   const pos=S.cfg.miniBar||"bottom";
   el.npbar.style.display=(np||pos==="off")?"none":"flex";
   el.npbar.classList.toggle("top",pos==="top");
-  if(pos==="top"){el.views.parentElement.insertBefore(el.npbar,el.views)}
-  else{el.views.parentElement.appendChild(el.npbar)}
+  /* mini-bar is a FLEX sibling of .app-shell inside .shell-body — NOT a
+     grid child of appShell (grid item in the nav column inflated the
+     auto column = the "dead band" bug). Keep it outside the grid. */
+  const body=el.appShell.parentElement;
+  if(pos==="top"){body.insertBefore(el.npbar,el.appShell)}
+  else{body.appendChild(el.npbar)}
 }
 /* window.applyMiniBar stays = applyMiniBarSetting (settings hook, set above) */
 function applyWidgetPin(v){

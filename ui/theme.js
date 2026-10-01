@@ -126,10 +126,15 @@ function switchAnimated(x,y){
 }
 window.htThemeSwitch=switchAnimated;
 
-/* ---------- public API (settings.js calls these) ---------- */
+/* ---------- public API (settings.js calls these) ----------
+   QA/harness boot (?qa=1) applies state silently: no circular
+   reveal — otherwise a headless screenshot taken before the ~600ms
+   view-transition settles shows the shell mid-reveal (clipped shell
+   = "dead band" artifact). Interactive switches keep the reveal. */
+function qaQuiet(){return new URLSearchParams(location.search).has("qa")}
 window.htSetTheme=function(name,x,y){
   if(!["analogue","digital"].includes(name))name="analogue";
-  if(name!==Theme.name){Theme.name=name;switchAnimated(x,y);syncOther()}
+  if(name!==Theme.name){Theme.name=name;if(qaQuiet())dispatchTheme();else switchAnimated(x,y);syncOther()}
 };
 window.htSetMode=function(mode,x,y){
   if(!["system","light","dark"].includes(mode))mode="system";
@@ -137,7 +142,7 @@ window.htSetMode=function(mode,x,y){
   /* no-change guard: breaks cross-window echo loops (settings applyAll) */
   if(Theme.mode===mode&&Theme.resolved===resolved)return;
   Theme.mode=mode;Theme.resolved=resolved;
-  switchAnimated(x,y);syncOther();
+  if(qaQuiet())dispatchTheme();else switchAnimated(x,y);syncOther();
 };
 window.htSetMotion=function(m){
   if(!["full","reduced","off"].includes(m))m="full";
