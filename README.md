@@ -137,6 +137,36 @@ cargo tauri build        # or: produces the NSIS installer
 `%LOCALAPPDATA%\Halftone`, adds PATH + App Paths + shortcuts). Testers should use the
 installer.
 
+## Linux (experimental)
+
+Windows is the primary platform; Linux builds work but are untested on real
+desktops. The backend is platform-neutral Rust — same commands, same events;
+the only OS-specific piece is media integration (SMTC on Windows via
+WebView2's `navigator.mediaSession`, MPRIS on Linux via `souvlaki` over
+D-Bus).
+
+```
+# Build deps (Ubuntu 24.04 / Debian):
+sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+  librsvg2-dev libdbus-1-dev build-essential curl file pkg-config
+
+# From the repo root:
+cargo install tauri-cli --version "^2"   # or: cargo tauri build via npx
+cd src-tauri
+cargo tauri build -b deb,appimage
+# Artifacts: src-tauri/target/release/halftone (and .deb / .AppImage bundles)
+```
+
+Notes:
+
+- WebView2 → webkit2gtk: custom `media://` URLs resolve as
+  `media://localhost/...` (the Windows `http://media.localhost/...` form is
+  WebView2-specific); the backend serves both.
+- The tray uses the ayatana appindicator; GNOME needs an AppIndicator
+  extension enabled to see it.
+- MPRIS needs a running session D-Bus (any desktop session). Without one the
+  app logs `mpris: unavailable` and keeps playing.
+
 ## Scope & design principles
 
 - **FLAC only** — MP3/M4A/WAV/OGG are detected and reported during scans, but not playable yet
