@@ -4,35 +4,45 @@
 
 # HALFTONE
 
-**A floating dither-styled music widget + full player for your local FLAC library.**
+**A floating dither-styled music widget + full player for your local music library.**
 
-Tauri 2 · vanilla JS · zero transcode · zero cloud
+Tauri 2 · vanilla JS · original bytes · no cloud, no accounts
 
 <video src="video/halftone-demo.mp4" width="660" controls></video>
 
 https://github.com/user-attachments/assets/PLACEHOLDER
 
-**Install (Windows · one line):**
+**Install (Windows · one line, no admin):**
 
 ```powershell
 irm https://github.com/Trapston3/Halftone/raw/main/tools/install.ps1 | iex
+```
+
+**Install (Linux · one line — .deb via apt on Debian/Ubuntu, AppImage elsewhere):**
+
+```sh
+curl -fsSL https://github.com/Trapston3/Halftone/raw/main/tools/install.sh | sh
 ```
 
 </div>
 
 ---
 
-Halftone is a small always-on-top desktop widget that plays your local FLAC files — original
-bytes, no transcoding, no streaming service — plus a full player window when you want the
-library view. Both surfaces render as two views of the **same player**: same song, same
-position, same theme, live-synced.
+Halftone is a small always-on-top desktop widget that plays your local music library —
+FLAC, ALAC, WAV, MP3, AAC/M4A, Ogg Vorbis and Opus, original bytes, no transcoding, no
+streaming service — plus a full player window when you want the library view. Both surfaces
+render as two views of the **same player**: same song, same position, same theme, live-synced.
+Windows is the primary platform; Linux builds are experimental.
 
-The whole UI is themed around **halftones and dither patterns**: album covers become Bayer
-dither grids in a color extracted from the artwork itself, the seek bar is a 48-segment LED
-spectrum meter, volume is a row of LEDs, and a music-reactive dither field breathes behind the
-now-playing view.
+The **Analogue** theme is built around **halftones and dither patterns**: album covers become
+Bayer dither grids in a color extracted from the artwork itself, the seek bar is a 48-segment
+LED spectrum meter, volume is a row of LEDs, and a music-reactive dither field breathes behind
+the now-playing view. The **Digital** theme trades dither for **Frutiger Aero × liquid glass** —
+translucent panels, blur and gloss — with the same layout and feature set underneath.
 
 ## Screenshots
+
+<!-- TODO(v0.2.0): retake screenshots — Analogue + Digital themes, light + dark modes -->
 
 | | |
 |---|---|
@@ -45,15 +55,19 @@ now-playing view.
 ## Features
 
 ### Player
-- **Direct FLAC playback** — the file's own bytes via a custom `flac://` protocol with range
-  requests; nothing is re-encoded, ever (see the [audio pipeline contract](docs/audio-pipeline.md))
+- **Direct playback of the file's own bytes** — FLAC, ALAC, WAV, MP3, AAC/M4A, Ogg Vorbis
+  and Opus via the format-neutral `media://` protocol with range requests; nothing is
+  re-encoded (ALAC is decoded losslessly in Rust — see the
+  [audio pipeline contract](docs/audio-pipeline.md)); every track shows a `LOSSLESS`/`LOSSY` badge
 - Full transport: play/pause, previous (restart-if->3s), next, shuffle, repeat off/all/one
+- **Play queue** — play next / add to queue from any row's menu
 - Seek bar with hover-expand, drag-sweep physics, and scroll-wheel ±5s scrub
 - LED volume — click, arrow keys, or **scroll wheel anywhere** in either window
 - Library: tracks / albums / liked / playlists, debounced search, virtualized list rendering
   (handles tens of thousands of tracks)
-- Recursive folder scan with live progress and cancel; folder watcher auto-rescans on changes
-- Scan cache — restart doesn't rescan the whole library
+- Fast recursive folder scan — bounded reads, parallel parsing, live progress and cancel;
+  folder watcher auto-rescans on changes
+- Scan index cache — restart doesn't rescan the whole library
 
 ### Two surfaces, one player
 - The **main window** is the permanent audio owner; the widget is a pure view + controller
@@ -61,24 +75,44 @@ now-playing view.
 - Widget-only mode: hide the main window, audio keeps playing, widget keeps animating
 - Widget ↔ app toggle button; tray icon with menu (show/hide, transport, quit)
 
-### OS integration (Windows)
-- **SMTC**: global media keys + the OS now-playing overlay (title, artist, album, embedded
+### OS integration
+- **Windows — SMTC**: global media keys + the OS now-playing overlay (title, artist, album,
   cover art) with a working seekbar — driven by the audio owner, never the widget
+- **Linux — MPRIS**: the same surface over D-Bus (`souvlaki`), incl. seek and seek-by
 - Tray icon with native menu; left-click toggles the widget
 
 ### Theming
-- Accent color **extracted from the album art**, contrast-clamped to ≥3:1
-- Both windows always share one theme (follow album art, or lock: mint / sky / violet / rose /
-  amber / red)
+- **Two themes**: **Analogue** (dither/LED) and **Digital** (Frutiger Aero × liquid glass),
+  each with **light + dark** mode — follow the system or lock one
+- Animated theme/mode switching: a **circular reveal** expands from your pointer
+  (View Transitions; graceful crossfade fallback), both windows switch together
+- Accent color **extracted from the album art**, contrast-clamped to ≥3:1, or locked:
+  mint / sky / violet / rose / amber / red
 - Dither art repaints *during* accent tweens — colors never lag
 
+### Layout & settings
+- **Highly configurable**: nav as left/right rail, top tabs, **bottom dock**, or hidden;
+  queue panel left/right/off; now-playing layouts (split / stacked / hero); mini-bar on/off;
+  density, corner radius, UI font scale, motion (full / reduced / off) — all applied live
+- A generated, searchable settings page in the main window and a settings sheet in the widget
+- **Widget presets** — card / compact strip / square art / lyrics-focus — with
+  fit-to-window or fixed-% scaling that never letterboxes or blurs
+
 ### Lyrics
-- `.lrc` sidecar files (multi-timestamp lines supported), parsed in the same single read
+- **Automatic**: sidecar `.lrc` → embedded tags → local cache → **LRCLIB** lookup, synced or
+  plain, with a sync offset and a status line ("searching…" → source → retry)
 - App: large 28px lines, native scrolling, auto-follow centered on the active line; wheel
   pauses follow; clicking a line seeks and resumes it
 - No lyrics for the track? The art auto-scales into a centered hero — no dead pane
 - Widget: collapsible pane with the same follow behavior
-- lrclib.net search link when a track has no sidecar
+- Online lookup can be turned off in Settings; the lrclib.net search link opens the browser
+  only when you click it
+
+### Cover art
+- Files without embedded art get cover art **automatically** — looked up from
+  iTunes/MusicBrainz (Cover Art Archive) and cached locally
+- **Right-click → Change cover art**: import an image, search the web, or reset to
+  embedded/auto — your choice is remembered across restarts and applies per album
 
 ### Equalizer
 - 10-band graphic EQ (31 Hz – 16 kHz) with per-band LED ladders
@@ -93,6 +127,13 @@ now-playing view.
   to default if the device disappears)
 - Note: routes through the Windows shared mixer — exclusive/bit-perfect output is a roadmap
   item, not the current path
+
+### Updates
+- **OTA self-update** (Windows): check → download → **sha256 + size verified** → staged
+  atomically → swapped in on restart, keeping all settings and library data — see
+  [docs/OTA.md](docs/OTA.md)
+- Linux installs update by re-running the installer; the check itself can be disabled
+  (Settings / `HALFTONE_NO_OTA`)
 
 ### Extras
 - Sleep timer (15/30/60 min, end-of-track, or off) with countdown
@@ -111,22 +152,40 @@ irm https://github.com/Trapston3/Halftone/raw/main/tools/install.ps1 | iex
 
 Downloads the standalone exe to `%LOCALAPPDATA%\Halftone`, adds it to your user PATH
 (`halftone` from Win+R or any shell), registers App Paths, and creates Desktop + Start Menu
-shortcuts. Uninstall = delete the folder + the two shortcuts.
+shortcuts. Re-running it upgrades in place.
 
-**Packaged installer:** [Releases](https://github.com/Trapston3/Halftone/releases) →
-`Halftone.exe` (standalone, what the one-liner downloads) — or grab it directly and run it;
-no admin, no dependencies.
+**One line (Linux, x86_64 — sudo only for the .deb path):**
 
-**If the one-liner fails** (proxy/corporate network), download
+```sh
+curl -fsSL https://github.com/Trapston3/Halftone/raw/main/tools/install.sh | sh
+```
+
+On Debian/Ubuntu it installs `Halftone_amd64.deb` via apt (dependencies included);
+everywhere else — or with `sh -s -- --appimage` — it installs `Halftone_amd64.AppImage`
+to `~/.local/share/halftone` with a launcher and menu entry. FUSE-less systems get a
+`--appimage-extract-and-run` launcher automatically. Re-running it upgrades in place.
+
+Both scripts download the latest release, verify sha256 checksums when the release publishes
+them, and install for the current user only.
+
+**Manual download:** from
+[Releases](https://github.com/Trapston3/Halftone/releases) grab
 [`Halftone.exe`](https://github.com/Trapston3/Halftone/releases/latest/download/Halftone.exe)
-manually and just run it — same result, minus the PATH/shortcut setup.
+(Windows — just run it) or
+[`Halftone_amd64.AppImage`](https://github.com/Trapston3/Halftone/releases/latest/download/Halftone_amd64.AppImage)
+/ [`Halftone_amd64.deb`](https://github.com/Trapston3/Halftone/releases/latest/download/Halftone_amd64.deb)
+(Linux) — same app, minus the PATH/shortcut setup.
+
+**Uninstall & troubleshooting:** see [docs/INSTALL.md](docs/INSTALL.md).
 
 **Build from source:** see below.
 
 ## Build from source
 
+Windows (primary):
+
 ```
-# Prereqs: Rust (MSVC), Node not required (vanilla JS frontend), Tauri 2 prerequisites on Windows
+# Prereqs: Rust (MSVC), Node not required (vanilla JS frontend), Tauri 2 prerequisites
 cd src-tauri
 cargo build --release
 # exe lands at target/release/halftone.exe
@@ -136,6 +195,10 @@ cargo tauri build        # or: produces the NSIS installer
 `tools/install.py` is a **developer convenience only** (copies the exe to
 `%LOCALAPPDATA%\Halftone`, adds PATH + App Paths + shortcuts). Testers should use the
 installer.
+
+**Releases** are staged with `tools/release.py` (asset naming, `latest.json`, sha256) and
+published by CI on `v*` tags — the full flow is documented in
+[docs/OTA.md](docs/OTA.md).
 
 ## Linux (experimental)
 
@@ -169,27 +232,29 @@ Notes:
 
 ## Scope & design principles
 
-- **FLAC only** — MP3/M4A/WAV/OGG are detected and reported during scans, but not playable yet
-- **Original bytes** — the direct-FLAC contract (one header read per track, cover art from
-  `METADATA_BLOCK_PICTURE` only, no transcode) is binding; see
+- **Multi-format, original bytes** — FLAC, ALAC, WAV, MP3, AAC/M4A, Ogg Vorbis and Opus are
+  served as the file's own bytes (ALAC: decoded losslessly in Rust — the one documented
+  exception); format detection is by magic bytes, never extension; see
   [docs/audio-pipeline.md](docs/audio-pipeline.md)
 - **Single audio owner** — exactly one `<audio>` element exists in the whole app; the widget
   constructs no audio objects
-- **Local only** — no account, no telemetry, no network calls (except the lrclib.net link you
-  click yourself)
+- **Local first, network only where you allow it** — no account, no telemetry. The only
+  network calls are LRCLIB lyrics lookups, cover-art lookups (iTunes/MusicBrainz) and OTA
+  update checks — each one can be disabled in Settings (OTA also honors `HALFTONE_NO_OTA`)
 
 ## Known limitations
 
-- Shared-mixer output only (no exclusive mode yet)
-- Lyrics require a `.lrc` sidecar next to the FLAC (auto-fetch from lrclib is planned)
-- FLAC only — other formats are on the roadmap
+- Shared-mixer output only on Windows (no exclusive mode yet)
+- OTA self-update is Windows-only; Linux updates by re-running the installer
+- Linux builds work but are untested on real desktops
 - Overlay rendering (SMTC seekbar, tray icon) is OS-drawn and varies slightly across
   Windows versions
 
 ## Contributing
 
-Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Please keep PRs FLAC-only and
-respect the single-audio-owner architecture (the widget must not construct audio objects).
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Please respect the
+single-audio-owner architecture (the widget must not construct audio objects) and the
+theme/foundation split in [docs/UI_CONTRACT.md](docs/UI_CONTRACT.md).
 
 ---
 

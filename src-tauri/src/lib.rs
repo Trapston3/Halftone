@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 mod formats;
 mod probe;
 mod lyrics;
+mod covers;
 mod media_source;
 #[path = "alac.rs"]
 mod alac;
@@ -1261,14 +1262,13 @@ async fn lyrics_get(
     lyrics::resolve(&app, &path, &artist, &title, &album, duration, allow_net, force).await
 }
 
-/// URL of the track's embedded art via the media protocol (404 if none).
+/// URL of the track's cover via the media protocol. Resolution order in the
+/// route: user override > embedded art > web-fetched cache (see covers.rs).
+/// The `?v=` buster changes with the covers index so the webview reloads
+/// art after an apply/import/reset/auto change (the route strips the query).
 #[tauri::command]
-fn cover_url(path: &str) -> String {
-    if cfg!(windows) {
-        format!("http://media.localhost/cover/{}", pct_encode(path))
-    } else {
-        format!("media://localhost/cover/{}", pct_encode(path))
-    }
+fn cover_url(app: tauri::AppHandle, path: &str) -> String {
+    covers::cover_url_for(&app, path)
 }
 
 /// One settings file shared by both windows (localStorage is per-webview
@@ -1359,6 +1359,10 @@ fn serve_cover(path: &Path) -> tauri::http::Response<Vec<u8>> {
     let Ok(mtime) = fs::metadata(path).and_then(|m| m.modified()) else {
         return http(404, b"no such file".to_vec());
     };
+    // Resolution order: user override > embedded art > web-fetched cache.
+    if let Some(r) = covers::serve_stored(path, mtime, "user") {
+        return r;
+    }
     let hit = COVER_CACHE.lock().ok().and_then(|mut c| {
         let i = c.iter().position(|(p, t, _)| p == path && *t == mtime)?;
         let e = c.remove(i);
@@ -1370,7 +1374,13 @@ fn serve_cover(path: &Path) -> tauri::http::Response<Vec<u8>> {
         Some(a) => a,
         None => {
             let pic = probe::read_meta(path, true).ok().and_then(|(m, _, _)| m.cover);
-            let Some(pic) = pic else { return http(404, b"no embedded art".to_vec()) };
+            let Some(pic) = pic else {
+                // No embedded art: fall through to the web-fetched cache.
+                if let Some(r) = covers::serve_stored(path, mtime, "web") {
+                    return r;
+                }
+                return http(404, b"no embedded art".to_vec());
+            };
             let Some(bytes) = base64_decode(&pic.data_b64) else { return http(500, b"bad art".to_vec()) };
             let a = std::sync::Arc::new((pic.mime, bytes));
             if let Ok(mut c) = COVER_CACHE.lock() {
@@ -1427,6 +1437,9 @@ fn range_response(
 
 fn serve_media(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
     let uri = request.uri().to_string();
+    // Strip any query string ("?v=<ts>" cache buster) before decoding — the
+    // webview may append one to bust its cache after an art change.
+    let uri = uri.split('?').next().unwrap_or(&uri).to_string();
     let enc = uri
         .strip_prefix("media://localhost/")
         .or_else(|| uri.strip_prefix("http://media.localhost/"))
@@ -1466,6 +1479,59 @@ fn serve_media(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<
         f.read_exact(&mut buf).map_err(|e| e.to_string())?;
         Ok(buf)
     })
+}
+
+#[cfg(test)]
+mod cover_route_tests {
+    use super::*;
+
+    fn req(uri: &str) -> tauri::http::Request<Vec<u8>> {
+        tauri::http::Request::builder().uri(uri).body(Vec::new()).unwrap()
+    }
+
+    fn tiny_wav() -> Vec<u8> {
+        let mut v = b"RIFF".to_vec();
+        v.extend(36u32.to_le_bytes());
+        v.extend(b"WAVEfmt ");
+        v.extend(16u32.to_le_bytes());
+        v.extend(1u16.to_le_bytes()); // PCM
+        v.extend(2u16.to_le_bytes());
+        v.extend(44100u32.to_le_bytes());
+        v.extend(88200u32.to_le_bytes());
+        v.extend(4u16.to_le_bytes());
+        v.extend(16u16.to_le_bytes());
+        v.extend(b"data");
+        v.extend(0u32.to_le_bytes());
+        v
+    }
+
+    #[test]
+    fn cover_route_ignores_query_string_when_decoding_path() {
+        // Real file WITHOUT embedded art: a correct strip decodes the path,
+        // finds the file, and fails later with "no embedded art". A leaked
+        // "?v=…" suffix would 404 with "no such file" instead.
+        let p = std::env::temp_dir().join(format!("ht_qcov_{}.wav", std::process::id()));
+        std::fs::write(&p, tiny_wav()).unwrap();
+        let enc = pct_encode(&p.to_string_lossy());
+        for scheme in ["media://localhost", "http://media.localhost"] {
+            let r = serve_media(req(&format!("{scheme}/cover/{enc}?v=1759315200")));
+            assert_eq!(r.status(), 404);
+            let body = String::from_utf8(r.into_body()).unwrap();
+            assert_eq!(body, "no embedded art", "query string leaked into the path ({scheme})");
+        }
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn media_route_serves_file_despite_cache_buster() {
+        let p = std::env::temp_dir().join(format!("ht_qmed_{}.wav", std::process::id()));
+        std::fs::write(&p, tiny_wav()).unwrap();
+        let enc = pct_encode(&p.to_string_lossy());
+        let r = serve_media(req(&format!("media://localhost/{enc}?v=1759315200")));
+        assert_eq!(r.status(), 200, "cache-buster query must not break media lookup");
+        assert_eq!(r.headers().get("content-type").and_then(|v| v.to_str().ok()), Some("audio/wav"));
+        let _ = std::fs::remove_file(&p);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1593,6 +1659,10 @@ pub fn run() {
         })
         .register_uri_scheme_protocol("media", |_ctx, request| serve_media(request))
         .register_uri_scheme_protocol("flac", |_ctx, request| serve_media(request)) // legacy
+        .setup(|app| {
+            covers::init(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             scan_library,
             scan_cancel,
@@ -1606,6 +1676,12 @@ pub fn run() {
             library_snapshot,
             settings_load,
             settings_save,
+            covers::cover_search,
+            covers::cover_apply_url,
+            covers::cover_import,
+            covers::cover_reset,
+            covers::cover_auto,
+            covers::cover_info,
             mpris::smtc_update,
             mpris::smtc_clear,
             ota_check,
