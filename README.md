@@ -42,15 +42,14 @@ translucent panels, blur and gloss — with the same layout and feature set unde
 
 ## Screenshots
 
-<!-- TODO(v0.2.0): retake screenshots — Analogue + Digital themes, light + dark modes -->
-
 | | |
 |---|---|
-| **The widget** — always-on-top, resizable, scales 0.7–2.4× | ![widget](docs/screen_widget.png) |
-| **Now playing** — dither art, 28px synced lyrics, ambient dither field | ![now playing](docs/screen_nowplaying.png) |
-| **Lyrics off** — art scales into a centered hero | ![hero](docs/screen_hero.png) |
-| **Library** — tracks/albums/liked/playlists with search | ![library](docs/screen_library.png) |
-| **Equalizer** — 10-band LED ladders, AutoEQ import | ![eq](docs/screen_eq.png) |
+| **Analogue (dark)** — the library: dither art, LED seek, mono/print chrome | ![analogue dark](docs/screen_analogue_dark.png) |
+| **Digital (light)** — Frutiger Aero × liquid glass, same layout underneath | ![digital light](docs/screen_digital_light.png) |
+| **The widget** — always-on-top, card/strip/square/lyrics presets | ![widget](docs/screen_widget.png) |
+| **Now playing** — 28px synced lyrics with auto-follow, ambient dither field | ![now playing](docs/screen_nowplaying.png) |
+| **Change cover art** — right-click any track, tile, or art | ![cover menu](docs/screen_cover_menu.png) |
+| **Searchable settings** — generated, filtered, applied live | ![settings](docs/screen_settings.png) |
 
 ## Features
 
@@ -110,9 +109,13 @@ translucent panels, blur and gloss — with the same layout and feature set unde
 
 ### Cover art
 - Files without embedded art get cover art **automatically** — looked up from
-  iTunes/MusicBrainz (Cover Art Archive) and cached locally
+  iTunes and MusicBrainz / Cover Art Archive (no API keys) and cached locally
 - **Right-click → Change cover art**: import an image, search the web, or reset to
   embedded/auto — your choice is remembered across restarts and applies per album
+- Priority: **your choice > embedded art > web**; failed lookups are retried
+  after 7 days
+- Turn the automatic lookups off with **"Fetch missing cover art online"** in
+  Settings
 
 ### Equalizer
 - 10-band graphic EQ (31 Hz – 16 kHz) with per-band LED ladders
@@ -239,8 +242,10 @@ Notes:
 - **Single audio owner** — exactly one `<audio>` element exists in the whole app; the widget
   constructs no audio objects
 - **Local first, network only where you allow it** — no account, no telemetry. The only
-  network calls are LRCLIB lyrics lookups, cover-art lookups (iTunes/MusicBrainz) and OTA
-  update checks — each one can be disabled in Settings (OTA also honors `HALFTONE_NO_OTA`)
+  network calls are LRCLIB lyrics lookups, cover-art lookups (iTunes Search API +
+  MusicBrainz / Cover Art Archive — artist and album name only) and OTA
+  update checks — each one can be disabled in Settings (cover art:
+  "Fetch missing cover art online"; OTA also honors `HALFTONE_NO_OTA`)
 
 ## Known limitations
 

@@ -99,7 +99,7 @@ Notes:
   "supported": true,
   "checking": false,
   "disabled": false,        // HALFTONE_NO_OTA set
-  "current": "0.1.2",
+  "current": "0.2.0",
   "available": "0.2.0",     // null when up to date
   "downloading": false,
   "ready": false,           // staged, applies on next start
