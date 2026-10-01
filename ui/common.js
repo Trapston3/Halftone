@@ -377,6 +377,63 @@ function drawMeter(cv,h){
     if(litH>0){g.fillStyle=css(ACC.cur,.95);g.fillRect(x,H-litH,segW,litH)}
   }
 }
+/* ============================================================
+   SEEK VISUALISER — the v0.1.2 signature LED dot-matrix strip.
+   NBARS frequency columns ride the analyser; each column is a
+   vertical ladder of dots (4px pitch). Played columns are lit at
+   full accent, unplayed dim; the sweep flash follows the drag;
+   the playhead is a tall ink marker with a notch.
+   ============================================================ */
+const SEEK_ROW_PITCH=4;
+function drawSeekLed(cv,p){
+  if(!cv)return;
+  const box=cv.parentElement,W=box?box.clientWidth:cv.clientWidth;
+  const H=cv.clientHeight;
+  if(!W||!H)return;
+  const dpr=Math.min(2,devicePixelRatio||1);
+  if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr)}
+  const g=cv.getContext("2d");if(!g)return;
+  g.setTransform(dpr,0,0,dpr,0,0);
+  g.clearRect(0,0,W,H);
+  const spec=S._barsRcv||new Float32Array(NBARS);
+  const gap=2,cw=Math.max(2,(W-gap*(NBARS-1))/NBARS);
+  const rows=Math.max(2,Math.floor((H-2)/SEEK_ROW_PITCH));
+  const dur=durSec();
+  const prog=dur>0?posSec()/dur:0;
+  const dragP=S.drag!=null?S.drag.p:prog;
+  const [ar,ag,ab]=ACC.cur;
+  const durS=dur||1;
+  for(let i=0;i<NBARS;i++){
+    const segT=(i+.5)/NBARS*durS;
+    const played=(i+.5)/NBARS<dragP;
+    const lit=Math.round(Math.max(.08,(spec[i]||0))*rows);
+    let alpha=played?1:.22;
+    if(S.drag!=null){
+      const dist=(segT-(S.drag.t!=null?S.drag.t:0))/durS*NBARS;
+      if(dist>0){const decay=Math.exp(-dist*.14);alpha=.22+.6*decay}
+      else alpha=1;
+    }
+    for(let r=0;r<rows;r++){
+      const y=H-2-(r+1)*SEEK_ROW_PITCH;
+      if(r<lit){
+        g.fillStyle=`rgba(${ar},${ag},${ab},${alpha})`;
+      }else{
+        g.fillStyle=played?`rgba(${ar},${ag},${ab},.08)`:css(themeCanvas.off,.9);
+      }
+      g.fillRect(i*(cw+gap),y,cw,3);
+    }
+    /* sweep flash column while scrubbing */
+    if(S.drag!=null&&Math.abs(segT-(S.drag.t!=null?S.drag.t:0))<durS/NBARS){
+      g.fillStyle="rgba(255,255,255,.85)";
+      g.fillRect(i*(cw+gap),H-2-rows*SEEK_ROW_PITCH,cw,rows*SEEK_ROW_PITCH-1);
+    }
+  }
+  /* playhead: ink marker + notch */
+  const px=dragP*W;
+  g.fillStyle=css(themeCanvas.ink,.9);
+  g.fillRect(px-.75,0,1.5,H);
+  g.beginPath();g.moveTo(px-3,0);g.lineTo(px+3,0);g.lineTo(px,4);g.closePath();g.fill();
+}
 function drawAmbient(cv,now){
   if(!cv)return;
   fitCanvas(cv);
@@ -1086,10 +1143,10 @@ function wireSeek(seekEl){
   };
   seekEl.addEventListener("pointerdown",e=>{
     try{seekEl.setPointerCapture(e.pointerId)}catch(_){}
-    S.drag={p:apply(e),el:seekEl};
+    S.drag={p:apply(e),el:seekEl,t:apply(e)*durSec()};
     seekEl.classList.add("dragging");
   });
-  seekEl.addEventListener("pointermove",e=>{if(S.drag&&S.drag.el===seekEl)S.drag.p=apply(e)});
+  seekEl.addEventListener("pointermove",e=>{if(S.drag&&S.drag.el===seekEl){S.drag.p=apply(e);S.drag.t=S.drag.p*durSec()}});
   const end=()=>{
     if(!S.drag||S.drag.el!==seekEl)return;
     seekTo(S.drag.p*durSec());
@@ -1117,18 +1174,8 @@ function paintSeek(){
   document.querySelectorAll(".seek").forEach(sk=>{
     const cv=sk.querySelector(".seek-led");
     if(cv&&getComputedStyle(cv).display!=="none"){
-      /* LED canvas meter draws bars along the strip */
-      const B=S._barsRcv;
-      const g=cv.getContext("2d");
-      if(g&&S.drag&&S.drag.el===sk){/* scrub shows sweep */}
-      drawMeter(cv,cv.clientHeight);
-      const prog=Math.round(p*cv.width);
-      g&&g.fillStyle&&0;
-      /* playhead marker */
-      if(g&&cv.width){
-        g.fillStyle=css(themeCanvas.ink,.9);
-        g.fillRect(clamp(prog-1,0,cv.width-2),0,2,cv.height);
-      }
+      /* LED dot-matrix spectrum strip (v0.1.2 signature) */
+      drawSeekLed(cv,p);
     }
     const gel=sk.querySelector(".seek-gel");
     if(gel&&getComputedStyle(gel).display!=="none")paintGel(sk,p);

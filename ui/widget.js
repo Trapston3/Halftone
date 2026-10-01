@@ -152,6 +152,9 @@ function paintVolDom(){
   if(gel)vb.style.setProperty("--val",(S.vol*100).toFixed(1)+"%");
 }
 function drawSeekLed(cv,p){
+  /* dot-matrix spectrum strip — same renderer as the main window
+     (bars arrive via halftone:bars; the widget is a pure viewer) */
+  if(window.__HT_seekLedShared){window.__HT_seekLedShared(cv,p);return}
   fitCanvas(cv);
   const g=cv.getContext("2d");if(!g)return;
   const Wc=cv.width,Hc=cv.height;
@@ -167,6 +170,7 @@ function drawSeekLed(cv,p){
   g.fillStyle=css(themeCanvas.ink,.9);
   g.fillRect(clamp(Math.round(p*Wc)-1,0,Wc-2),0,2,Hc);
 }
+window.__HT_seekLedShared=window.drawSeekLed||null;
 /* single rAF loop lives in common.js; hook the widget's paints into it */
 window.htPagePaint=function(){
   /* keep time/pos fresh between syncs (viewer smoothing owns S.pos) */

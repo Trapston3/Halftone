@@ -262,11 +262,35 @@ if(Q.get("page")){
       try{
         if(page==="main"){
           if(Q.get("nav"))iw.htSetNav(Q.get("nav"));
+          if(Q.get("navstate"))iw.htSetNavState&&iw.htSetNavState(Q.get("navstate"));
           if(Q.get("theme"))iw.htSetTheme(Q.get("theme"));
           if(Q.get("mode"))iw.htSetMode(Q.get("mode"));
           if(Q.get("view")){iw.S.view=Q.get("view");iw.render()}
+          if(Q.get("max")==="1"){iw.__HT_MAX=true;iw.htThemeApply&&iw.htThemeApply()}
           if(Q.get("track"))iw.__qa.load(+Q.get("track"));
           if(Q.get("play")&&iw.S.meta&&!iw.S.playing)iw.__qa.play();
+          /* ?play=1 also feeds mock spectrum bars so the seek visualiser
+             animates in shots (analyser is silent headless) */
+          if(Q.get("play")){
+            const NB=(iw.NBARS||32);
+            if(!iw.__mockBars){
+              iw.__mockBars=true;
+              iw.S._barsRcv=new Float32Array(NB);
+              const t0=performance.now();
+              const pump=()=>{ if(!iw.__mockBars)return;
+                const t=performance.now()/1000;
+                const B=iw.S._barsRcv;
+                for(let i=0;i<NB;i++){
+                  const f=i/NB;
+                  B[i]=Math.max(.06,Math.min(1,
+                    (.55+.4*Math.sin(t*2.1+i*.55))*(1-f*.45)*
+                    (.75+.25*Math.sin(t*7+i*2.3))));
+                }
+                requestAnimationFrame(pump);
+              };
+              pump();
+            }
+          }
           /* ?queue=N preloads N queued tracks (queue view shot) */
           const qn=+(Q.get("queue")||0);
           if(qn>0&&iw.S.lib.length){
