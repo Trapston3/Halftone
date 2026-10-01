@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Halftone UI harness</title>
+<title>Halftone UI harness r2</title>
 <style>
 body{background:#0B0D0E;color:#9AA4AA;font:12px/1.4 Consolas,monospace;margin:0;padding:8px}
 button{font:inherit;background:#1B1E21;color:#F2E8CF;border:1px solid #3A4147;border-radius:4px;padding:3px 10px;cursor:pointer;margin:2px}
@@ -262,11 +262,54 @@ if(Q.get("page")){
       try{
         if(page==="main"){
           if(Q.get("nav"))iw.htSetNav(Q.get("nav"));
+          if(Q.get("navstate"))iw.htSetNavState&&iw.htSetNavState(Q.get("navstate"));
           if(Q.get("theme"))iw.htSetTheme(Q.get("theme"));
           if(Q.get("mode"))iw.htSetMode(Q.get("mode"));
+          /* QA determinism: something can flip theme/mode after apply
+             (late async in the app). Trap every setter call and re-assert
+             the requested values for 12s so shots can't drift. */
+          try{
+            const wantT=Q.get("theme"),wantM=Q.get("mode");
+            iw.__themeLog=[];
+            const trap=(name,orig)=>function(v){iw.__themeLog.push(name+"="+v);return orig.call(iw,v)};
+            if(wantT)iw.htSetTheme=trap("theme",iw.htSetTheme);
+            if(wantM)iw.htSetMode=trap("mode",iw.htSetMode);
+            let ticks=0;
+            const guard=setInterval(()=>{
+              ticks++;
+              try{
+                if(wantT&&iw.Theme.name!==wantT)iw.htSetTheme(wantT);
+                if(wantM&&iw.Theme.resolved!==wantM)iw.htSetMode(wantM);
+              }catch(e){}
+              if(ticks>24)clearInterval(guard);
+            },500);
+          }catch(e){}
           if(Q.get("view")){iw.S.view=Q.get("view");iw.render()}
+          if(Q.get("max")==="1"){iw.__HT_MAX=true;iw.htThemeApply&&iw.htThemeApply()}
           if(Q.get("track"))iw.__qa.load(+Q.get("track"));
           if(Q.get("play")&&iw.S.meta&&!iw.S.playing)iw.__qa.play();
+          /* ?play=1 also feeds mock spectrum bars so the seek visualiser
+             animates in shots (analyser is silent headless) */
+          if(Q.get("play")){
+            const NB=(iw.NBARS||32);
+            if(!iw.__mockBars){
+              iw.__mockBars=true;
+              iw.S._barsRcv=new Float32Array(NB);
+              const t0=performance.now();
+              const pump=()=>{ if(!iw.__mockBars)return;
+                const t=performance.now()/1000;
+                const B=iw.S._barsRcv;
+                for(let i=0;i<NB;i++){
+                  const f=i/NB;
+                  B[i]=Math.max(.06,Math.min(1,
+                    (.55+.4*Math.sin(t*2.1+i*.55))*(1-f*.45)*
+                    (.75+.25*Math.sin(t*7+i*2.3))));
+                }
+                requestAnimationFrame(pump);
+              };
+              pump();
+            }
+          }
           /* ?queue=N preloads N queued tracks (queue view shot) */
           const qn=+(Q.get("queue")||0);
           if(qn>0&&iw.S.lib.length){
@@ -276,13 +319,28 @@ if(Q.get("page")){
           }
           /* staged scenarios for the shot matrix */
           const sheet=Q.get("sheet");
-          if(sheet&&iw.S.meta){
-            setTimeout(()=>{
+          if(sheet){
+            /* deterministic: wait for S.meta, then open and VERIFY the
+               sheet title (late apply passes can clobber the first open);
+               retry until the expected sheet is actually up. */
+            const wantTitle={cover:"CHANGE COVER ART",search:"SEARCH COVER ART",pl:"ADD TO PLAYLIST"};
+            const openIt=()=>{
+              if(!iw.S.meta)return;
               if(sheet==="cover")iw.openCoverSheet&&iw.openCoverSheet(iw.S.meta);
               else if(sheet==="search")iw.openCoverSearch&&iw.openCoverSearch(iw.S.meta);
               else if(sheet==="pl")iw.openPlaylistPicker&&iw.openPlaylistPicker(iw.S.meta);
               else iw.openTrackSheet&&iw.openTrackSheet(iw.S.meta,iw.S.i);
-            },2600);   /* after the final apply pass */
+            };
+            const title=wantTitle[sheet]||"TRACK";
+            let tries=0;
+            const tick=setInterval(()=>{
+              tries++;
+              let cur="";
+              try{cur=iw.document.getElementById("sheetTitle").textContent}catch(e){}
+              if(cur===title&&iw.document.querySelector(".sheet.open")){clearInterval(tick);return}
+              if(tries>40){clearInterval(tick);return}
+              openIt();
+            },300);
           }
           if(Q.get("ctx")&&iw.S.meta){
             setTimeout(()=>{
@@ -297,6 +355,23 @@ if(Q.get("page")){
           }
           if(Q.get("cmdk")){
             setTimeout(()=>{iw.openCmdk&&iw.openCmdk()},2600);
+          }
+          /* ?seekzoom=1 — now-playing with the seek strip zoomed for
+             visualiser close-ups (wider strip, taller via .seek-zoom);
+             park the playhead at ~35% so the played side of the strip
+             is lit (accent bars / LED columns) in the shot */
+          if(Q.get("seekzoom")){
+            setTimeout(()=>{
+              try{
+                iw.S.view="nowplaying";iw.render();
+                const d=iw.document;
+                d.documentElement.classList.add("seek-zoom");
+                /* headless audio never loads: park the playhead at ~35%
+                   for the shot (painters read posSec/durSec) */
+                iw.window.posSec=()=>63;
+                if(iw.seekTo)iw.seekTo(63);
+              }catch(e){console.error("seekzoom",e)}
+            },2600);
           }
         }else{
           if(Q.get("preset")&&iw.applyWidgetPreset)iw.applyWidgetPreset(Q.get("preset"));

@@ -30,10 +30,13 @@ def main():
                 time.sleep(0.3)
         else:
             raise RuntimeError("chrome did not come up")
-        tgt = find_target()
-        ws = Ws(tgt["webSocketDebuggerUrl"])
-        ws.cmd("Runtime.enable")
-        ws.cmd("Page.enable")
+        try:
+            tgt = find_target()
+            ws = Ws(tgt["webSocketDebuggerUrl"])
+            ws.cmd("Runtime.enable")
+            ws.cmd("Page.enable")
+        except Exception:
+            raise RuntimeError("cdp did not come up")
         for suffix, out, (w, h) in SCENARIOS:
             if only and out not in only:
                 continue
@@ -41,12 +44,25 @@ def main():
                    deviceScaleFactor=1, mobile=False)
             errors = []
             ws.eval_errors = errors  # not used by Ws; collected below
-            ws.cmd("Page.navigate", url=f"{BASE}/test/ui_harness.html?{suffix}")
+            try:
+                ws.cmd("Page.navigate", url=f"{BASE}/test/ui_harness.html?{suffix}")
+            except Exception as e:
+                # reconnect (ws dropped) and count the scenario as failed-safe
+                print(f"{out}: NAV-FAIL {e}")
+                bad += 1
+                try:
+                    tgt = find_target()
+                    ws = Ws(tgt["webSocketDebuggerUrl"])
+                    ws.cmd("Runtime.enable")
+                    ws.cmd("Page.enable")
+                except Exception:
+                    pass
+                continue
             deadline = time.time() + 8.0
             while time.time() < deadline:
                 try:
                     msg = json.loads(ws_recv_msg(ws, timeout=max(0.05, deadline - time.time())))
-                except Exception:
+                except (TimeoutError, EOFError, OSError):
                     break
                 if msg.get("method") == "Runtime.exceptionThrown":
                     d = msg["params"]["exceptionDetails"]

@@ -19,7 +19,7 @@ const IS_OWNER=window.IS_OWNER!==false&&(!T||!T.window||!window.curWinLabel||win
 /* ---------- current resolved state (persisted through settings.js) ---------- */
 const Theme={
   name:"analogue", mode:"system", resolved:"dark",
-  motion:"full", density:"cozy", nav:"left", navLabels:"icons",
+  motion:"full", density:"cozy", nav:"left", navLabels:"icons", navState:"expanded",
   canvas:{bg:[18,23,26],off:[35,42,46],ink:[242,232,207]},
   seekStyle:"led", volStyle:"leds", artDefault:"dither", ambientDefault:"dither"
 };
@@ -63,6 +63,9 @@ function applyAttrs(){
   set("data-surface",document.body.dataset.surface||"main");
   if(document.body.dataset.surface==="main")set("data-nav",Theme.nav);
   set("data-nav-labels",Theme.navLabels);
+  set("data-nav-state",Theme.navState);
+  /* maximized / fullscreen windows lose their rounded corners */
+  set("data-max",window.__HT_MAX?"1":"0");
   /* keep legacy aliases alive for any old CSS */
   const st=r.style;
   st.setProperty("--cream","var(--fg)");
@@ -77,10 +80,15 @@ function applyAttrs(){
   st.setProperty("--e-pop","var(--shadow-1)");
 }
 
-/* ---------- broadcast + notify ---------- */
+/* ---------- broadcast + notify ----------
+   applyAttrs FIRST, then readTokens: token values are read from the
+   computed style of :root, which only resolves to the new theme's CSS
+   block after data-theme/data-mode changed. Reading before applying
+   served every switch one theme late (digital booted with analogue's
+   --seek-style:led → gel seek hidden, LED canvas hidden → no seekbar). */
 function dispatchTheme(){
-  readTokens();
   applyAttrs();
+  readTokens();
   document.dispatchEvent(new CustomEvent("halftone:theme",{detail:{
     theme:Theme.name,mode:Theme.resolved,motion:Theme.motion,density:Theme.density,
     nav:Theme.nav,canvas:{...Theme.canvas},seek:Theme.seekStyle,vol:Theme.volStyle,
@@ -125,6 +133,8 @@ function switchAnimated(x,y){
   }).catch(()=>{}).finally(()=>setTimeout(()=>{vtBusy=false},650));
 }
 window.htThemeSwitch=switchAnimated;
+/* quiet re-apply of root attributes (no reveal) — e.g. maximize flips data-max */
+window.htThemeApply=function(){dispatchTheme()};
 
 /* ---------- public API (settings.js calls these) ----------
    QA/harness boot (?qa=1) applies state silently: no circular
@@ -160,13 +170,18 @@ window.htSetNav=function(nav){if(!["left","right","top","bottom","hidden"].inclu
 window.htSetNavLabels=function(l){const v=l==="labels"?"labels":"icons";
   if(Theme.navLabels===v)return;
   Theme.navLabels=v;dispatchTheme();syncOther()};
+/* nav rail state: expanded | collapsed | hidden (icons-only / fully hidden) */
+window.htSetNavState=function(st){
+  if(!["expanded","collapsed","hidden"].includes(st))st="expanded";
+  if(Theme.navState===st)return;
+  Theme.navState=st;dispatchTheme();syncOther()};
 
 /* ---------- both windows switch together ---------- */
 function syncOther(){
   if(!(T&&T.event&&T.event.emit))return;
-  try{T.event.emit("halftone:settings",{keys:["theme","mode","motion","density","nav","navLabels"],
+  try{T.event.emit("halftone:settings",{keys:["theme","mode","motion","density","nav","navLabels","navState"],
     themeState:{theme:Theme.name,mode:Theme.resolved,motion:Theme.motion,density:Theme.density,
-      nav:Theme.nav,navLabels:Theme.navLabels}}).catch(()=>{})}catch(_){}
+      nav:Theme.nav,navLabels:Theme.navLabels,navState:Theme.navState}}).catch(()=>{})}catch(_){}
 }
 /* receive: the other window applied theme state first — mirror it exactly */
 if(T&&T.event&&T.event.listen){
@@ -180,6 +195,7 @@ if(T&&T.event&&T.event.listen){
     if(ts.density&&ts.density!==Theme.density){Theme.density=ts.density;quiet=true}
     if(ts.nav&&ts.nav!==Theme.nav){Theme.nav=ts.nav;quiet=true}
     if(ts.navLabels&&ts.navLabels!==Theme.navLabels){Theme.navLabels=ts.navLabels;quiet=true}
+    if(ts.navState&&ts.navState!==Theme.navState){Theme.navState=ts.navState;quiet=true}
     if(quiet)dispatchTheme();
   }).catch(()=>{})}catch(_){}
 }

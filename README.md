@@ -37,18 +37,22 @@ Windows is the primary platform; Linux builds are experimental.
 The **Analogue** theme is built around **halftones and dither patterns**: album covers become
 Bayer dither grids in a color extracted from the artwork itself, the seek bar is a 48-segment
 LED spectrum meter, volume is a row of LEDs, and a music-reactive dither field breathes behind
-the now-playing view. The **Digital** theme trades dither for **Frutiger Aero × liquid glass** —
-translucent panels, blur and gloss — with the same layout and feature set underneath.
+the now-playing view (dark); light mode is a fresh **risograph** style — warm paper grain with
+riso blue and fluoro-pink spot inks. The **Digital** theme trades dither for **Frutiger Aero ×
+liquid glass** — translucent panels, blur and gloss (dark mode is full liquid glass with
+art-accent ambient blobs) — with the same layout and feature set underneath.
 
 ## Screenshots
 
 | | |
 |---|---|
 | **Analogue (dark)** — the library: dither art, LED seek, mono/print chrome | ![analogue dark](docs/screen_analogue_dark.png) |
+| **Analogue (light)** — new risograph style: warm paper, riso blue + fluoro pink inks | ![analogue light](docs/screen_analogue_light.png) |
+| **Digital (dark)** — liquid glass: art-accent ambient blobs, glass panels, glow | ![digital dark](docs/screen_digital_dark.png) |
 | **Digital (light)** — Frutiger Aero × liquid glass, same layout underneath | ![digital light](docs/screen_digital_light.png) |
-| **The widget** — always-on-top, card/strip/square/lyrics presets | ![widget](docs/screen_widget.png) |
+| **The widget** — always-on-top, card/strip/square/lyrics presets, synced live | ![widget](docs/screen_widget.png) |
 | **Now playing** — 28px synced lyrics with auto-follow, ambient dither field | ![now playing](docs/screen_nowplaying.png) |
-| **Change cover art** — right-click any track, tile, or art | ![cover menu](docs/screen_cover_menu.png) |
+| **Seekbar spectrum** — micro bars inside the gel tube, animated while playing | ![seek spectrum](docs/screen_seek_spectrum.png) |
 | **Searchable settings** — generated, filtered, applied live | ![settings](docs/screen_settings.png) |
 
 ## Features
@@ -60,7 +64,9 @@ translucent panels, blur and gloss — with the same layout and feature set unde
   [audio pipeline contract](docs/audio-pipeline.md)); every track shows a `LOSSLESS`/`LOSSY` badge
 - Full transport: play/pause, previous (restart-if->3s), next, shuffle, repeat off/all/one
 - **Play queue** — play next / add to queue from any row's menu
-- Seek bar with hover-expand, drag-sweep physics, and scroll-wheel ±5s scrub
+- Seek bar with hover-expand, drag-sweep physics, and scroll-wheel ±5s scrub —
+  with a **spectrum visualiser inside it**: micro bars in the gel tube (Digital) /
+  LED columns (Analogue) dancing while a track plays, in the app, mini-bar and widget
 - LED volume — click, arrow keys, or **scroll wheel anywhere** in either window
 - Library: tracks / albums / liked / playlists, debounced search, virtualized list rendering
   (handles tens of thousands of tracks)
@@ -82,17 +88,23 @@ translucent panels, blur and gloss — with the same layout and feature set unde
 
 ### Theming
 - **Two themes**: **Analogue** (dither/LED) and **Digital** (Frutiger Aero × liquid glass),
-  each with **light + dark** mode — follow the system or lock one
+  each with **light + dark** mode — follow the system or lock one. Analogue dark is
+  dither/LED; **Analogue light is a risograph style** (warm paper, riso ink). Digital dark
+  is **liquid glass** (ambient art blobs, blur, specular sheen); Digital light is Frutiger Aero
 - Animated theme/mode switching: a **circular reveal** expands from your pointer
   (View Transitions; graceful crossfade fallback), both windows switch together
+- **Slight glow** on the active chrome and **animated transitions between states** —
+  buttons, LEDs and panels respond live; motion can be reduced or turned off
 - Accent color **extracted from the album art**, contrast-clamped to ≥3:1, or locked:
   mint / sky / violet / rose / amber / red
 - Dither art repaints *during* accent tweens — colors never lag
 
 ### Layout & settings
 - **Highly configurable**: nav as left/right rail, top tabs, **bottom dock**, or hidden;
-  queue panel left/right/off; now-playing layouts (split / stacked / hero); mini-bar on/off;
-  density, corner radius, UI font scale, motion (full / reduced / off) — all applied live
+  **nav rail expand / collapse (icons-only) / fully hidden, persisted, toggled with
+  Ctrl+B**; queue panel left/right/off; now-playing layouts (split / stacked / hero);
+  mini-bar on/off; density, corner radius, UI font scale, motion (full / reduced / off) —
+  all applied live
 - A generated, searchable settings page in the main window and a settings sheet in the widget
 - **Widget presets** — card / compact strip / square art / lyrics-focus — with
   fit-to-window or fixed-% scaling that never letterboxes or blurs
