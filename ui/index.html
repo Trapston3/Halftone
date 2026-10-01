@@ -47,7 +47,10 @@ body{background:transparent;overflow:hidden}
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .w-tech .badge{margin-left:4px;vertical-align:1px}
 .w-actions{display:flex;gap:4px;margin-left:auto;flex:none}
-.w-actions .btn-icon{width:22px;height:22px}
+/* header quick actions: 22px visual, but the hit area stays >=32px via
+   a transparent ::after overlay (audit fix — tiny targets were missed taps) */
+.w-actions .btn-icon{width:22px;height:22px;position:relative}
+.w-actions .btn-icon::after{content:"";position:absolute;inset:-5px}
 .w-actions .btn-icon svg{width:12px;height:12px}
 .w-gear{position:absolute;right:6px;top:6px;opacity:.5;transition:opacity var(--dur-1)}
 .w-gear:hover{opacity:1}
@@ -67,8 +70,25 @@ body{background:transparent;overflow:hidden}
 
 /* presets */
 .widget-stage.wp-card{--w-base-w:380;--w-base-h:260}
-.widget-stage.wp-strip{--w-base-w:380;--w-base-h:120}
-.widget-stage.wp-strip .w-art{width:52px;height:52px}
+.widget-stage.wp-strip{--w-base-w:380;--w-base-h:132}
+/* strip: compact single-column stack that actually fits —
+   small art, slim rows, hidden vol, transport inline with time */
+.widget-stage.wp-strip .w-head{padding:8px 10px 4px;gap:10px;align-items:center}
+.widget-stage.wp-strip .w-art{width:44px;height:44px}
+.widget-stage.wp-strip .w-title{font-size:.8125rem}
+.widget-stage.wp-strip .w-artist{font-size:.625rem}
+.widget-stage.wp-strip .w-meta{gap:1px}
+.widget-stage.wp-strip .w-time{min-width:0;font-size:.5625rem}
+.widget-stage.wp-strip .w-actions{gap:2px}
+.widget-stage.wp-strip .w-actions .btn-icon{width:20px;height:20px}
+.widget-stage.wp-strip .w-actions .btn-icon::after{inset:-6px}
+.widget-stage.wp-strip .w-seek{margin:0 10px}
+.widget-stage.wp-strip .w-transport{gap:6px;padding:2px 10px 8px}
+.widget-stage.wp-strip .btn-orb{width:28px;height:28px}
+.widget-stage.wp-strip .btn-orb.lg{width:34px;height:34px}
+.widget-stage.wp-strip .btn-orb svg{width:12px;height:12px}
+.widget-stage.wp-strip .btn-orb.lg svg{width:14px;height:14px}
+.widget-stage.wp-strip .vol{display:none}
 .widget-stage.wp-strip .w-lyrics-host{display:none}
 .widget-stage.wp-strip .w-tech{display:none}
 .widget-stage.wp-square{--w-base-w:300;--w-base-h:400}
@@ -123,7 +143,7 @@ body{background:transparent;overflow:hidden}
   </div>
   <div class="seek w-seek" id="wSeek" style="margin:0 var(--sp3);flex:none">
     <canvas class="seek-led"></canvas>
-    <div class="seek-gel"><div class="track"><div class="fill"></div><div class="knob"></div></div></div>
+    <div class="seek-gel"><div class="track"><canvas class="gel-bars" width="0" height="0"></canvas><div class="fill"></div><div class="knob"></div></div></div>
     <div class="seek-tip mono">00:00</div>
   </div>
   <div class="w-transport">

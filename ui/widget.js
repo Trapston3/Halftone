@@ -143,7 +143,13 @@ function paintVolDom(){
       const n=Math.max(4,Math.floor(Wc/9));
       const segW=Math.max(3,Math.floor(Wc/n)-3);
       for(let i=0;i<n;i++){
-        g.fillStyle=(S.vol>=(i+1)/n-.01)?css(ACC.cur,.95):css(themeCanvas.off,.9);
+        /* riso light prints LEDs in the spot ink (accent is never a fill) */
+        let on=ACC.cur;
+        try{
+          if(getComputedStyle(document.documentElement).getPropertyValue("--dither-ink").trim()==="1")
+            on=themeCanvas.ink;
+        }catch(_){}
+        g.fillStyle=(S.vol>=(i+1)/n-.01)?css(on,.95):css(themeCanvas.off,.9);
         g.fillRect(i*(segW+3),1,segW,Hc-2);
       }
     }
@@ -152,6 +158,11 @@ function paintVolDom(){
   if(gel)vb.style.setProperty("--val",(S.vol*100).toFixed(1)+"%");
 }
 function drawSeekLed(cv,p){
+  /* dot-matrix spectrum strip — same renderer as the main window
+     (bars arrive via halftone:bars; the widget is a pure viewer).
+     common.js loads BEFORE widget.js, so the shared renderer is already
+     defined here — no late binding, no self-recursion possible. */
+  if(typeof drawSeekLedShared==="function"){drawSeekLedShared(cv,p);return}
   fitCanvas(cv);
   const g=cv.getContext("2d");if(!g)return;
   const Wc=cv.width,Hc=cv.height;
@@ -167,6 +178,7 @@ function drawSeekLed(cv,p){
   g.fillStyle=css(themeCanvas.ink,.9);
   g.fillRect(clamp(Math.round(p*Wc)-1,0,Wc-2),0,2,Hc);
 }
+/* (shared renderer is drawSeekLedShared from common.js — loaded above) */
 /* single rAF loop lives in common.js; hook the widget's paints into it */
 window.htPagePaint=function(){
   /* keep time/pos fresh between syncs (viewer smoothing owns S.pos) */
@@ -175,7 +187,8 @@ window.htPagePaint=function(){
   const cv=WID.wSeek.querySelector(".seek-led");
   if(cv&&getComputedStyle(cv).display!=="none")drawSeekLed(cv,p);
   const gel=WID.wSeek.querySelector(".seek-gel");
-  if(gel&&getComputedStyle(gel).display!=="none")WID.wSeek.style.setProperty("--val",(p*100).toFixed(2)+"%");
+  if(gel&&getComputedStyle(gel).display!=="none"&&typeof paintGel==="function")paintGel(WID.wSeek,p);
+  else WID.wSeek.style.setProperty("--val",(p*100).toFixed(2)+"%");
   paintVolDom();
   if(S._img&&WID.wDither.style.display!=="none")drawDither(WID.wDither,S._img);
   lyricFollow();

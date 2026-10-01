@@ -25,6 +25,9 @@ window.addEventListener("unhandledrejection",function(ev){
 /* ============ main-window page styles (token-driven) ============ */
 body{background:transparent}
 .shell{border-color:var(--accent)}
+/* track list column grid: rows and header share ONE template (--list-cols
+   from base.css) so cells always line up with the column captions */
+#v-content .row,#v-content .list-head{grid-template-columns:var(--list-cols)}
 #edgeCv{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:40}
 
 /* titlebar center: search + caption */
@@ -51,6 +54,10 @@ body{background:transparent}
 /* view inner scroll region */
 .view>.vscroll{flex:1;min-height:0;overflow-y:auto;padding:var(--sp6);display:flex;flex-direction:column;gap:var(--sp3);position:relative}
 
+/* seek-zoom close-up mode (harness ?seekzoom=1): enlarge the NP seek strip */
+.seek-zoom .np-seek .seek{height:56px}
+.seek-zoom .np-seek .seek:hover,.seek-zoom .np-seek .seek.dragging{height:72px}
+
 /* now playing specifics */
 .np .np-art{margin-left:var(--sp2)}
 .np.np-stacked .np-left{align-items:center;text-align:center}
@@ -58,7 +65,7 @@ body{background:transparent}
 .np.np-stacked .np-transport,.np.np-stacked .np-seek{width:min(600px,82%);margin:0 auto}
 .np.np-stacked .np-transport{justify-content:center}
 .np.np-stacked .np-transport .vol{margin-left:0}
-.np.np-stacked .np-times{width:min(600px,82%);margin:0 auto}
+.np.np-stacked .np-times{width:min(600px,82%);margin:2px auto 0}
 
 /* EQ view */
 .eq-view .leds{flex:1;padding:4px 6px}
@@ -156,7 +163,7 @@ body{background:transparent}
                 <div class="np-seek">
                   <div class="seek" id="seek">
                     <canvas class="seek-led"></canvas>
-                    <div class="seek-gel"><div class="track"><div class="fill"></div><div class="knob"></div></div></div>
+                    <div class="seek-gel"><div class="track"><canvas class="gel-bars" width="0" height="0"></canvas><div class="fill"></div><div class="knob"></div></div></div>
                     <div class="seek-tip mono" id="tip">00:00 / 00:00</div>
                   </div>
                   <div class="np-times"><span id="tCur">00:00</span><span id="tTot">00:00</span></div>
@@ -274,7 +281,7 @@ body{background:transparent}
       <div class="mb-seek">
         <div class="seek" id="seek2">
           <canvas class="seek-led"></canvas>
-          <div class="seek-gel"><div class="track"><div class="fill"></div><div class="knob"></div></div></div>
+          <div class="seek-gel"><div class="track"><canvas class="gel-bars" width="0" height="0"></canvas><div class="fill"></div><div class="knob"></div></div></div>
         </div>
         <div class="np-times mono" style="display:flex;justify-content:space-between"><span id="nbCur">00:00</span><span id="nbTot">00:00</span></div>
       </div>
@@ -482,21 +489,28 @@ function render(){
 /* ============ virtualized track list ============ */
 const ROWH={compact:34,cozy:42,comfy:50};
 function rowH(){return ROWH[S.cfg.density]||42}
-function listHead(){return `<div class="list-head"><span>#</span><span>TITLE</span><span>ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>`}
+function listHead(){return `<div class="list-head"><span>#</span><span style="text-align:left">TITLE</span><span style="text-align:left">ARTIST</span><span style="text-align:right">ALBUM</span><span style="text-align:right">LENGTH</span><span style="text-align:right">FORMAT</span><span></span><span></span></div>`}
 function renderVirtualList(list,items){
   const st={rows:[],top:0};
   list.style.position="relative";
+  /* pull the column header INSIDE the scroll container (it renders
+     position:sticky;top:0) so header + rows share one width — scrollbar
+     gutter included — and one inline padding; outside, the header spans
+     the full view while rows stop at the scrollbar and columns drift. */
+  const head=list.previousElementSibling&&list.previousElementSibling.classList.contains("list-head")?list.previousElementSibling:null;
+  if(head)list.prepend(head);
+  const headH=()=>head?head.offsetHeight:0;
   const build=()=>{
     const H=list.clientHeight||400;
     const from=Math.max(0,Math.floor(list.scrollTop/rowH())-8);
     const to=Math.min(items.length,Math.ceil((list.scrollTop+H)/rowH())+8);
-    list.innerHTML="";
-    const sp=document.createElement("div");
-    sp.style.height=items.length*rowH()+"px";
-    list.appendChild(sp);
+    [...list.querySelectorAll(".row")].forEach(r=>r.remove());
+    let sp=list.querySelector(".vlist-spacer");
+    if(!sp){sp=document.createElement("div");sp.className="vlist-spacer";list.appendChild(sp)}
+    sp.style.height=headH()+items.length*rowH()+"px";
     for(let k=from;k<to;k++){
       const r=trackRow(items[k].t,items[k].i);
-      r.style.position="absolute";r.style.top=k*rowH()+"px";r.style.height=rowH()+"px";r.style.left="0";r.style.right="0";
+      r.style.position="absolute";r.style.top=headH()+k*rowH()+"px";r.style.height=rowH()+"px";r.style.left="0";r.style.right="0";
       list.appendChild(r);
     }
   };
@@ -517,7 +531,7 @@ function trackRow(t,i){
     <span class="row-sub" style="text-align:right">${esc(t.album)}</span>
     <span class="row-dur">${fmt(t.duration_s)}</span>
     <span class="row-dur mono" style="letter-spacing:.05em">${t.streaminfo.sample_rate/1000}k/${t.streaminfo.bits}</span>
-    <button class="row-more" data-like title="Like">
+    <button class="row-more row-like" data-like title="Like">
       <svg viewBox="0 0 24 24" fill="${liked?"currentColor":"none"}" stroke="currentColor" stroke-width="1.7"><path d="M12 20s-7-4.3-9.3-8.6C.9 8 3 4.5 6.4 4.5c2 0 3.6 1.1 4.4 2.7l1.2 2 1.2-2c.8-1.6 2.4-2.7 4.4-2.7 3.4 0 5.5 3.5 3.7 6.9C19 15.7 12 20 12 20z"/></svg>
     </button>
     <button class="row-more" data-more title="More">
@@ -741,6 +755,7 @@ function openCoverSearch(t){
   run();
 }
 function openPlaylistPicker(t){
+  openSheet();
   el.sheetTitle.textContent="ADD TO PLAYLIST";
   el.sheetBody.innerHTML="";
   const mk=document.createElement("button");mk.className="sheet-row";
@@ -1563,6 +1578,80 @@ buildNav();
 drawLogo();
 buildVolBoth();
 wireSeek(el.seek);wireSeek(el.seek2);
+
+/* ============ NAV STATE (expanded / collapsed / hidden) ============
+   Wire once: hover edge-reveal + floating toggle + Ctrl/B cycles the
+   rail. State itself lives in the settings store via htSetNavState. */
+(function(){
+  const rail=document.getElementById("nav");
+  /* reveal furniture (idempotent) */
+  let edge=document.querySelector(".edge-reveal");
+  if(!edge){edge=document.createElement("div");edge.className="edge-reveal";document.body.appendChild(edge)}
+  let tgl=document.querySelector(".nav-toggle");
+  if(!tgl){
+    tgl=document.createElement("button");
+    tgl.className="nav-toggle";tgl.title="Toggle nav (Ctrl+B)";tgl.setAttribute("aria-label","Toggle navigation");
+    tgl.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
+    document.body.appendChild(tgl);
+  }
+  const pos=()=>((window.Theme&&Theme.nav)||S.cfg.nav||"left");
+  const state=()=>((window.Theme&&Theme.navState)||"expanded");
+  let hideTimer=null;
+  function applyChrome(){
+    const st=state(),p=pos();
+    const vertical=(p==="left"||p==="right")&&st==="hidden";
+    edge.classList.toggle("right",p==="right");
+    edge.style.display=(vertical&&!rail.classList.contains("overlay-reveal"))?"block":"none";
+    tgl.classList.toggle("show",st==="hidden"&&!rail.classList.contains("overlay-reveal"));
+  }
+  function reveal(){
+    if(state()!=="hidden")return;
+    clearTimeout(hideTimer);
+    rail.classList.add("overlay-reveal");
+    applyChrome();
+    paintNav();
+    /* auto-hide shortly after the pointer leaves the revealed rail */
+    rail.onpointerleave=()=>{hideTimer=setTimeout(()=>{
+      rail.classList.remove("overlay-reveal");applyChrome();paintNav();
+    },900)};
+    rail.onpointerenter=()=>clearTimeout(hideTimer);
+  }
+  function conceal(){
+    rail.classList.remove("overlay-reveal");applyChrome();paintNav();
+  }
+  function cycle(){
+    const order=["expanded","collapsed","hidden"];
+    const next=order[(order.indexOf(state())+1)%order.length];
+    rail.classList.remove("overlay-reveal");
+    if(window.htSetNavState)window.htSetNavState(next);
+    /* htSetNavState dispatches halftone:theme -> chrome() re-runs there */
+  }
+  window.__navCycle=cycle;
+  edge.addEventListener("pointerenter",reveal);
+  tgl.addEventListener("click",()=>{
+    if(state()==="hidden")rail.classList.contains("overlay-reveal")?conceal():reveal();
+    else cycle();
+  });
+  addEventListener("keydown",e=>{
+    if(e.ctrlKey&&!e.altKey&&!e.shiftKey&&(e.code==="KeyB")){e.preventDefault();cycle()}
+  });
+  /* keep chrome in sync with theme/nav changes + boot */
+  document.addEventListener("halftone:theme",()=>setTimeout(applyChrome,0));
+  setTimeout(applyChrome,0);
+})();
+
+/* ============ MAXIMIZED / FULLSCREEN → square corners ============
+   Listens to the real Tauri window; harness sets ?max=1 (window.__HT_MAX). */
+(function(){
+  try{
+    const cw=T&&T.window?T.window.getCurrentWindow():null;
+    if(!cw)return;
+    const sync=()=>{cw.isMaximized().then(m=>{window.__HT_MAX=m;if(window.htThemeApply)window.htThemeApply()}).catch(()=>{})};
+    if(cw.onResized)cw.onResized(sync).catch(()=>{});
+    sync();
+  }catch(e){}
+})();
+
 document.addEventListener("halftone:theme",()=>{updateSwitchStyles();drawLogo();buildVolBoth();paintVolAll();requestRedraw("theme")});
 document.addEventListener("halftone:settings-ready",()=>{
   if(!window.__htNavRebuilt){window.__htNavRebuilt=true;buildNav()}   /* boot only — re-running on every settings echo caused range errors */
@@ -1588,9 +1677,11 @@ document.addEventListener("halftone:theme",()=>{paintNav();drawLogo()});
   const applyQa=async()=>{
     const q=new URLSearchParams(location.search);
     if(q.get("nav")&&window.htSetNav)window.htSetNav(q.get("nav"));
+    if(q.get("navstate")&&window.htSetNavState)window.htSetNavState(q.get("navstate"));
     if(q.get("theme")&&window.htSetTheme)window.htSetTheme(q.get("theme"));
     if(q.get("mode")&&window.htSetMode)window.htSetMode(q.get("mode"));
     if(q.get("view"))S.view=q.get("view");
+    if(q.get("max")==="1")window.__HT_MAX=true;   /* harness: simulate maximized (square corners) */
     const tr=q.get("track");
     if(tr!=null&&!S.lib.length){
       /* no scan root: pull the snapshot directly (mock provides tracks) */

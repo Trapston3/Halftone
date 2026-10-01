@@ -31,6 +31,12 @@ data-motion  = full | reduced | off
 data-density = compact | cozy | comfy
 data-surface = main | widget
 data-nav     = left | right | top | bottom | hidden     (main window only)
+data-nav-state  = expanded | collapsed | hidden           (main window only;
+                  "hidden" = rail fully hidden, revealed by hovering the left
+                  6px edge, the floating .nav-toggle, or Ctrl+B)
+data-nav-labels = icons | labels                          (icons = compact 76px
+                  icon-only rail; labels = wide labeled rail)
+data-max    = 0 | 1     (window maximized/fullscreen → shell radius 0)
 ```
 Theme selectors look like `:root[data-theme="digital"][data-mode="dark"] { ... }`.
 
@@ -61,13 +67,22 @@ event; any CSS color syntax): `--canvas-bg` (dither art background),
 
 Theme-level switches (string tokens, read by JS):
 `--seek-style: led | gel`, `--vol-style: leds | gel`,
-`--art-default: dither | real`, `--ambient-default: dither | halo | aurora | off`.
+`--art-default: dither | real`, `--ambient-default: dither | halo | aurora | off`,
+`--dither-ink: 1` (OPTIONAL, analogue-light risograph only: dither art and
+lit meter/LED cells print in `--canvas-ink` instead of the accent color).
+
+Glow tokens (per-theme, consumed by base/shared rules):
+`--glow-accent` (box-shadow bloom on active controls; `none` allowed),
+`--glow-text` (text-shadow on active text; `none` allowed).
 
 ## Components (foundation emits this DOM; themes style the look)
 
 Structure: `.app-shell`, `.titlebar` (custom drag bar, `.win-btn`s),
 `.nav` > `.nav-item(.active)` (icon `<svg>` + `.nav-label`), `.view`
 (routed content), `.panel`, `.mini-bar` (now-playing strip).
+Nav containers get `.edge-reveal` (left-edge hover strip) and
+`.nav-toggle` (floating reveal button) from foundation; themes style
+them to match the nav.
 
 Controls: `.btn`, `.btn-icon`, `.btn-orb` (round transport button;
 `.btn-orb.lg` = play/pause), `.pill-tabs` > `.pill(.active)`, `.seg` >
@@ -128,3 +143,13 @@ All motion must respect `data-motion` (`reduced` = fades only, `off` = none).
 `halftone:theme` (tokens changed — re-read canvas colors),
 `halftone:settings` (detail = changed keys), plus the existing
 `halftone:track|state|tick|art|vol|collect|seeked`.
+`halftone:bars` — 32-float spectrum snapshot (Float32Array or array), broadcast
+by the audio owner each rAF while playing; the widget seek LED renders from it.
+
+## Shared canvas renderers (common.js, used by both windows)
+
+`drawSeekLedShared(cv, p)` — the LED dot-matrix seek strip (32 analyser
+columns, 4px dot pitch, drag sweep, ink playhead). Both `main.html` and the
+widget call this one renderer; there is no widget-local copy.
+`drawDither(cv, img, opts)` — 1-bit Bayer dither; honors `--dither-ink`.
+`drawEdge(cv, img)` — dot-grid edge band. `drawMeter(cv, h)` — LED meter.

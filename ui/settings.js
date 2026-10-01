@@ -75,6 +75,9 @@ const SCHEMA=[
 {key:"navLabels",group:"Layout",label:"Nav labels",type:"seg",surface:"main",default:"icons",
   options:[["icons","ICONS"],["labels","ICONS + LABELS"]],
   apply:v=>window.htSetNavLabels&&window.htSetNavLabels(v)},
+{key:"navState",group:"Layout",label:"Nav rail state",type:"seg",surface:"main",default:"expanded",
+  options:[["expanded","FULL"],["collapsed","ICONS"],["hidden","HIDDEN"]],
+  apply:v=>window.htSetNavState&&window.htSetNavState(v)},
 {key:"queueSide",group:"Layout",label:"Queue panel",type:"select",surface:"main",default:"off",
   options:[["off","Off (popover only)"],["left","Left"],["right","Right"]],
   apply:v=>window.applyQueueSide&&window.applyQueueSide(v)},
@@ -211,6 +214,10 @@ window.htApplyAllSettings=applyAll;
 
 /* ---------- one-time migration from old localStorage cfg ---------- */
 function migrate(){
+  /* QA/harness shots must be deterministic: the temp Chrome profile
+     persists localStorage across navigations, so a light-mode scenario
+     would re-theme every later dark scenario through this path. */
+  if(new URLSearchParams(location.search).has("qa"))return;
   try{
     const raw=localStorage.getItem("halftone.store");
     if(!raw)return;
