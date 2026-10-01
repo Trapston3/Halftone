@@ -322,6 +322,17 @@ if(Q.get("page")){
           if(Q.get("cmdk")){
             setTimeout(()=>{iw.openCmdk&&iw.openCmdk()},2600);
           }
+          /* ?seekzoom=1 — now-playing with the seek strip zoomed for
+             visualiser close-ups (wider strip, taller via .seek-zoom) */
+          if(Q.get("seekzoom")){
+            setTimeout(()=>{
+              try{
+                iw.S.view="nowplaying";iw.render();
+                const d=iw.document;
+                d.documentElement.classList.add("seek-zoom");
+              }catch(e){console.error("seekzoom",e)}
+            },2600);
+          }
         }else{
           if(Q.get("preset")&&iw.applyWidgetPreset)iw.applyWidgetPreset(Q.get("preset"));
           if(Q.get("theme"))iw.htSetTheme(Q.get("theme"));

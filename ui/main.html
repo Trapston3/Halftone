@@ -54,6 +54,10 @@ body{background:transparent}
 /* view inner scroll region */
 .view>.vscroll{flex:1;min-height:0;overflow-y:auto;padding:var(--sp6);display:flex;flex-direction:column;gap:var(--sp3);position:relative}
 
+/* seek-zoom close-up mode (harness ?seekzoom=1): enlarge the NP seek strip */
+.seek-zoom .np-seek .seek{height:56px}
+.seek-zoom .np-seek .seek:hover,.seek-zoom .np-seek .seek.dragging{height:72px}
+
 /* now playing specifics */
 .np .np-art{margin-left:var(--sp2)}
 .np.np-stacked .np-left{align-items:center;text-align:center}
