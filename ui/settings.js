@@ -330,6 +330,14 @@ function render(root,filter){
   if(!Store.v)return;
   root.innerHTML="";
   const wrap=document.createElement("div");wrap.className="set-wrap";
+  /* search box (generated view is searchable; filters label+group+key) */
+  const sbox=document.createElement("input");
+  sbox.type="search";sbox.className="field set-search";
+  sbox.placeholder="Search settings\u2026";sbox.spellcheck=false;
+  sbox.setAttribute("aria-label","Search settings");
+  sbox.value=filter||"";
+  sbox.oninput=()=>{const v=sbox.value;render(root,v);const n=root.querySelector(".set-search");if(n){n.focus();n.setSelectionRange(n.value.length,n.value.length)}};
+  wrap.appendChild(sbox);
   const q=(filter||"").trim().toLowerCase();
   const groups=[];
   for(const s of SCHEMA){
