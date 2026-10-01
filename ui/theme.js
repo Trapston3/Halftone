@@ -80,10 +80,15 @@ function applyAttrs(){
   st.setProperty("--e-pop","var(--shadow-1)");
 }
 
-/* ---------- broadcast + notify ---------- */
+/* ---------- broadcast + notify ----------
+   applyAttrs FIRST, then readTokens: token values are read from the
+   computed style of :root, which only resolves to the new theme's CSS
+   block after data-theme/data-mode changed. Reading before applying
+   served every switch one theme late (digital booted with analogue's
+   --seek-style:led → gel seek hidden, LED canvas hidden → no seekbar). */
 function dispatchTheme(){
-  readTokens();
   applyAttrs();
+  readTokens();
   document.dispatchEvent(new CustomEvent("halftone:theme",{detail:{
     theme:Theme.name,mode:Theme.resolved,motion:Theme.motion,density:Theme.density,
     nav:Theme.nav,canvas:{...Theme.canvas},seek:Theme.seekStyle,vol:Theme.volStyle,
