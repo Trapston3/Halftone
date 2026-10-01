@@ -1179,6 +1179,35 @@ window.wireSeek=wireSeek;
 function paintGel(root,p){
   if(!root)return;
   root.style.setProperty("--val",(p*100).toFixed(2)+"%");
+  /* liquid-glass spectrum: NBARS micro bars inside the glass tube, full
+     width — accent-lit left of the playhead, glassy dim right of it.
+     Renders in digital (gel themes); LED themes never see it (.seek-led
+     covers the tube and the gel layer is display:none). */
+  const cv=root.querySelector(".gel-bars");
+  if(cv&&getComputedStyle(cv).display!=="none"){
+    const track=cv.parentElement;
+    const W=track?track.clientWidth:0,H=track?track.clientHeight:0;
+    if(W&&H){
+      const dpr=Math.min(2,devicePixelRatio||1);
+      if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr)}
+      const g=cv.getContext("2d");
+      if(g){
+        g.setTransform(dpr,0,0,dpr,0,0);
+        g.clearRect(0,0,W,H);
+        const spec=S._barsRcv||new Float32Array(NBARS);
+        const [ar,ag,ab]=ACC.cur;
+        const gap=2,bw=Math.max(2,(W-gap*(NBARS-1))/NBARS);
+        const bh=Math.max(3,Math.round(H*.42));
+        for(let i=0;i<NBARS;i++){
+          const played=(i+.5)/NBARS<p;
+          const v=spec[i]||0;
+          const h=played?Math.max(bh*(.55+.45*v),3):Math.max(bh*.22*v,2);
+          g.fillStyle=played?`rgba(${ar},${ag},${ab},.95)`:`rgba(${ar},${ag},${ab},.20)`;
+          g.fillRect(i*(bw+gap),(H-h)/2,bw,h);
+        }
+      }
+    }
+  }
 }
 function paintSeek(){
   const p=durSec()?posSec()/durSec():0;

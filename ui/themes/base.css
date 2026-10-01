@@ -350,6 +350,9 @@ select.field option{background:var(--bg-2);color:var(--fg)}
 [data-seek="led"] .seek .seek-gel,.seek[data-seek="led"] .seek-gel{display:none}
 [data-seek="gel"] .seek .seek-gel,.seek[data-seek="gel"] .seek-gel{display:flex}
 [data-seek="gel"] .seek .seek-led,.seek[data-seek="gel"] .seek-led{display:none}
+/* spectrum micro-bars inside the gel tube (digital; painted by paintGel) */
+.seek .gel-bars{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;display:none}
+[data-seek="gel"] .seek .gel-bars,.seek[data-seek="gel"] .gel-bars{display:block}
 
 .vol{display:flex;align-items:center;gap:var(--sp2)}
 .vol .vol-leds{width:64px;height:14px;display:block}

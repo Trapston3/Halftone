@@ -187,7 +187,8 @@ window.htPagePaint=function(){
   const cv=WID.wSeek.querySelector(".seek-led");
   if(cv&&getComputedStyle(cv).display!=="none")drawSeekLed(cv,p);
   const gel=WID.wSeek.querySelector(".seek-gel");
-  if(gel&&getComputedStyle(gel).display!=="none")WID.wSeek.style.setProperty("--val",(p*100).toFixed(2)+"%");
+  if(gel&&getComputedStyle(gel).display!=="none"&&typeof paintGel==="function")paintGel(WID.wSeek,p);
+  else WID.wSeek.style.setProperty("--val",(p*100).toFixed(2)+"%");
   paintVolDom();
   if(S._img&&WID.wDither.style.display!=="none")drawDither(WID.wDither,S._img);
   lyricFollow();
