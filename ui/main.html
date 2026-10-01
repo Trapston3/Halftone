@@ -1253,12 +1253,28 @@ function smtcPush(){
         playbackRate:el.aud.playbackRate||1});
     }
   }catch(e){console.warn("mediaSession",e)}
+  /* Linux MPRIS: push the same state to the backend (no-op on Windows) */
+  smtcBackendPush();
+}
+/* BACKEND_API.md: smtc_update(title,artist,album,coverUrl,durationS,playing,positionS)
+   required on track change / play-pause / seek + ~1 Hz while playing
+   (MPRIS position only advances when pushed). */
+function smtcBackendPush(){
+  if(!IS_OWNER||!S.meta)return;
+  const m=S.meta;
+  invoke("smtc_update",{
+    title:m.title||"",artist:m.artist||"",album:m.album||"",
+    coverUrl:S._artUrl||null,
+    durationS:durSec()||0,
+    playing:!!S.playing,
+    positionS:posSec()||0
+  }).catch(()=>{});
 }
 if('mediaSession' in navigator){
   document.addEventListener("halftone:track",smtcPush);
   document.addEventListener("halftone:state",smtcPush);
   document.addEventListener("halftone:seeked",smtcPush);
-  setInterval(()=>{if(S.playing)smtcPush()},3000);
+  setInterval(()=>{if(S.playing)smtcPush()},1000);   /* ~1 Hz per BACKEND_API.md */
   const H=(id,fn)=>{try{navigator.mediaSession.setActionHandler(id,fn)}catch(_){}};
   H("play",()=>setPlaying(true));
   H("pause",()=>setPlaying(false));
@@ -1268,6 +1284,21 @@ if('mediaSession' in navigator){
   H("seekforward",()=>{seekTo(Math.min(durSec(),posSec()+10));smtcPush()});
   try{navigator.mediaSession.setActionHandler("seekto",e=>{
     if(e.seekTime!=null)seekTo(e.seekTime);smtcPush()})}catch(_){}
+}
+/* MPRIS-only intents (Linux): SetPosition + SeekBy (BACKEND_API.md) */
+if(T&&T.event&&T.event.listen&&IS_OWNER){
+  try{T.event.listen("smtc-seek",e=>{
+    const t=e&&e.payload;
+    if(typeof t==="number"&&isFinite(t))seekTo(t);
+  }).catch(()=>{})}catch(_){}
+  try{T.event.listen("smtc-seek-by",e=>{
+    const p=e&&e.payload;
+    if(Array.isArray(p)&&p.length===2){
+      const [fwd,secs]=p;
+      if(typeof secs==="number"&&isFinite(secs))
+        seekTo(Math.max(0,Math.min(durSec(),posSec()+(fwd?secs:-secs))));
+    }
+  }).catch(()=>{})}catch(_){}
 }
 /* tray menu + OS media keys both land here (tray emits smtc-button) */
 if(T&&T.event&&T.event.listen&&IS_OWNER){
