@@ -437,6 +437,14 @@ select.field option{background:var(--bg-2);color:var(--fg)}
 .np-transport .vol{margin-left:auto}
 .np-times{display:flex;justify-content:space-between;font-size:.6875rem;font-variant-numeric:tabular-nums;
   color:var(--fg-3);font-family:var(--font-mono)}
+/* knob clearance: the gel knob (28px in digital themes) is larger than the
+   18px seek row and overhung onto the time labels below (mini-bar +
+   now-playing). Size those rows to contain the knob with slack, so labels
+   sit clear of the knob in every theme. :where() keeps specificity at
+   (0,1,0) so :hover/:dragging (32px), analogue's 34px and the harness
+   .seek-zoom (56px) all still win the cascade. */
+:where(.mini-bar .mb-seek, .np-seek) .seek{height:30px}
+.mini-bar .mb-seek .np-times,.np-seek .np-times{margin-top:2px}
 
 /* lyrics */
 .lyrics{flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--sp3)}
