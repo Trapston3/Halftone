@@ -489,17 +489,24 @@ function listHead(){return `<div class="list-head"><span>#</span><span style="te
 function renderVirtualList(list,items){
   const st={rows:[],top:0};
   list.style.position="relative";
+  /* pull the column header INSIDE the scroll container (it renders
+     position:sticky;top:0) so header + rows share one width — scrollbar
+     gutter included — and one inline padding; outside, the header spans
+     the full view while rows stop at the scrollbar and columns drift. */
+  const head=list.previousElementSibling&&list.previousElementSibling.classList.contains("list-head")?list.previousElementSibling:null;
+  if(head)list.prepend(head);
+  const headH=()=>head?head.offsetHeight:0;
   const build=()=>{
     const H=list.clientHeight||400;
     const from=Math.max(0,Math.floor(list.scrollTop/rowH())-8);
     const to=Math.min(items.length,Math.ceil((list.scrollTop+H)/rowH())+8);
-    list.innerHTML="";
-    const sp=document.createElement("div");
-    sp.style.height=items.length*rowH()+"px";
-    list.appendChild(sp);
+    [...list.querySelectorAll(".row")].forEach(r=>r.remove());
+    let sp=list.querySelector(".vlist-spacer");
+    if(!sp){sp=document.createElement("div");sp.className="vlist-spacer";list.appendChild(sp)}
+    sp.style.height=headH()+items.length*rowH()+"px";
     for(let k=from;k<to;k++){
       const r=trackRow(items[k].t,items[k].i);
-      r.style.position="absolute";r.style.top=k*rowH()+"px";r.style.height=rowH()+"px";r.style.left="0";r.style.right="0";
+      r.style.position="absolute";r.style.top=headH()+k*rowH()+"px";r.style.height=rowH()+"px";r.style.left="0";r.style.right="0";
       list.appendChild(r);
     }
   };

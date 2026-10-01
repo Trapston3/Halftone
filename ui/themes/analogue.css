@@ -199,7 +199,6 @@
 :root[data-theme="analogue"] .np-meta,
 :root[data-theme="analogue"] .lyrics-status,
 :root[data-theme="analogue"] .card-sub,
-:root[data-theme="analogue"] .row-sub,
 :root[data-theme="analogue"] .row-more,
 :root[data-theme="analogue"] .row-dur,
 :root[data-theme="analogue"] .menu-item,
@@ -208,6 +207,19 @@
   font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: .14em;
+}
+
+/* list rows keep a reading hierarchy: title = the voice, artist/album =
+   metadata. Uppercase+tracking on BOTH made them crowd each other. */
+:root[data-theme="analogue"] .row-sub {
+  text-transform: none;
+  letter-spacing: .02em;
+  color: var(--fg-3);
+  font-size: 10.5px;
+}
+:root[data-theme="analogue"] .row-title {
+  letter-spacing: .01em;
+  color: var(--fg);
 }
 
 :root[data-theme="analogue"] .section-title,
