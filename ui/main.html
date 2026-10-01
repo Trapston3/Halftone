@@ -755,6 +755,7 @@ function openCoverSearch(t){
   run();
 }
 function openPlaylistPicker(t){
+  openSheet();
   el.sheetTitle.textContent="ADD TO PLAYLIST";
   el.sheetBody.innerHTML="";
   const mk=document.createElement("button");mk.className="sheet-row";
