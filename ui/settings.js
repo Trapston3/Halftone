@@ -200,6 +200,7 @@ function applyAll(){
   _applyingRemote=true;
   try{
     for(const s of SCHEMA){
+      if(s.type==="action")continue; /* buttons run on click only, never on boot/sync */
       let v=getIn(s.key);
       if(v===undefined){v=s.default;setIn(s.key,s.default)}
       try{s.apply&&s.apply(v)}catch(e){console.warn("apply",s.key,e)}
@@ -259,8 +260,10 @@ function set(key,value,opts){
   /* notify the other window + listeners */
   if(!(T&&T.event&&T.event.emit)&&!opts.fromRemote){
     /* harness (no Tauri) — DOM event only */
-  }else if(T&&T.event&&T.event.emit){
-    try{T.event.emit("halftone:settings",{keys:[key],value,store:Store.v}).catch(()=>{})}catch(_){}
+  }else if(T&&T.event&&T.event.emit&&!_applyingRemote&&!opts.fromRemote){
+    /* never re-broadcast while applying a remote/boot store: that echoed
+       between main + widget forever (startup freeze) */
+    try{T.event.emit("halftone:settings",{keys:[key],value,store:Store.v,from:WIN_ID}).catch(()=>{})}catch(_){}
   }
   document.dispatchEvent(new CustomEvent("halftone:settings",{detail:{keys:[key],values:{[key]:value},store:Store.v,fromRemote:!!opts.fromRemote}}));
   refreshRow(key);
@@ -269,10 +272,12 @@ window.htSet=set;
 
 /* incoming from the other window (or our own bridged emit — guard loops) */
 let _applyingRemote=false;
+const WIN_ID=Math.random().toString(36).slice(2);
 if(T&&T.event&&T.event.listen){
   try{T.event.listen("halftone:settings",e=>{
     if(_applyingRemote)return;
     const p=e.payload||{};
+    if(p.from===WIN_ID)return; /* our own emit echoed back */
     if(p.store){
       _applyingRemote=true;
       try{
