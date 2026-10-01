@@ -133,21 +133,28 @@ window.htSetTheme=function(name,x,y){
 };
 window.htSetMode=function(mode,x,y){
   if(!["system","light","dark"].includes(mode))mode="system";
-  Theme.mode=mode;
-  Theme.resolved=mode==="system"?((mq&&mq.matches)?"dark":"light"):mode;
+  const resolved=mode==="system"?((mq&&mq.matches)?"dark":"light"):mode;
+  /* no-change guard: breaks cross-window echo loops (settings applyAll) */
+  if(Theme.mode===mode&&Theme.resolved===resolved)return;
+  Theme.mode=mode;Theme.resolved=resolved;
   switchAnimated(x,y);syncOther();
 };
 window.htSetMotion=function(m){
   if(!["full","reduced","off"].includes(m))m="full";
+  if(Theme.motion===m)return;
   Theme.motion=m;dispatchTheme();syncOther();
 };
 window.htSetDensity=function(d){
   if(!["compact","cozy","comfy"].includes(d))d="cozy";
+  if(Theme.density===d)return;
   Theme.density=d;dispatchTheme();syncOther();
 };
 window.htSetNav=function(nav){if(!["left","right","top","bottom","hidden"].includes(nav))nav="left";
+  if(Theme.nav===nav)return;
   Theme.nav=nav;dispatchTheme();syncOther()};
-window.htSetNavLabels=function(l){Theme.navLabels=l==="labels"?"labels":"icons";dispatchTheme();syncOther()};
+window.htSetNavLabels=function(l){const v=l==="labels"?"labels":"icons";
+  if(Theme.navLabels===v)return;
+  Theme.navLabels=v;dispatchTheme();syncOther()};
 
 /* ---------- both windows switch together ---------- */
 function syncOther(){

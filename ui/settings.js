@@ -14,7 +14,17 @@
    ============================================================ */
 (function(){
 "use strict";
-const T=window.__TAURI__;
+const T=window.__TAURI__||window.__HT_TAURI_MOCK__||null;
+/* invoke: same chain as common.js (mock first, then real Tauri) */
+function invoke(cmd,args){
+  args=args||{};
+  if(window.__invoke&&window.__invoke._ht)return window.__invoke(cmd,args);
+  if(T&&T.core&&T.core.invoke)return T.core.invoke(cmd,args);
+  return Promise.resolve(null);
+}
+/* __ACC_SILENT: set by common.js setAccentMode while it syncs the
+   "accent" setting, preventing setAccentMode -> htSet -> apply ->
+   setAccentMode infinite recursion. */
 
 /* ============================================================
    SCHEMA — {key, group, label, hint?, type, options?, min/max/step?,
@@ -33,7 +43,7 @@ const SCHEMA=[
   options:[["album","From album art"],["mint","#66E0C2"],["sky","#6EC5E8"],["violet","#A78BFA"],
            ["rose","#F27DA0"],["amber","#E0B966"],["red","#E06666"],["custom","Custom"]],
   alias:"accentMode",
-  apply:v=>window.setAccentMode&&window.setAccentMode(v)},
+  apply:v=>window.setAccentMode&&!window.__ACC_SILENT&&window.setAccentMode(v)},
 {key:"accentCustom",group:"Appearance",label:"Custom accent color",type:"color",surface:"both",default:"#66E0C2",
   apply:v=>{if(window.setCustomAccent)window.setCustomAccent(v)}},
 {key:"art",group:"Appearance",label:"Album art style",type:"seg",surface:"both",default:"theme",
@@ -164,6 +174,7 @@ function coerce(s,v){
   if(s.type==="range")return +v;
   if(s.type==="toggle")return !!v;
   if(s.type==="select"&&s.key==="grid")return +v;
+  if(s.type==="select"||s.type==="seg")return String(v);
   return v;
 }
 
@@ -174,18 +185,23 @@ function scheduleSave(){
 }
 async function saveNow(){
   if(!Store.v)return;
-  try{await window.__invoke("settings_save",{v:Store.v})}catch(e){console.warn("settings_save",e)}
+  try{await invoke("settings_save",{v:Store.v})}catch(e){console.warn("settings_save",e)}
 }
 window.htSaveSettingsNow=saveNow;
 
-/* ---------- apply every setting live (boot + import) ---------- */
+/* ---------- apply every setting live (boot + import) ----------
+   _applyingRemote guards the whole apply phase so schema apply()
+   callbacks that call htSet() don't re-emit and echo back. */
 function applyAll(){
   if(!Store.v)return;
-  for(const s of SCHEMA){
-    let v=getIn(s.key);
-    if(v===undefined){v=s.default;setIn(s.key,s.default)}
-    try{s.apply&&s.apply(v)}catch(e){console.warn("apply",s.key,e)}
-  }
+  _applyingRemote=true;
+  try{
+    for(const s of SCHEMA){
+      let v=getIn(s.key);
+      if(v===undefined){v=s.default;setIn(s.key,s.default)}
+      try{s.apply&&s.apply(v)}catch(e){console.warn("apply",s.key,e)}
+    }
+  }finally{_applyingRemote=false}
 }
 window.htApplyAllSettings=applyAll;
 
@@ -214,7 +230,7 @@ function migrate(){
 async function boot(){
   Store.v=await (async()=>{
     try{
-      const v=await window.__invoke("settings_load");
+      const v=await invoke("settings_load");
       if(v&&typeof v==="object"&&!Array.isArray(v))return Object.assign(defaults(),v);
     }catch(e){console.warn("settings_load",e)}
     return defaults();
@@ -248,15 +264,20 @@ function set(key,value,opts){
 }
 window.htSet=set;
 
-/* incoming from the other window */
+/* incoming from the other window (or our own bridged emit — guard loops) */
+let _applyingRemote=false;
 if(T&&T.event&&T.event.listen){
   try{T.event.listen("halftone:settings",e=>{
+    if(_applyingRemote)return;
     const p=e.payload||{};
     if(p.store){
-      Store.v=Object.assign(defaults(),p.store);
-      applyAll();
-      document.dispatchEvent(new CustomEvent("halftone:settings",{detail:{keys:p.keys||[],values:{},store:Store.v,fromRemote:true}}));
-      document.dispatchEvent(new CustomEvent("halftone:settings-remote",{detail:{store:Store.v}}));
+      _applyingRemote=true;
+      try{
+        Store.v=Object.assign(defaults(),p.store);
+        applyAll();
+        document.dispatchEvent(new CustomEvent("halftone:settings",{detail:{keys:p.keys||[],values:{},store:Store.v,fromRemote:true}}));
+        document.dispatchEvent(new CustomEvent("halftone:settings-remote",{detail:{store:Store.v}}));
+      }finally{_applyingRemote=false}
     }
   }).catch(()=>{})}catch(_){}
 }
@@ -384,10 +405,15 @@ function wireRow(row,s){
 /* ---------- public surface ---------- */
 window.htSettings={
   schema:SCHEMA,
-  get:getCfg,
+  get:(k)=>getIn(k),
   set:set,
   all:()=>Store.v?JSON.parse(JSON.stringify(Store.v)):null,
   render,
   ready:boot
 };
+/* self-boot: common.js parses BEFORE this file, so it can't call ready()
+   itself. The ready promise resolves after settings_load + applyAll; the
+   halftone:settings-ready event fires after all page scripts are parsed
+   (boot awaits the backend), so page listeners catch it reliably. */
+window.__htSettingsReady=boot();
 })();

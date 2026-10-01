@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Halftone UI harness</title>
+<style>
+body{background:#0B0D0E;color:#9AA4AA;font:12px/1.4 Consolas,monospace;margin:0;padding:8px}
+button{font:inherit;background:#1B1E21;color:#F2E8CF;border:1px solid #3A4147;border-radius:4px;padding:3px 10px;cursor:pointer;margin:2px}
+button:hover{border-color:#66E0C2;color:#66E0C2}
+input[type=number]{width:70px;background:#1B1E21;color:#F2E8CF;border:1px solid #3A4147;border-radius:4px;padding:2px 6px}
+.framebox{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start}
+.framewrap{border:1px dashed #3A4147;padding:4px;background:#101214}
+.framewrap h3{margin:2px 0;font-size:10px;letter-spacing:.2em;color:#66E0C2;font-weight:400}
+iframe{border:0;background:#16181A;display:block}
+#log{white-space:pre-wrap;color:#7DD4A0;max-height:180px;overflow-y:auto;border-top:1px solid #262B30;padding-top:6px;margin-top:6px}
+</style>
+</head>
+<body>
+<h3 style="margin:4px 0;color:#66E0C2;letter-spacing:.3em">HALFTONE UI HARNESS</h3>
+<div>
+  <button id="bShootMain">SCREENSHOT main</button>
+  <button id="bShootW1">WIDGET 380x260</button>
+  <button id="bShootW2">WIDGET 600x380</button>
+  <button id="bShootW3">WIDGET 900x560</button>
+  <button id="bPreset">CYCLE PRESET</button>
+  <button id="bTheme">SWITCH THEME (circular reveal)</button>
+  <button id="bMode">TOGGLE LIGHT/DARK</button>
+  <button id="bLyrics">LOAD FAKE LYRICS TRACK</button>
+  <button id="bDither">LOG DITHER MATH</button>
+  <button id="bNavPos">CYCLE NAV POSITION</button>
+  <span id="shotPath" style="color:#E0B966"></span>
+</div>
+<div class="framebox">
+  <div class="framewrap"><h3>MAIN WINDOW</h3><iframe id="fMain" width="1200" height="740"></iframe></div>
+  <div class="framewrap"><h3>WIDGET</h3><iframe id="fWidget" width="380" height="260"></iframe></div>
+</div>
+<div id="log"></div>
+<script>
+/* ============================================================
+   MOCK __TAURI__ — in-memory event bus BRIDGED ACROSS FRAMES:
+   an emit in one frame reaches listeners in both frames.
+   ============================================================ */
+function makeBus(){
+  const listeners=new Map();
+  return {
+    listen(name,fn){(listeners.get(name)||listeners.set(name,new Set()).get(name)).add(fn);return Promise.resolve(()=>listeners.get(name)?.delete(fn))},
+    emit(name,payload){(listeners.get(name)||new Set()).forEach(fn=>{try{fn({payload,event:name})}catch(e){console.error("listener",name,e)}});return Promise.resolve()},
+    _n:()=>listeners.size
+  };
+}
+const busMain=makeBus(),busWidget=makeBus();
+/* bridge main<->widget so halftone:cmd / halftone:sync cross frames */
+function bridge(a,b){
+  const origA=a.emit,origB=b.emit;
+  /* deliver to BOTH original buses exactly once (no wrapper recursion!) */
+  a.emit=(n,p)=>{origA(n,p);origB(n,p);return Promise.resolve()};
+  b.emit=(n,p)=>{origB(n,p);origA(n,p);return Promise.resolve()};
+}
+bridge(busMain,busWidget);
+
+function makeInvoke(label){
+  return async(cmd,args)=>{
+    if(cmd==="library_snapshot"||cmd==="scan_library"){
+      return {tracks:FAKE_TRACKS,skipped:args&&args.dir?[]:["corrupt.flac"],unsupported:2};
+    }
+    if(cmd==="open_track"){
+      const t=FAKE_TRACKS.find(t=>t.path===args.path)||FAKE_TRACKS[0];
+      return {...t,cover:{mime:"image/jpeg",data_b64:COVER_B64},embedded_lyrics:null};
+    }
+    if(cmd==="media_url")return "media://localhost/"+encodeURIComponent(args.path);
+    if(cmd==="cover_url"){
+      const t=FAKE_TRACKS.find(t=>t.path===args.path);
+      if(!t||!args.path.includes("live"))return DATA_URL;
+      return DATA_URL;
+    }
+    if(cmd==="settings_load")return null;   /* defaults */
+    if(cmd==="settings_save")return "ok";
+    if(cmd==="lyrics_get"){
+      if(!args.allowNet)return {source:"none",synced:false,lines:[],plain:null};
+      return {source:"lrclib",synced:true,lines:FAKE_LRC};
+    }
+    if(cmd==="pick_folder")return "C:\\Users\\you\\Music";
+    if(cmd==="ota_check")return {disabled:false,available:null,current:"0.2.0"};
+    if(cmd==="list_sinks")return {devices:[{id:"out0",label:"Speakers (Mock)"},{id:"out1",label:"HDMI (Mock)"}]};
+    if(cmd==="lrc_fetch")return "ok";
+    return null;
+  };
+}
+const DATA_URL=(function(){
+  /* 8x8 gradient cover, expanded to data: URL at runtime */
+  const cv=document.createElement("canvas");cv.width=8;cv.height=8;
+  const g=cv.getContext("2d");
+  const im=g.createImageData(8,8);
+  for(let y=0;y<8;y++)for(let x=0;x<8;x++){
+    const i=(y*8+x)*4;
+    im.data[i]=40+x*20;im.data[i+1]=30+y*20;im.data[i+2]=80;im.data[i+3]=255;
+  }
+  g.putImageData(im,0,0);
+  return cv.toDataURL("image/png");
+})();
+const COVER_B64=(function(){const b=DATA_URL.split(",")[1];return b})();
+
+const FAKE_LRC=(function(){
+  const lines=["Counting halftone dots in the dark","Every cell a promise of the light","The grid remembers what the eye forgets","Sweep the needle cross the amber night","Pixels falling like a summer rain","Hold the beat, the buffer's burning slow"];
+  return lines.map((text,k)=>({t:k*5200,text}));
+})();
+
+function fakeTrack(k){
+  const albs=["Magnetic South","Glass Gardens","Night Compiler","Signal Bloom"];
+  const arts=["Vela Nine","Codechic","The Modems","Aurora Index"];
+  const fmts=[["FLAC",true,44100,16,2],["WAV",true,48000,24,2],["MP3",false,44100,16,2],["ALAC",true,44100,16,2],["AAC",false,44100,16,2]];
+  const f=fmts[k%fmts.length];
+  return {path:"C:\\Music\\"+albs[k%4]+"\\"+String(k).padStart(2,"0")+" Track "+k+".flac",
+    title:"Track "+k,artist:arts[k%4],album:albs[k%4],
+    duration_s:180+k*7,streaminfo:{sample_rate:f[2],bits:f[3],channels:f[4],total_samples:f[2]*(180+k*7)},
+    format:f[0],lossless:f[1],bitrate_kbps:f[1]?0:230,has_cover:true,replaygain:{track_gain:"-3.2 dB",album_gain:"-4.0 dB"},cover:null};
+}
+const FAKE_TRACKS=Array.from({length:24},(_,k)=>fakeTrack(k));
+
+function mockTauri(label,bus){
+  return {
+    core:{invoke:makeInvoke(label),transformCallback:cb=>cb},
+    event:bus,
+    window:{
+      getCurrentWindow(){return mockWin(label)},
+      getAllWindows:async()=>[mockWin("main"),mockWin("widget")],
+    },
+    opener:{openUrl:async u=>log(label+" openUrl: "+u)},
+    shell:{open:async u=>log(label+" open: "+u)},
+  };
+}
+const winState={main:{visible:true},widget:{visible:true}};
+function mockWin(label){
+  return {
+    label,
+    async hide(){winState[label].visible=false;log(label+".hide()")},
+    async show(){winState[label].visible=true;log(label+".show()")},
+    async minimize(){log(label+".minimize()")},
+    async destroy(){log(label+".destroy()  [app would exit]")},
+    async setFocus(){},
+    async isVisible(){return winState[label].visible},
+    async setAlwaysOnTop(v){log(label+".setAlwaysOnTop("+v+")")},
+    async scaleFactor(){return 1},
+    async innerSize(){return {width:800,height:600}},
+    onCloseRequested(cb){mockWin._closeCb=cb},
+    startDragging(){log(label+".startDragging()")},
+  };
+}
+function install(frame,label,bus){
+  const w=frame.contentWindow;
+  const mock=mockTauri(label,bus);
+  const inv=makeInvoke(label);inv._ht=true;
+  mock.__invoke=inv;          /* picked up via __HT_TAURI_MOCK__ fallback */
+  try{
+    Object.defineProperty(w,"__HT_TAURI_MOCK__",{value:mock,configurable:true});
+  }catch(e){log("install fail: "+e.message)}
+  return mock;
+}
+
+/* ---------- boot both frames with mocks pre-installed ---------- */
+const fMain=document.getElementById("fMain"),fWidget=document.getElementById("fWidget");
+function bootFrame(frame,page,label,bus){
+  install(frame,label,bus);
+  frame.addEventListener("load",()=>{
+    /* surface frame errors with STACKS into the top console */
+    try{
+      frame.contentWindow.onerror=(msg,src,line,col,err)=>{
+        console.error("FRAME-ERR["+label+"]",msg,line,"\n"+(err&&err.stack||"(no stack)"));
+      };
+    }catch(e){console.error("onerror hook fail",e.message)}
+  });
+  frame.src=page;
+}
+bootFrame(fMain,"../main.html","main",busMain);
+bootFrame(fWidget,"../index.html","widget",busWidget);
+
+/* ============================================================
+   SHOT MODE — headless one-shot scenarios via URL params:
+   ?page=main&nav=left&mode=dark&theme=analogue&track=2&view=tracks
+   ?page=widget&w=600&h=380&preset=square
+   The frame fills the window; scenario applies after boot.
+   ============================================================ */
+const Q=new URLSearchParams(location.search);
+if(Q.get("page")){
+  const page=Q.get("page");
+  const w=+Q.get("w")||1200,h=+Q.get("h")||740;
+  document.querySelector(".framebox").style.display="none";
+  document.querySelector("div").style.display="none";   /* header row */
+  document.querySelector("h3").style.display="none";    /* title */
+  document.getElementById("log").style.display="none";
+  const f=document.createElement("iframe");
+  f.id="fShot";f.style.cssText="border:0;position:fixed;top:0;left:0";f.width=w;f.height=h;
+  document.body.appendChild(f);
+  document.body.style.background=page==="main"?"#0B0D0E":"#101214";
+  const bus=makeBus();
+  const frameLabel=page==="main"?"main":"widget";
+  install(f,frameLabel,bus);
+  /* forward ALL scenario params to the frame — pages read them at boot
+     (widget: ?preset=, main: ?nav/view/track/mode/theme=) so state is
+     correct from the first paint, no post-boot mutation needed */
+  f.src=(page==="widget"?"../index.html":"../"+page+".html")+"?"+Q.toString();
+  f.addEventListener("load",()=>{
+    const iw=f.contentWindow;
+    const apply=()=>{
+      try{
+        if(page==="main"){
+          if(Q.get("nav"))iw.htSet("nav",Q.get("nav"));
+          if(Q.get("theme"))iw.htSetTheme(Q.get("theme"));
+          if(Q.get("mode"))iw.htSetMode(Q.get("mode"));
+          if(Q.get("view")){iw.S.view=Q.get("view");iw.render()}
+          if(Q.get("track"))iw.__qa.load(+Q.get("track"));
+          if(Q.get("lyrics"))iw.S.view="nowplaying",iw.render();
+        }else{
+          if(Q.get("preset")&&iw.applyWidgetPreset)iw.applyWidgetPreset(Q.get("preset"));
+          if(Q.get("theme"))iw.htSetTheme(Q.get("theme"));
+          if(Q.get("mode"))iw.htSetMode(Q.get("mode"));
+          if(Q.get("lyrics")!=null&&iw.applySync)iw.applySync({meta:{...FAKE_TRACKS[2],coverUrl:null},playing:true,
+            pos:42,dur:FAKE_TRACKS[2].duration_s,
+            lyrics:{lines:FAKE_LRC,plain:null,status:"lrclib",synced:true}});
+        }
+      }catch(e){console.error("shot apply",e&&(e.stack||e.message||e))}
+    };
+    setTimeout(apply,300);
+    setTimeout(apply,900);   /* second pass after boot settles */
+    iw.document.addEventListener("halftone:booted",apply);
+    iw.addEventListener("halftone:booted",apply);   /* either target */
+  });
+}
+
+/* ---------- log ---------- */
+const logBox=document.getElementById("log");
+function log(msg){
+  const line="["+new Date().toLocaleTimeString()+"] "+msg;
+  logBox.textContent+=line+"\n";
+  logBox.scrollTop=1e6;
+  console.log(line);
+}
+window.hlog=log;
+
+/* ---------- harness actions (run inside frames) ---------- */
+function fmain(){return fMain.contentWindow}
+function fwid(){return fWidget.contentWindow}
+
+document.getElementById("bShootMain").onclick=()=>{
+  /* chrome --headless --screenshot captures the TOP document; for per-frame
+     shots we navigate the harness itself: see shoot() below */
+  log("use shoot(shell) — see commands below");
+};
+document.getElementById("bTheme").onclick=()=>{
+  const w=fmain();w.htSetTheme(w.Theme.name==="analogue"?"digital":"analogue",300,300);
+  log("main theme="+w.Theme.name);
+};
+document.getElementById("bMode").onclick=()=>{
+  const w=fmain();w.htSetMode(w.Theme.resolved==="dark"?"light":"dark");
+  log("main mode="+w.Theme.resolved);
+};
+document.getElementById("bLyrics").onclick=async()=>{
+  const w=fmain();
+  await w.__qa.load(2);
+  w.S.view="nowplaying";w.render();
+  log("loaded track 2 with fake synced lyrics; status="+w.S.lyricsStatus);
+};
+document.getElementById("bDither").onclick=()=>{
+  const w=fmain(),v=fwid();
+  log("main [dither] — backing should equal N*cell (see console)");
+  w.drawDither(w.el.npDither,w.S._img,{force:true});
+  v.drawDither(v.WID.wDither,v.S._img,{force:true});
+};
+document.getElementById("bNavPos").onclick=()=>{
+  const w=fmain();
+  const order=["left","right","top","bottom","hidden"];
+  const next=order[(order.indexOf(w.Theme.nav)+1)%order.length];
+  w.htSet("nav",next);
+  log("nav="+next);
+};
+document.getElementById("bPreset").onclick=()=>{
+  const w=fwid();
+  const order=["card","strip","square","lyrics"];
+  const next=order[(order.indexOf(w.W.preset)+1)%order.length];
+  w.setCfg("widgetPreset",next);
+  log("widget preset="+next);
+};
+</script>
+</body>
+</html>

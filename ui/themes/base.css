@@ -37,6 +37,19 @@
   --seek-style:led; --vol-style:leds; --art-default:dither; --ambient-default:dither;
 }
 
+/* ---------- MINIMAL light-mode fallback (foundation QA only).
+   Theme files override these with richer palettes via
+   :root[data-theme="…"][data-mode="light"] — this block only keeps the
+   UI legible in light mode when they're absent. ---------- */
+:root[data-mode="light"]{
+  --bg:#F4F2EC; --bg-2:#ECE9E1; --bg-3:#E2DFD6;
+  --fg:#1C1E22; --fg-2:#5A6168; --fg-3:#8B949C;
+  --line:#DAD7CE; --line-2:#C8C4BA;
+  --panel-bg:#EFEDE6; --panel-border:#C8C4BA; --panel-highlight:rgba(0,0,0,.02);
+  --shadow-1:0 4px 14px rgba(30,30,30,.12); --shadow-2:0 24px 64px rgba(30,30,30,.18);
+  --canvas-bg:#EFEDE6; --canvas-off:#C8C4BA; --canvas-ink:#1C1E22;
+}
+
 /* ---------- foundation-set user scales ---------- */
 :root{
   --radius-scale:1;      /* settings: corner radius scale 0.5-1.5 */

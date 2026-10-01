@@ -3,6 +3,21 @@
 <head>
 <meta charset="utf-8">
 <title>Halftone</title>
+<script>
+/* boot-error reporter: last uncaught error + stack into __HT_BOOT_ERR
+   (read by the test harness; harmless in production) */
+window.onerror=function(msg,src,line,col,err){
+  window.__HT_BOOT_ERR={msg:String(msg),line:line,
+    stack:err&&err.stack?String(err.stack).split("\n").slice(0,24).join("\n"):null};
+  if(window.__HT_BOOT_ERR.stack)console.error("HT-ERR",msg,"@"+line+"\n"+window.__HT_BOOT_ERR.stack);
+  return false;
+};
+window.addEventListener("unhandledrejection",function(ev){
+  var r=ev.reason;
+  window.__HT_BOOT_ERR={msg:"unhandledrejection: "+(r&&r.message||String(r)),
+    line:0,stack:r&&r.stack?String(r.stack).split("\n").slice(0,24).join("\n"):null};
+});
+</script>
 <link rel="stylesheet" href="themes/base.css">
 <link rel="stylesheet" href="themes/analogue.css">
 <link rel="stylesheet" href="themes/digital.css">
@@ -293,7 +308,7 @@ body{background:transparent}
 /* ============ main player wiring ============ */
 ["shell","edgeCv","np","npArt","npCover","npDither","npKick","npTitle","npArtist","npTech",
  "seek","tip","tCur","tTot","lyrWrap","npLyrView","npNoLrc","lrcSearch","lrcRetry","lyrStatus","lyrCap","npLyr",
- "content","viewCap","search","npbar","npArtMb","nbTitle","nbSub","nbCur","nbTot",
+ "content","viewCap","search","npbar","npArtMb","nbTitle","nbSub","nbCur","nbTot","nav",
  "seek2","nbPrev","nbPlay","nbNext","nbIcoPlay","nbIcoPause",
  "icoPlay","icoPause","btnPlay","btnPrev","btnNext","btnShuf","btnRep","vol","volMb",
  "btnMin","btnClose","btnWidget","btnEq","btnPalette","logoCv","dragLogo","dragTop",
@@ -303,6 +318,10 @@ body{background:transparent}
  "eqSave","eqDelete","eqImport","eqFile","eqProfile","sinkSel","sinkNote","sleepLeft","eqPreLeds",
  "sheet","sheetTitle","sheetBody","sheetClose","sheetBk","cmdk","cmdkInput","cmdkList","appShell","views","aud"
 ].forEach(k=>el[k]=document.getElementById(k));
+
+/* 10-band EQ (standard ISO octaves) — band faders ±12dB in 0.5dB steps */
+const EQ_BANDS=[32,64,125,250,500,1000,2000,4000,8000,16000].map(f=>({f}));
+const EQ_ZERO_IDX=5;   /* seg index of 0dB in the 13-seg fader (6 below + zero) */
 
 const VIEWS=[
   ["nowplaying","NOW PLAYING",'<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2"/>'],
@@ -378,8 +397,6 @@ function paintNav(){
 function showView(v){
   const isNP=v==="nowplaying",isEq=v==="eq",isSet=v==="settings";
   el.views.querySelectorAll(".view").forEach(x=>x.classList.remove("shown","view-enter"));
-  const target=isNP?el.views.children[0]:isEq?document.getElementById("v-eq"):document.getElementById("v-content");
-  /* pick the right container */
   let cont;
   if(isNP)cont=document.getElementById("v-nowplaying");
   else if(isEq)cont=document.getElementById("v-eq");
@@ -388,12 +405,12 @@ function showView(v){
   cont.classList.add("shown");
   requestAnimationFrame(()=>cont.classList.add("view-enter"));
   /* mini-bar visibility */
-  applyMiniBar();
+  applyMiniBarDom();
   /* queue panel visibility */
-  applyQueueSide();
+  applyQueueSideDom();
   paintNav();
 }
-function applyMiniBar(){
+function applyMiniBarDom(){
   const np=S.view==="nowplaying";
   const pos=S.cfg.miniBar||"bottom";
   el.npbar.style.display=(np||pos==="off")?"none":"flex";
@@ -401,7 +418,7 @@ function applyMiniBar(){
   if(pos==="top"){el.views.parentElement.insertBefore(el.npbar,el.views)}
   else{el.views.parentElement.appendChild(el.npbar)}
 }
-function applyQueueSide(){
+function applyQueueSideDom(){
   const side=S.cfg.queueSide||"off";
   const show=side!=="off"&&["tracks","albums","liked","playlists","queue"].includes(S.view);
   el.queuePanel.style.display=show?"flex":"none";
@@ -409,6 +426,7 @@ function applyQueueSide(){
   if(show)buildQueuePanel();
 }
 function render(){
+  /* page-level router: overrides common.js no-op render */
   showView(S.view);
   if(S.view==="nowplaying")return;
   if(S.view==="eq")return paintEqView&&paintEqView();
@@ -617,7 +635,7 @@ function renderPlaylistDetail(name){
   renderVirtualList(document.getElementById("list"),flt);
 }
 
-/* original render(), wrapped for detail views */
+/* detail views (album:/playlist:) wrap the page router */
 const _render=render;
 render=function(){
   if(S.view.startsWith("album:")){showView(S.view);renderAlbumDetail(S.view.slice(6));return}
@@ -897,6 +915,7 @@ function refreshPresetList(){
 }
 function eqActiveProfileName(){return (S.cfg.eq&&S.cfg.eq.profile)||null}
 function paintEq(){
+  if(!el.eqBands||!el.eqPreLeds||!el.eqBands.children.length)return;   /* view not built yet */
   const eq=S.cfg.eq;
   el.eqBypass.classList.toggle("primary",!!eq.on);
   el.eqBypass.textContent=eq.on?"ON":"BYPASS";
@@ -1047,8 +1066,10 @@ el.sinkSel.onchange=async()=>{
 
 /* ============ settings plumbing (schema apply fns) ============ */
 function applyArtSetting(v){
-  if(v==="theme")S.cfg.art=themeArtDefault;else S.cfg.art=v;
-  saveStore();paintNP();render();
+  const eff=v==="theme"?themeArtDefault:v;
+  if(S.cfg.art!==eff){S.cfg.art=eff;saveStore()}
+  paintNP();
+  if(!["nowplaying","eq"].includes(S.view))render();
 }
 window.applyArtSetting=applyArtSetting;
 function setDitherDensity(v){S.cfg.grid=+v;saveStore();
@@ -1061,8 +1082,8 @@ function applyAmbientSetting(v){
   saveStore();
 }
 window.applyAmbientSetting=applyAmbientSetting;
-function applyQueueSide(v){S.cfg.queueSide=v;saveStore();applyQueueSide()}
-window.applyQueueSide=applyQueueSide;
+function applyQueueSideSetting(v){S.cfg.queueSide=v||"off";saveStore();applyQueueSideDom()}
+window.applyQueueSide=applyQueueSideSetting;   /* settings hook; DOM fn is applyQueueSideDom */
 function applyNpLayout(v){
   S.cfg.npLayout=v||"split";
   el.np.classList.toggle("np-stacked",S.cfg.npLayout==="stacked");
@@ -1072,8 +1093,17 @@ function applyNpLayout(v){
 window.applyNpLayout=applyNpLayout;
 function applyTechLine(v){S.cfg.tech=!!v;saveStore();paintNP()}
 window.applyTechLine=applyTechLine;
-function applyMiniBarSetting(v){S.cfg.miniBar=v||"bottom";saveStore();applyMiniBar()}
-window.applyMiniBar=applyMiniBarSetting;
+function applyMiniBarSetting(v){S.cfg.miniBar=v||"bottom";saveStore();applyMiniBarDom()}
+window.applyMiniBar=applyMiniBarSetting;   /* settings hook (schema apply) */
+function applyMiniBarDom(){
+  const np=S.view==="nowplaying";
+  const pos=S.cfg.miniBar||"bottom";
+  el.npbar.style.display=(np||pos==="off")?"none":"flex";
+  el.npbar.classList.toggle("top",pos==="top");
+  if(pos==="top"){el.views.parentElement.insertBefore(el.npbar,el.views)}
+  else{el.views.parentElement.appendChild(el.npbar)}
+}
+/* window.applyMiniBar stays = applyMiniBarSetting (settings hook, set above) */
 function applyWidgetPin(v){
   S.pinned=!!v;saveStore();
   try{window.curWin&&window.curWin.setAlwaysOnTop(S.pinned)}catch(e){console.warn(e)}
@@ -1178,21 +1208,24 @@ document.body.addEventListener("contextmenu",e=>{
     {label:"HIDE MAIN",onClick:()=>{window.curWin&&window.curWin.hide().catch(()=>{})}},
     {sep:1},
     {label:"NAV POSITION",children:[
-      {label:"LEFT RAIL",checked:S.cfg.nav==="left",onClick:()=>htSet("nav","left")},
-      {label:"RIGHT RAIL",checked:S.cfg.nav==="right",onClick:()=>htSet("nav","right")},
-      {label:"TOP TABS",checked:S.cfg.nav==="top",onClick:()=>htSet("nav","top")},
-      {label:"BOTTOM DOCK",checked:S.cfg.nav==="bottom",onClick:()=>htSet("nav","bottom")},
-      {label:"HIDDEN \u00b7 CTRL+K",checked:S.cfg.nav==="hidden",onClick:()=>htSet("nav","hidden")},
+      {label:"LEFT RAIL",checked:S.cfg.nav==="left",onClick:()=>pageHtSet("nav","left")},
+      {label:"RIGHT RAIL",checked:S.cfg.nav==="right",onClick:()=>pageHtSet("nav","right")},
+      {label:"TOP TABS",checked:S.cfg.nav==="top",onClick:()=>pageHtSet("nav","top")},
+      {label:"BOTTOM DOCK",checked:S.cfg.nav==="bottom",onClick:()=>pageHtSet("nav","bottom")},
+      {label:"HIDDEN \u00b7 CTRL+K",checked:S.cfg.nav==="hidden",onClick:()=>pageHtSet("nav","hidden")},
     ]},
     {label:"ALBUM ART",children:[
-      {label:"REAL PHOTO",checked:S.cfg.art==="real",onClick:()=>htSet("art","real")},
-      {label:"DITHER",checked:S.cfg.art==="dither",onClick:()=>htSet("art","dither")},
-      {label:"THEME DEFAULT",checked:S.cfg.art==="theme",onClick:()=>htSet("art","theme")},
+      {label:"REAL PHOTO",checked:S.cfg.art==="real",onClick:()=>pageHtSet("art","real")},
+      {label:"DITHER",checked:S.cfg.art==="dither",onClick:()=>pageHtSet("art","dither")},
+      {label:"THEME DEFAULT",checked:S.cfg.art==="theme",onClick:()=>pageHtSet("art","theme")},
     ]},
     {label:"ACCENT",children:accentMenuItems()},
   ]);
 });
-function htSet(k,v){window.htSet&&window.htSet(k,v)}
+/* page-side pageHtSet(key,value): settings.js owns window.htSet (schema set);
+   this thin wrapper exists for inline menu handlers and resolves at call
+   time. Never re-alias window.htSet here (that self-recursed). */
+const pageHtSet=(k,v)=>window.htSet(k,v);
 
 /* ============ SMTC via WebView2 media-session bridge ============ */
 function smtcPush(){
@@ -1294,12 +1327,17 @@ window.__qa={
               queue:S.queue.length}),
   albums:()=>{const set=new Set(S.lib.map(t=>t.album));return set.size},
   nav(v){S.view=v;render();return {view:S.view}},
+  async load(i){
+    if(!S.lib.length){try{const r=await invoke("library_snapshot");if(r&&r.tracks)S.lib=r.tracks}catch(e){}}
+    await loadTrack(Math.min(i,S.lib.length-1),false);
+    return {i:S.i,title:S.meta&&S.meta.title,lib:S.lib.length};
+  },
   navPos:()=>({nav:S.cfg.nav,labels:S.cfg.navLabels,
     items:document.querySelectorAll(".nav-item").length,
     first:(()=>{const n=document.querySelector(".nav-item");if(!n)return null;const r=n.getBoundingClientRect();return {x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),labelShown:getComputedStyle(n.querySelector(".nav-label")).display!=="none"}})()}),
   cfg:()=>({...S.cfg}),
-  artSet(mode){htSet("art",mode);return {art:S.cfg.art}},
-  ambientSet(v){htSet("ambient",v);return {ambient:S.cfg.ambient,
+  artSet(mode){pageHtSet("art",mode);return {art:S.cfg.art}},
+  ambientSet(v){pageHtSet("ambient",v);return {ambient:S.cfg.ambient,
     canvasShown:(()=>{const fx=document.querySelector(".fx-layer");return fx&&fx.dataset.ambient!=="off"})()}},
   transport:()=>({shuffle:S.shuffle,repeat:S.repeat}),
   transportSet(kind){kind==="shuffle"?el.btnShuf.click():el.btnRep.click();return this.transport()},
@@ -1327,15 +1365,15 @@ window.__qa={
   settingsRendered:()=>({rows:document.querySelectorAll(".set-row").length,
     groups:document.querySelectorAll(".set-group").length,
     labels:[...document.querySelectorAll(".set-label")].map(x=>x.textContent).slice(0,6)}),
-  settingsSet(k,v){htSet(k,v);return {k,v,got:window.getCfg(k)}},
+  settingsSet(k,v){pageHtSet(k,v);return {k,v,got:window.getCfg(k)}},
   setTheme(n,x,y){htSetTheme(n,x,y);return {theme:window.Theme.name,mode:window.Theme.resolved}},
   setMode(m){htSetMode(m);return {mode:window.Theme.resolved,
     bg:getComputedStyle(document.documentElement).getPropertyValue("--bg").trim()}},
-  setNav(n){htSet("nav",n);buildNav();return {nav:window.Theme.nav,
+  setNav(n){pageHtSet("nav",n);buildNav();return {nav:window.Theme.nav,
     cols:getComputedStyle(document.querySelector(".app-shell")).gridTemplateColumns.split(" ").length}},
-  npLayout(l){htSet("npLayout",l);return {npLayout:S.cfg.npLayout,
+  npLayout(l){pageHtSet("npLayout",l);return {npLayout:S.cfg.npLayout,
     cols:getComputedStyle(document.querySelector(".np-grid")).gridTemplateColumns.split(" ").length}},
-  miniBar(p){htSet("miniBar",p);return {miniBar:S.cfg.miniBar,
+  miniBar(p){pageHtSet("miniBar",p);return {miniBar:S.cfg.miniBar,
     shown:el.npbar.style.display!=="none",top:el.npbar.classList.contains("top")}},
   palette(){openCmdk();const n=el.cmdkList.children.length;closeCmdk();return {items:n}},
   sheetFor(i){openTrackSheet(S.lib[i],i);const n=el.sheetBody.querySelectorAll(".sheet-row").length;closeSheet();return {rows:n}},
@@ -1362,14 +1400,46 @@ buildVolBoth();
 wireSeek(el.seek);wireSeek(el.seek2);
 document.addEventListener("halftone:theme",()=>{updateSwitchStyles();drawLogo();buildVolBoth();paintVolAll();requestRedraw("theme")});
 document.addEventListener("halftone:settings-ready",()=>{
-  buildNav();applyNpLayout(S.cfg.npLayout||"split");applyLyricsShowMain(S.cfg.lyrics!==false);
-  applyAmbientSetting(S.cfg.ambient||"theme");applyMiniBar();applyQueueSide();
+  if(!window.__htNavRebuilt){window.__htNavRebuilt=true;buildNav()}   /* boot only — re-running on every settings echo caused range errors */
+  applyNpLayout(S.cfg.npLayout||"split");applyLyricsShowMain(S.cfg.lyrics!==false);
+  applyAmbientSetting(S.cfg.ambient||"theme");applyMiniBarDom();applyQueueSideDom();
   /* default view for library */
   if(!window.__qView&&S.cfg.defaultView&&S.view==="nowplaying"){/* keep NP as landing view */}
   render();
 });
 window.__qView=false;
-document.addEventListener("halftone:theme",()=>{buildNav()});
+/* theme switches refresh the nav chrome (safe: paintNav is read-only,
+   and switchAnimated guards against echo loops in theme.js) */
+document.addEventListener("halftone:theme",()=>{paintNav();drawLogo()});
+/* QA/harness scenario params (?nav=&theme=&mode=&view=&track=&lyrics=)
+   applied AFTER settings-ready — applyAll() would otherwise override
+   them with stored defaults (mode/nav race) */
+(function(){
+  /* QA/harness scenario params (?nav=&theme=&mode=&view=&track=&lyrics=)
+     applied AFTER settings-ready — applyAll() would otherwise override
+     them with stored defaults (mode/nav race). ?track=N injects the mock
+     library + loads track N (boot scan only runs when a real root is
+     configured, so the harness needs this explicit path). */
+  const applyQa=async()=>{
+    const q=new URLSearchParams(location.search);
+    if(q.get("nav")&&window.htSetNav)window.htSetNav(q.get("nav"));
+    if(q.get("theme")&&window.htSetTheme)window.htSetTheme(q.get("theme"));
+    if(q.get("mode")&&window.htSetMode)window.htSetMode(q.get("mode"));
+    if(q.get("view"))S.view=q.get("view");
+    const tr=q.get("track");
+    if(tr!=null&&!S.lib.length){
+      /* no scan root: pull the snapshot directly (mock provides tracks) */
+      try{const r=await invoke("library_snapshot");if(r&&r.tracks){S.lib=r.tracks;buildNav()}}catch(e){}
+    }
+    if(tr!=null&&S.lib.length){await loadTrack(Math.min(+tr,S.lib.length-1),false)}
+    window.__qaTrack=tr?+tr:null;
+    render();
+  };
+  /* settings.js self-boots during parse, so the settings-ready event may
+     fire before this listener exists — hook the ready promise instead */
+  if(window.__htSettingsReady)window.__htSettingsReady.then(applyQa).catch(()=>{});
+  else document.addEventListener("halftone:settings-ready",()=>setTimeout(applyQa,0));
+})();
 /* owner announces to any viewer that boots later (and vice versa) */
 if(T&&T.event&&T.event.emit){
   try{T.event.emit("halftone:hello",{}).catch(()=>{})}catch(_){}
@@ -1388,7 +1458,8 @@ paintLyrStatus();
       render();
       const req=S._npReq;
       const li=(req&&req.track!=null&&req.track>=0&&req.track<S.lib.length)?req.track
-              :(S.cfg.lastTrack!=null?S.cfg.lastTrack:0);
+              :(window.__qaTrack!=null?window.__qaTrack
+              :(S.cfg.lastTrack!=null?S.cfg.lastTrack:0));
       await loadTrack(li,false);
       if(req)S.view="nowplaying",render();
     }

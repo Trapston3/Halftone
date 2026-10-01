@@ -15,21 +15,32 @@
      by both windows); localStorage is only a boot-time mirror.
    ============================================================ */
 "use strict";
+/* Test-harness adoption: the harness installs __HT_TAURI_MOCK__ on the
+   iframe's INITIAL about:blank window; a real navigation replaces that
+   window object, so the mock is lost unless the page pulls it from the
+   parent. Same-origin in the harness (http), no-op in production. */
+if(!window.__TAURI__&&!window.__HT_TAURI_MOCK__){
+  try{
+    const pm=window.parent&&window.parent.__HT_TAURI_MOCK__;
+    if(pm){Object.defineProperty(window,"__HT_TAURI_MOCK__",{value:pm,configurable:true})}
+  }catch(_){/* cross-origin parent — production */}
+}
 const el={};
 window.el=el;
-const T=window.__TAURI__;
+const T=window.__TAURI__||window.__HT_TAURI_MOCK__||null;
 window.T=T;
 const IS_OWNER=!T||!T.window||!window.IS_VIEWER;   /* widget page sets window.IS_VIEWER=true */
 window.IS_OWNER=IS_OWNER;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function invoke(cmd,args){
   args=args||{};
+  if(window.__invoke&&window.__invoke._ht)return window.__invoke(cmd,args);   /* test harness mock */
   if(T&&T.core&&T.core.invoke)return T.core.invoke(cmd,args);
-  if(window.__invoke)return window.__invoke(cmd,args);   /* test harness */
   return Promise.resolve(null);
 }
 window.invoke=invoke;
-window.__invoke=invoke;
+const NBARS=32;   /* spectrum band count (owner analyser + viewer bars) */
+window.NBARS=NBARS;
 
 /* ============================================================
    GLOBAL STATE
@@ -213,11 +224,11 @@ function setAccentMode(m){
   else if(preset[ACC.mode])setAccentRGB(clampAccent(preset[ACC.mode]).rgb);
   else if(S._img)setAccentRGB(clampAccent(extractAccent(S._img)||preset.mint).rgb);
   else setAccentRGB(preset.mint);
-  window.htSet&&window.htSet("accent",ACC.mode,{noSave:false,force:true});
+  window.__ACC_SILENT=true;
+  try{window.htSet&&window.htSet("accent",ACC.mode,{noSave:false,force:true})}finally{window.__ACC_SILENT=false}
 }
 window.setAccentMode=setAccentMode;
 function setCustomAccent(c){
-  const rgb=parseTok("--x")||null;   /* parse hex via dummy lookup below */
   ACC.custom=hexToRgb(c);
   ACC.mode="custom";
   setAccentRGB(clampAccent(ACC.custom).rgb);
@@ -497,7 +508,17 @@ function sampleBars(){
    PERSISTENCE (settings.js is the store; this is a mirror)
    ============================================================ */
 function saveStore(){
-  try{localStorage.setItem("halftone.store",JSON.stringify({v:S}))}catch(e){}
+  /* settings.js owns persistence; this mirror is a boot-time fallback.
+     NEVER stringify S wholesale (DOM refs like S._img are circular). */
+  try{
+    const pick={
+      liked:[...S.liked],
+      playlists:S.playlists.map(p=>({name:p.name,paths:[...p.paths]})),
+      root:S.root,i:S.i,vol:S.vol,shuffle:S.shuffle,repeat:S.repeat,
+      lastTrack:S.i,sink:S.cfg.sink||""
+    };
+    localStorage.setItem("halftone.store",JSON.stringify({v:pick}));
+  }catch(e){}
   window.htSaveSettingsNow&&window.htSaveSettingsNow();
 }
 window.saveStore=saveStore;
@@ -526,6 +547,8 @@ function wireDrag(elm){
   });
 }
 window.wireDrag=wireDrag;
+/* shared small helpers (widget page reuses these) */
+window.clamp=clamp;window.esc=esc;window.fmt=fmt;window.css=css;
 function emitCmd(o){
   if(!(T&&T.event&&T.event.emit))return;
   try{T.event.emit("halftone:cmd",o).catch(()=>{})}catch(_){}
@@ -635,6 +658,7 @@ function wireEvents(){
     listen("halftone:lib",e=>{refreshLibSnapshot()});
   }
 }
+window.applySync=applySync;
 window.wireEvents=wireEvents;
 function applySync(p){
   if(!p)return;
@@ -671,7 +695,9 @@ function applySync(p){
    LIBRARY (scan / snapshot / rescan / watcher)
    ============================================================ */
 function trackCoverUrl(t){return t&&t.path?invoke("cover_url",{path:t.path}).then(u=>u||""):Promise.resolve("")}
-window.trackCoverUrl=trackCoverUrl;
+/* page render hook: main.html overrides with its router; widget = no-op */
+function render(){}
+window.render=render;window.trackCoverUrl=trackCoverUrl;
 let scanAbort=false;
 async function scanLibrary(dir){
   if(!dir){toast("Set a music folder first","warn");return null}
@@ -1065,6 +1091,8 @@ function loop(now){
     /* paint any visible canvas meters */
     paintSeek();
     document.querySelectorAll(".vol-leds").forEach(c=>{if(c.parentElement&&c.parentElement._paintLeds)c.parentElement._paintLeds()});
+    /* page-level paint hook (widget page paints its ids through this) */
+    if(window.htPagePaint)window.htPagePaint(now);
     /* ambient (main np view only) */
     const amb=document.querySelector(".fx-ambient");
     if(amb&&amb.offsetParent!==null){
@@ -1168,8 +1196,9 @@ window.wireDropZone=wireDropZone;
 (async function boot(){
   wireEvents();
   /* 1. settings load (shared JSON via backend, debounced saves) */
+  if(window.__htSettingsReady){await window.__htSettingsReady}
+  else if(window.htSettings){await window.htSettings.ready()}
   if(window.htSettings){
-    await window.htSettings.ready();
     const v=window.htSettings.all()||{};
     /* mirror into S.cfg for engine code */
     for(const [k,val] of Object.entries(v))S.cfg[k]=val;
@@ -1191,3 +1220,11 @@ window.wireDropZone=wireDropZone;
   document.dispatchEvent(new CustomEvent("halftone:booted"));
 })();
 window.__booted=true;
+/* QA hook: report the last boot error (set by the onerror reporter in
+   main.html/index.html) to the console so headless runs surface it */
+setTimeout(()=>{
+  if(window.__HT_BOOT_ERR){
+    console.error("HT-BOOT-ERR["+(window.IS_VIEWER?"widget":"main")+"]",
+      __HT_BOOT_ERR.msg,"line",__HT_BOOT_ERR.line,"\n"+(__HT_BOOT_ERR.stack||""));
+  }
+},1200);
