@@ -285,6 +285,9 @@ if(Q.get("page")){
               ]);
             },2600);
           }
+          if(Q.get("cmdk")){
+            setTimeout(()=>{iw.openCmdk&&iw.openCmdk()},2600);
+          }
         }else{
           if(Q.get("preset")&&iw.applyWidgetPreset)iw.applyWidgetPreset(Q.get("preset"));
           if(Q.get("theme"))iw.htSetTheme(Q.get("theme"));
