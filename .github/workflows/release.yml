@@ -1,0 +1,152 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows
+            os: windows-latest
+          - target: linux
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux system deps (webkit2gtk + friends)
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libdbus-1-dev \
+            patchelf
+
+      # tauri-cli is only needed for the Linux bundle step; the Windows exe is
+      # a plain cargo build, so Windows release runs don't pay the ~7 min
+      # cargo-install cost.
+      - name: Install tauri-cli
+        if: matrix.target == 'linux'
+        run: cargo install tauri-cli --version ^2 --locked
+
+      - name: Build (Windows, portable exe)
+        if: matrix.target == 'windows'
+        working-directory: src-tauri
+        run: cargo build --release
+
+      - name: Stage (Windows)
+        if: matrix.target == 'windows'
+        run: |
+          mkdir -p staging
+          cp src-tauri/target/release/halftone.exe staging/Halftone.exe
+
+      - name: Build (Linux, deb + AppImage)
+        if: matrix.target == 'linux'
+        working-directory: src-tauri
+        run: cargo tauri build --bundles deb,appimage
+
+      - name: Stage (Linux)
+        if: matrix.target == 'linux'
+        run: |
+          mkdir -p staging
+          cp src-tauri/target/release/bundle/deb/*.deb staging/
+          cp src-tauri/target/release/bundle/appimage/*.AppImage staging/
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.target }}
+          path: staging/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: assemble + publish release
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bundles-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Check tag version matches tauri.conf.json
+        run: |
+          CONF_VERSION=$(jq -r .version src-tauri/tauri.conf.json)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
+            if [ "$TAG_VERSION" != "$CONF_VERSION" ]; then
+              echo "::error::tag v$TAG_VERSION does not match tauri.conf.json version $CONF_VERSION"
+              exit 1
+            fi
+            VERSION="$TAG_VERSION"
+            TAG="$GITHUB_REF_NAME"
+          else
+            # manual run: use the version in tauri.conf.json
+            VERSION="$CONF_VERSION"
+            TAG="v$CONF_VERSION"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "tag=$TAG version=$VERSION conf=$CONF_VERSION"
+
+      # tools/release.py stages the contract-named payload into dist/:
+      #   Halftone.exe, Halftone_amd64.AppImage, Halftone_amd64.deb, latest.json
+      # AppImage/deb are optional CLI args (a release may ship only some).
+      - name: Stage release payload
+        run: |
+          shopt -s nullglob
+          args=(--exe artifacts/Halftone.exe)
+          appimages=(artifacts/*.AppImage)
+          debs=(artifacts/*.deb)
+          [ ${#appimages[@]} -gt 0 ] && args+=(--appimage "${appimages[0]}")
+          [ ${#debs[@]} -gt 0 ] && args+=(--deb "${debs[0]}")
+          python3 tools/release.py --ci --version "$VERSION" "${args[@]}"
+          echo "--- dist/ contents:"
+          ls -la dist/
+
+      - name: Write sha256 sidecars
+        run: |
+          cd dist
+          for f in *; do
+            if [ -f "$f" ]; then
+              sha256sum "$f" > "$f.sha256"
+            fi
+          done
+          cat ./*.sha256
+
+      - name: Create or update the GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NOTES=$(jq -r '.notes // "Halftone '"$VERSION"'"' dist/latest.json 2>/dev/null || echo "Halftone $VERSION")
+          # fresh tag -> create with assets; existing release (re-run) -> clobber-upload
+          gh release create "$TAG" --title "Halftone $TAG" --notes "$NOTES" ./dist/* \
+            || gh release upload "$TAG" ./dist/* --clobber
+          gh release view "$TAG" --json assets --jq '.assets[].name'
