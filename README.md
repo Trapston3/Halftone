@@ -154,7 +154,7 @@ Downloads the standalone exe to `%LOCALAPPDATA%\Halftone`, adds it to your user 
 (`halftone` from Win+R or any shell), registers App Paths, and creates Desktop + Start Menu
 shortcuts. Re-running it upgrades in place.
 
-**One line (Linux, x86_64, no root):**
+**One line (Linux, x86_64 — sudo only for the .deb path):**
 
 ```sh
 curl -fsSL https://github.com/Trapston3/Halftone/raw/main/tools/install.sh | sh
