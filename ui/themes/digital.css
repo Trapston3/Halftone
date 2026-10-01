@@ -1085,6 +1085,11 @@
   box-shadow: var(--shadow-2), var(--panel-highlight);
 }
 
+/* gel theme: foundation renders both variants; show only the gel one */
+:root[data-theme="digital"] .seek[data-seek="led"],
+:root[data-theme="digital"] .seek[data-seek="led"] canvas,
+:root[data-theme="digital"] .vol-leds { display: none; }
+
 /* ----------------------------------------------------
    CHROME
    ---------------------------------------------------- */

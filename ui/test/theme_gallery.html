@@ -63,7 +63,7 @@
 
     /* LED seek simulation — the app draws the canvas with JS; the gallery fakes the
        segmented LED cells with a gradient so screenshots show segments, not a bar. */
-    .seek[data-seek="led"] { overflow: hidden; }
+    .seek[data-seek="led"] { overflow: hidden; position: relative; }
     .seek[data-seek="led"] .ledcells {
       position: absolute; inset: 2px;
       background: linear-gradient(90deg, var(--accent) 0 60%, var(--canvas-off, var(--bg-3)) 60% 100%);
@@ -204,7 +204,7 @@
           </div>
         </div>
         <div class="row-flex">
-          <span class="nav-label" style="font-size:10px;">VOL LEDS</span>
+          <span class="nav-label" style="font-size:10px;">VOLUME</span>
           <div class="vol-leds">
             <span class="led on"></span><span class="led on"></span><span class="led on"></span><span class="led on"></span><span class="led on"></span><span class="led on"></span><span class="led on"></span><span class="led on"></span>
             <span class="led"></span><span class="led"></span><span class="led"></span><span class="led"></span><span class="led"></span><span class="led"></span>

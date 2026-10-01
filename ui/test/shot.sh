@@ -11,7 +11,7 @@ for theme in analogue digital; do
   for mode in dark light; do
     "$CHROME" --headless=new --no-sandbox --disable-gpu \
       --hide-scrollbars --force-device-scale-factor=1 \
-      --window-size=1280,3200 \
+      --window-size=1280,4050 \
       --screenshot="$PWD/$OUT/themes-$theme-$mode.png" \
       "$GAL?theme=$theme&mode=$mode" 2>/dev/null
     echo "shot: $OUT/themes-$theme-$mode.png"

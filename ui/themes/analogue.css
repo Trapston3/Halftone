@@ -658,6 +658,10 @@
   color: var(--accent-fg);
 }
 
+/* LED theme: foundation renders both variants; show only the LED one */
+:root[data-theme="analogue"] .seek[data-seek="gel"],
+:root[data-theme="analogue"] .vol-gel { display: none; }
+
 /* analogue has no aurora/bokeh — the fx canvas draws the dither field */
 :root[data-theme="analogue"] .fx-aurora,
 :root[data-theme="analogue"] .fx-bokeh {
