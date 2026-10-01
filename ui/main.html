@@ -1328,7 +1328,7 @@ window.__qa={
   albums:()=>{const set=new Set(S.lib.map(t=>t.album));return set.size},
   nav(v){S.view=v;render();return {view:S.view}},
   async load(i){
-    if(!S.lib.length){try{const r=await invoke("library_snapshot");if(r&&r.tracks)S.lib=r.tracks}catch(e){}}
+    if(!S.lib.length){try{const r=await invoke("library_snapshot");const arr=Array.isArray(r)?r:(r&&r.tracks);if(Array.isArray(arr))S.lib=arr}catch(e){}}
     await loadTrack(Math.min(i,S.lib.length-1),false);
     return {i:S.i,title:S.meta&&S.meta.title,lib:S.lib.length};
   },
@@ -1429,7 +1429,7 @@ document.addEventListener("halftone:theme",()=>{paintNav();drawLogo()});
     const tr=q.get("track");
     if(tr!=null&&!S.lib.length){
       /* no scan root: pull the snapshot directly (mock provides tracks) */
-      try{const r=await invoke("library_snapshot");if(r&&r.tracks){S.lib=r.tracks;buildNav()}}catch(e){}
+      try{const r=await invoke("library_snapshot");const arr=Array.isArray(r)?r:(r&&r.tracks);if(Array.isArray(arr)){S.lib=arr;buildNav()}}catch(e){}
     }
     if(tr!=null&&S.lib.length){await loadTrack(Math.min(+tr,S.lib.length-1),false)}
     window.__qaTrack=tr?+tr:null;

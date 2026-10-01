@@ -368,7 +368,7 @@ document.addEventListener("halftone:lyrics",()=>{paintLyricsStatus();buildLyrics
   }
   updateSwitchAttrs();
   buildVolDom();
-  try{const r=await invoke("library_snapshot");if(r&&r.tracks)S.lib=r.tracks}catch(e){}
+  try{const r=await invoke("library_snapshot");const arr=Array.isArray(r)?r:(r&&r.tracks);if(Array.isArray(arr))S.lib=arr}catch(e){}
   if(T&&T.event&&T.event.emit){try{T.event.emit("halftone:hello",{}).catch(()=>{})}catch(_){}}
   emitCmd({cmd:"hello"});
   applyStage();

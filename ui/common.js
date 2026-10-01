@@ -727,7 +727,10 @@ window.scanLibrary=scanLibrary;
 async function refreshLibSnapshot(){
   try{
     const r=await invoke("library_snapshot");
-    if(r&&r.tracks){S.lib=r.tracks.map(t=>Object.assign({},t,{coverUrl:null}));render&&render()}
+    /* BACKEND_API.md: library_snapshot returns a PLAIN TrackMeta[]
+       (older builds wrapped it as {tracks:[...]} — accept both) */
+    const arr=Array.isArray(r)?r:(r&&r.tracks);
+    if(Array.isArray(arr)){S.lib=arr.map(t=>Object.assign({},t,{coverUrl:null}));render&&render()}
   }catch(e){console.warn("snapshot",e)}
 }
 window.refreshLibSnapshot=refreshLibSnapshot;
