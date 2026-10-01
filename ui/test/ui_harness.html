@@ -244,6 +244,7 @@ if(Q.get("page")){
   document.body.appendChild(f);
   const frameQ=new URLSearchParams(Q);
   frameQ.set("harness","1");
+  frameQ.set("qa","1");   /* silent theme application (no reveal) for shots */
   f.src=(page==="widget"?"../index.html":"../"+page+".html")+"?"+frameQ.toString();
   f.addEventListener("load",()=>{
     const iw=f.contentWindow;
