@@ -58,6 +58,8 @@ const S={
   view:"nowplaying",
   drag:null, pinned:false, lyricsOpen:false,
   _img:null, _artUrl:null, _barsRcv:new Float32Array(NBARS), _pos:0,
+  _lyrManual:false,       /* lyrics auto-follow paused (user is scrolling) */
+  _lyrManualT:0,          /* timer id for the 3s auto-follow resume */
 };
 window.S=S;
 const ACC={hex:[102,224,194],cur:[102,224,194],anim:false,from:null,to:null,t0:0,mode:"album",custom:null};
@@ -617,10 +619,11 @@ window.pushEq=pushEq;
    ============================================================ */
 function curWin(){try{return T&&T.window?T.window.getCurrentWindow():null}catch(e){return null}}
 window.curWin=curWin();
-function wireDrag(elm){
+function wireDrag(elm,allow){
   if(!elm)return;
   elm.addEventListener("pointerdown",e=>{
     if(e.target.closest("button,input,select,a,.seek,.slider,.menu,.sheet"))return;
+    if(allow&&!allow(e))return;
     if(e.button!==0)return;
     const w=window.curWin;
     if(w&&w.startDragging){try{w.startDragging()}catch(err){console.warn(err)}}
@@ -1087,7 +1090,7 @@ function buildLyrics(){
   if(!wrap)return;
   wrap.innerHTML="";
   S.lidx=-1;
-  const box=wrap.closest(".lyr-view")||wrap.closest(".lyr-view".toLowerCase())||wrap.parentElement;
+  const view=wrap.closest(".lyr-view");
   if(S.lyrics.length){
     const host=wrap.closest(".lyrics")||wrap.closest(".widget-lyrics");
     if(host)host.classList.remove("plain");
@@ -1097,7 +1100,12 @@ function buildLyrics(){
       d.dataset.t=+l.t||0;   /* backend LyricLine.t is SECONDS (lib.rs parse_lrc) */
       d.textContent=l.text||"";
       /* lyricFollow lights a line when pos-offset >= t, so seek to t+offset */
-      d.onclick=()=>seekTo(Math.max(0,(+l.t||0)+(S.cfg.lyricsOffset||0)/1000));
+      d.onclick=()=>{
+        const t=Math.max(0,(+l.t||0)+(S.cfg.lyricsOffset||0)/1000);
+        if(IS_OWNER)seekTo(t);                       /* owner: applies to <audio> */
+        else{S._pos=t;emitCmd({cmd:"seek",t})}       /* viewer: owner applies it (a10b2ae path) */
+        lyrResume();
+      };
       wrap.appendChild(d);
     });
   }else if(S.lyricsPlain){
@@ -1110,8 +1118,77 @@ function buildLyrics(){
       wrap.appendChild(d);
     });
   }
+  /* fresh lyrics -> auto-follow resumes from a clean slate */
+  if(view)view.classList.remove("manual");
+  if(wrap._lrcPill){wrap._lrcPill.remove();wrap._lrcPill=null}
 }
 window.buildLyrics=buildLyrics;
+
+/* ---------- manual scroll vs auto-follow ----------
+   Wheel / touchpad / touch / drag-scrollbar over the lyrics pauses
+   auto-follow (`S._lyrManual`); it resumes 3s after the last manual
+   scroll, when a line is clicked (lyrResume), or via the "LIVE" pill. */
+function lyrPause(){
+  if(!S._lyrManual){
+    S._lyrManual=true;
+    const wrap=document.getElementById("lyrWrap")||document.getElementById("lyr-wrap");
+    const view=wrap&&wrap.closest(".lyr-view");
+    if(view)view.classList.add("manual");
+    lyrPill();
+  }
+  clearTimeout(S._lyrManualT);
+  S._lyrManualT=setTimeout(lyrResume,3000);
+}
+function lyrResume(){
+  clearTimeout(S._lyrManualT);S._lyrManualT=0;
+  if(!S._lyrManual)return;
+  S._lyrManual=false;
+  const wrap=document.getElementById("lyrWrap")||document.getElementById("lyr-wrap");
+  if(wrap){
+    const view=wrap.closest(".lyr-view");
+    if(view)view.classList.remove("manual");
+    if(wrap._lrcPill){wrap._lrcPill.remove();wrap._lrcPill=null}
+    S.lidx=-1;   /* re-center on the current line right away */
+    lyricFollow();
+  }
+}
+/* "● LIVE" pill: click = jump back to the playing line now */
+function lyrPill(){
+  const wrap=document.getElementById("lyrWrap")||document.getElementById("lyr-wrap");
+  const view=wrap&&wrap.closest(".lyr-view");
+  if(!view)return;
+  if(!wrap._lrcPill){
+    const p=document.createElement("button");
+    p.className="lyr-live";
+    p.type="button";
+    p.textContent="\u25cf LIVE";
+    p.title="Back to the playing line";
+    p.onclick=e=>{e.stopPropagation();lyrResume()};
+    wrap._lrcPill=p;
+    view.appendChild(p);
+  }
+  wrap._lrcPill.classList.add("show");
+}
+/* free scrolling: wheel over lyrics never seeks (only .seek uses the
+   wheel), and any manual scroll pauses auto-follow */
+function wireLyrScroll(doc){
+  doc=doc||document;
+  const bind=el=>{
+    if(!el)return;
+    el.addEventListener("wheel",e=>{if(!e.ctrlKey&&!e.shiftKey)lyrPause()},{passive:true});
+    el.addEventListener("touchmove",lyrPause,{passive:true});
+    el.addEventListener("pointerdown",e=>{
+      /* drag on the scrollbar (~15px gutter) = manual scroll */
+      if(e.target.closest(".lyric-line"))return;
+      const r=el.getBoundingClientRect();
+      if(e.clientX>=r.right-16)lyrPause();
+    });
+  };
+  bind(doc.getElementById("npLyrView"));
+  bind(doc.getElementById("wLyrView"));
+}
+window.wireLyrScroll=wireLyrScroll;
+
 function lyricFollow(){
   const wrap=document.getElementById("lyrWrap")||document.getElementById("lyr-wrap");
   if(!wrap||!S.lyrics.length)return;
@@ -1129,6 +1206,11 @@ function lyricFollow(){
       const ln=lines[idx];
       const top=ln.offsetTop-view.clientHeight/2+ln.offsetHeight/2;
       view.scrollTo({top:Math.max(0,top),behavior:"smooth"});
+    }
+    /* show the LIVE pill while paused away from the playing line */
+    if(S._lyrManual){
+      const p=wrap._lrcPill;
+      if(p)p.classList.toggle("show",idx<0||!lines[idx].classList.contains("active"));
     }
   }
 }
@@ -1168,6 +1250,10 @@ function wireSeek(seekEl){
   seekEl.addEventListener("pointerup",end);
   seekEl.addEventListener("pointercancel",end);
   seekEl.addEventListener("wheel",e=>{
+    /* only the seekbar itself seeks on wheel — events bubbling from
+       children/grandchildren (e.g. tooltips over the lyrics pane) must
+       scroll normally instead of yanking playback (owner bug 2) */
+    if(!(e.target===seekEl||seekEl.contains(e.target)))return;
     e.preventDefault();
     seekTo(posSec()+(e.deltaY<0?5:-5));
   },{passive:false});

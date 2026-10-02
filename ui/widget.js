@@ -267,7 +267,11 @@ function buildVolDom(){
 })();
 addEventListener("keydown",e=>{if(e.code==="Space"&&!e.target.closest("input")){e.preventDefault();emitCmd({cmd:"play"})}});
 addEventListener("wheel",e=>{
-  if(e.target.closest(".lyr-view"))return;
+  /* volume-on-wheel only outside scrollables (lyrics scroll freely) and
+     only when the wheel is actually over the widget chrome — events from
+     nested elements (seek strip has its own handler) must not double-fire */
+  if(e.target.closest(".lyr-view,.w-seek,.w-sheet,.menu"))return;
+  if(!(e.target===document.body||e.target===WID.stage||WID.stage.contains(e.target)))return;
   e.preventDefault();
   emitCmd({cmd:"vol",v:clamp(S.vol+(e.deltaY<0?.05:-.05),0,1)});
 },{passive:false});
@@ -396,4 +400,9 @@ document.addEventListener("halftone:lyrics",()=>{paintLyricsStatus();buildLyrics
   applyStage();
   paintAll();
 })();
-wireDrag(WID.stage);
+/* drag region: native drag must NOT start over interactive surfaces —
+   lyrics (click-to-seek + free scroll), transport, sheets, the seek
+   strip. With Webview2 a native drag swallows pointer events, so the
+   lyrics pane was unclickable/unscrollable (owner bugs 2+3). */
+wireDrag(WID.stage,e=>!e.target.closest(
+  ".lyr-view,.lyric-line,.w-seek,.w-transport,.vol,.btn,.btn-icon,.btn-orb,.w-sheet,.menu,input,select,button"));

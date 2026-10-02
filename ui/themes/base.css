@@ -448,9 +448,24 @@ select.field option{background:var(--bg-2);color:var(--fg)}
 
 /* lyrics */
 .lyrics{flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--sp3)}
-.lyr-view{flex:1;min-height:0;overflow-y:auto;padding:0 var(--sp2);
+.lyr-view{position:relative;flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 var(--sp2);
   -webkit-mask-image:linear-gradient(transparent,#000 12%,#000 88%,transparent);
           mask-image:linear-gradient(transparent,#000 12%,#000 88%,transparent)}
+/* the pane itself must be height-constrained even when a page drops
+   .lyrics from the chain (hero/stacked npm layouts): without this the
+   view grows to content height, nothing overflows, no scrollbar, and
+   wheel events find nothing to scroll (owner bug 2) */
+.np-lyr .lyr-view{height:0}
+.np-lyr{min-height:200px}
+/* manual-scroll state: auto-follow paused, LIVE pill visible
+   (widget-lyrics variant beats index.html's inline mask rule) */
+.lyr-view.manual,.widget-lyrics .lyr-view.manual{-webkit-mask-image:none;mask-image:none}
+.lyr-live{position:absolute;right:14px;bottom:10px;z-index:3;display:none;align-items:center;gap:6px;
+  padding:4px 12px;border:1px solid var(--accent);border-radius:999px;background:var(--panel-bg);
+  color:var(--accent);font-family:var(--font-mono);font-size:.625rem;letter-spacing:.14em;cursor:pointer;
+  box-shadow:var(--shadow-1);opacity:0;transition:opacity var(--dur-1)}
+.lyr-live.show{display:inline-flex;opacity:1}
+.lyr-live:hover{filter:brightness(1.15)}
 .lyr-wrap{position:relative}
 .lyric-line{padding:14px 0;font-size:calc(var(--lyr-fs,1.75rem) * 1);line-height:1.4;color:var(--fg-2);
   opacity:.55;transition:color .3s ease,opacity .3s ease,transform .3s ease,filter .3s ease;

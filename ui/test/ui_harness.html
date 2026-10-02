@@ -87,9 +87,20 @@ const FAKE_TRACKS=[
 ];
 for(let k=3;k<24;k++)FAKE_TRACKS.push(fakeTrack(k));
 
+/* 12 lines over 0-60s, SECONDS (lib.rs parse_lrc: LyricLine.t is f64
+   seconds — a10b2ae). Realistic uneven gaps so follow asserts are
+   meaningful. */
 const FAKE_LRC=(function(){
-  const lines=["Counting halftone dots in the dark","Every cell a promise of the light","The grid remembers what the eye forgets","Sweep the needle cross the amber night","Pixels falling like a summer rain","Hold the beat, the buffer's burning slow"];
-  return lines.map((text,k)=>({t:k*5200,text}));
+  const texts=[
+    "Counting halftone dots in the dark","Every cell a promise of the light",
+    "The grid remembers what the eye forgets","Sweep the needle cross the amber night",
+    "Pixels falling like a summer rain","Hold the beat, the buffer's burning slow",
+    "Amber glass and afterglow","We were raster, line by line",
+    "Trace the signal through the noise","A dithered heart still keeps its time",
+    "Every dot a point of view","Fade to pattern, fade to you"
+  ];
+  const times=[0,4.5,9,14,19.5,24,30,35.5,41,46.5,52,57.5];
+  return times.map((t,k)=>({t,text:texts[k]}));
 })();
 const PLAIN_TEXT="There is no time signature here\nJust a wall of words, line after line\nNo highlight sweeps across\nThe screen to tell you when to breathe\nThis is the plain lyrics state";
 
@@ -404,6 +415,70 @@ if(Q.get("page")){
     setTimeout(apply,1000);   /* second pass after boot settles */
     setTimeout(apply,2400);   /* final pass after settings/art settle */
     iw.addEventListener("halftone:booted",apply);
+    /* ---------- ?lyrtest=1: scripted lyric asserts ----------
+       Mirrors the owner bug reports: active line = last line with
+       t <= pos-offset; click-to-seek jumps exactly there (main:
+       audio.currentTime; widget: cmd:seek -> owner applies). Results
+       land in window.__LYR_RESULTS (read via CDP) + console LYRASSERT. */
+    if(Q.get("lyrtest")){
+      setTimeout(async()=>{
+        const d=iw.document,W=page==="widget";
+        iw.__LYR_RESULTS=[];
+        const ok=(name,cond,got)=>{iw.__LYR_RESULTS.push({name,pass:!!cond,got});
+          console.log("LYRASSERT "+(cond?"PASS":"FAIL")+" "+name+" got="+JSON.stringify(got))};
+        try{
+          /* wait for lyrics to build (main: __qa.load path; widget: applySync) */
+          for(let i=0;i<40&&!iw.S.lyrics.length;i++){
+            if(!W&&!iw.S.lib.length)await iw.__qa.load(0);
+            await new Promise(r=>setTimeout(r,100));
+          }
+          if(!W&&iw.S.lyrics.length!==12)await iw.__qa.load(0);
+          const wrap=d.getElementById("lyrWrap");
+          const view=W?d.getElementById("wLyrView"):d.getElementById("npLyrView");
+          const aud=W?null:d.getElementById("aud");
+          /* headless harness has no real media — shim duration/currentTime
+             so seekTo takes the REAL owner path (a.currentTime=...) */
+          if(aud){
+            Object.defineProperty(aud,"duration",{value:180,configurable:true});
+            let cur=0;
+            Object.defineProperty(aud,"currentTime",{get:()=>cur,set:v=>{cur=v},configurable:true});
+          }
+          const lines=[...wrap.children].filter(x=>x.classList&&x.classList.contains("lyric-line"));
+          const activeIdx=()=>lines.findIndex(x=>x.classList.contains("active"));
+          const aIdx=t=>{let k=-1;for(let j=0;j<lines.length;j++)if(t>=+lines[j].dataset.t)k=j;return k};
+          ok("lyrics-loaded",iw.S.lyrics.length===12,{n:iw.S.lyrics.length});
+          const tests=[0,10.2,31,58.9,70];
+          for(const t of tests){
+            if(W)iw.applySync({pos:t});
+            else aud.currentTime=t;
+            iw.lyricFollow();
+            await new Promise(r=>setTimeout(r,30));
+            ok("follow@"+t+"s",activeIdx()===aIdx(t),{active:activeIdx(),want:aIdx(t),pos:+iw.posSec().toFixed(2)});
+          }
+          /* click-to-seek: click line 5 (t=24s) */
+          const want=+lines[5].dataset.t;
+          lines[5].click();
+          await new Promise(r=>setTimeout(r,60));
+          if(W){
+            /* viewer path: S._pos set + cmd:seek emitted (owner applies) */
+            ok("widget-click-emits-seek",Math.abs((iw.S._pos||0)-want)<0.001,{S_pos:+(iw.S._pos||0).toFixed(3),want});
+          }else{
+            ok("main-click-seeks-audio",Math.abs(aud.currentTime-want)<0.75,{aud:+aud.currentTime.toFixed(3),want});
+          }
+          /* manual scroll pause + LIVE pill + resume */
+          iw.lyrPause();
+          iw.lyrFollow();
+          await new Promise(r=>setTimeout(r,30));
+          ok("manual-pauses-follow",iw.S._lyrManual===true&&view.classList.contains("manual"),{manual:iw.S._lyrManual});
+          ok("live-pill-shown",!!(wrap._lrcPill&&wrap._lrcPill.classList.contains("show")),{pill:!!wrap._lrcPill});
+          iw.lyrResume();
+          await new Promise(r=>setTimeout(r,30));
+          ok("resume-clears-manual",iw.S._lyrManual===false&&!view.classList.contains("manual"),{manual:iw.S._lyrManual});
+          ok("scrollable",view.scrollHeight>view.clientHeight+4,{sh:view.scrollHeight,ch:view.clientHeight});
+        }catch(e){ok("exception",false,{err:String(e&&(e.stack||e.message||e)).slice(0,200)})}
+      },3200);
+    }
+
     /* ?probe=1 — dump layout rects to the console (headless layout QA) */
     if(Q.get("probe")){
       setTimeout(()=>{
