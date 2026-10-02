@@ -324,12 +324,25 @@ document.addEventListener("contextmenu",e=>{
   ]);
 });
 /* right-click ON THE ART itself: "Change cover art" (task 10) — the owner
-   main window owns the sheet/import/search flows, so it forwards via cmd */
+   main window owns the sheet/import/search flows, so it forwards via cmd.
+   NOTE: no stopPropagation here — the document-level contextmenu handler
+   opens the full preset menu; the art case is expressed by prepending the
+   cover item so both fire exactly once. stopPropagation made the art's
+   menu silently swallow the document one in the real app (v0.2.1 bug:
+   right-click on widget art did nothing). */
 WID.wArt.addEventListener("contextmenu",e=>{
-  if(!S.meta||!S.meta.path)return;
-  e.preventDefault();e.stopPropagation();
+  if(!S.meta||!S.meta.path)return;   /* fall through to the default menu */
+  e.preventDefault();
   openCtx(e.clientX,e.clientY,[
     {label:"CHANGE COVER ART",onClick:()=>emitCmd({cmd:"cover",path:S.meta.path})},
+    {sep:1},
+    {label:"PRESET: CARD",checked:W.preset==="card",onClick:()=>{window.setCfg&&window.setCfg("widgetPreset","card")}},
+    {label:"PRESET: STRIP",checked:W.preset==="strip",onClick:()=>{window.setCfg&&window.setCfg("widgetPreset","strip")}},
+    {label:"PRESET: SQUARE",checked:W.preset==="square",onClick:()=>{window.setCfg&&window.setCfg("widgetPreset","square")}},
+    {label:"PRESET: LYRICS",checked:W.preset==="lyrics",onClick:()=>{window.setCfg&&window.setCfg("widgetPreset","lyrics")}},
+    {sep:1},
+    {label:"WIDGET SETTINGS\u2026",onClick:()=>openWidgetSheet()},
+    {label:"HIDE WIDGET",onClick:()=>{try{window.curWin&&window.curWin.hide()}catch(_){}}},
   ]);
 });
 
