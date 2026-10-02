@@ -1319,42 +1319,97 @@ window.requestAnimationFrame(loop);
    CONTEXT MENU (DOM fallback; widget may prefer native)
    ============================================================ */
 function openCtx(x,y,items){
-  document.querySelectorAll(".menu.ctxroot").forEach(m=>m.remove());
+  closeCtx();
   const m=document.createElement("div");
   m.className="menu ctxroot open";
   const build=(list,host)=>{
+    let i=0;
     for(const it of list){
       if(it.sep){const s=document.createElement("div");s.className="menu-sep";host.appendChild(s);continue}
       const w=document.createElement("div");
-      if(it.children){
-        w.className="ctxwrap";
-        const b=document.createElement("button");b.className="menu-item";
-        b.innerHTML=`<span class="ctxdot"></span>${esc(it.label)}<span class="ctxarrow">\u25B8</span>`;
-        w.appendChild(b);
-        const sub=document.createElement("div");sub.className="menu sub open";
-        build(it.children,sub);
-        w.appendChild(sub);
-      }else{
-        const b=document.createElement("button");b.className="menu-item"+(it.checked?" on":"");
-        b.innerHTML=`<span class="ctxdot"></span>${esc(it.label)}`;
-        b.onclick=()=>{closeCtx();it.onClick&&it.onClick()};
-        w.appendChild(b);
+      try{
+        if(it.children){
+          w.className="ctxwrap";
+          const b=document.createElement("button");b.className="menu-item";
+          b.innerHTML=`<span class="ctxdot"></span>${esc(it.label)}<span class="ctxarrow">\u25B8</span>`;
+          w.appendChild(b);
+          const sub=document.createElement("div");sub.className="menu sub open";
+          build(it.children,sub);
+          w.appendChild(sub);
+        }else{
+          const b=document.createElement("button");b.className="menu-item"+(it.checked?" on":"");
+          b.innerHTML=`<span class="ctxdot"></span>${esc(it.label)}`;
+          b.onclick=()=>{closeCtx();it.onClick&&it.onClick()};
+          w.appendChild(b);
+        }
+        host.appendChild(w);
+      }catch(err){
+        /* a broken item must not take down the whole menu in the real app */
+        console.error("openCtx: item "+i+" failed to build",err);
+        if(!w.firstChild){w.className="menu-item";w.style.opacity=".45";w.textContent="ITEM UNAVAILABLE"}
+        host.appendChild(w);
       }
-      host.appendChild(w);
+      i++;
     }
   };
   build(items,m);
   document.body.appendChild(m);
   const r=m.getBoundingClientRect();
-  m.style.left=clamp(x,4,innerWidth-r.width-4)+"px";
-  m.style.top=clamp(y,4,innerHeight-r.height-4)+"px";
-  setTimeout(()=>{
-    const close=e=>{if(!m.contains(e.target)){closeCtx();document.removeEventListener("pointerdown",close)}};
-    document.addEventListener("pointerdown",close);
-  },10);
+  /* widget windows are short: a tall menu can exceed innerHeight — clamp to
+     the biggest safe slot and let the menu itself scroll (ctx-scroll) */
+  m.style.left=clamp(x,4,Math.max(4,innerWidth-r.width-4))+"px";
+  m.style.top=clamp(y,4,Math.max(4,innerHeight-r.height-4))+"px";
+  if(r.height>innerHeight-8)m.classList.add("ctx-scroll");
+  /* outside-close. WebView2 delivers a real right click as
+     pointerdown -> mousedown -> contextmenu, so a plain pointerdown
+     listener fired the instant our own right click landed; ignore every
+     right-button event and also watch mousedown/click/auxclick/touchstart
+     (focus/pointer-capture quirks can swallow pointerdown in WebView2). */
+  const close=e=>{if(e.button===2)return;if(!m.contains(e.target))closeCtx()};
+  const onKey=e=>{
+    if(e.key==="Escape"){closeCtx()}
+    else if(e.key==="ContextMenu"||(e.key==="F10"&&e.shiftKey)){
+      /* Windows convention: ContextMenu/Shift+F10 opens for the focused
+         element — re-dispatch a synthetic contextmenu at its centre so the
+         window's own menu builders run unchanged */
+      e.preventDefault();closeCtx();
+      const t=document.activeElement;
+      if(t&&t.dispatchEvent){
+        const r2=t.getBoundingClientRect?t.getBoundingClientRect():null;
+        const cx=r2&&r2.width?r2.left+r2.width/2:innerWidth/2;
+        const cy=r2&&r2.height?r2.top+Math.min(r2.height/2,150):innerHeight/2;
+        t.dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,cancelable:true,clientX:cx,clientY:cy}));
+      }
+    }
+    else if(e.key==="ArrowRight"){
+      const t=document.activeElement;
+      if(t&&t.classList&&t.classList.contains("menu-item")&&t.parentElement.classList.contains("ctxwrap")){
+        const f=t.parentElement.querySelector(".menu.sub .menu-item");
+        if(f){e.preventDefault();f.focus()}
+      }
+    }
+  };
+  const onBlur=()=>closeCtx();
+  ctxCleanup=()=>{
+    for(const ev of ["pointerdown","mousedown","click","auxclick","touchstart"])
+      document.removeEventListener(ev,close,true);
+    document.removeEventListener("keydown",onKey,true);
+    window.removeEventListener("blur",onBlur);
+    ctxCleanup=null;
+  };
+  for(const ev of ["pointerdown","mousedown","click","auxclick","touchstart"])
+    document.addEventListener(ev,close,true);
+  document.addEventListener("keydown",onKey,true);
+  window.addEventListener("blur",onBlur);
+  const first=m.querySelector(".menu-item");
+  if(first)try{first.focus({preventScroll:true})}catch(_){first.focus()}
   return m;
 }
-function closeCtx(){document.querySelectorAll(".menu.ctxroot").forEach(m=>m.remove())}
+let ctxCleanup=null;
+function closeCtx(){
+  document.querySelectorAll(".menu.ctxroot").forEach(m=>m.remove());
+  if(ctxCleanup){try{ctxCleanup()}catch(_){};ctxCleanup=null}
+}
 window.openCtx=openCtx;window.closeCtx=closeCtx;
 function accentMenuItems(){
   return [["album","FROM ALBUM ART"],["mint","MINT"],["sky","SKY"],["violet","VIOLET"],["rose","ROSE"],["amber","AMBER"],["red","RED"],["custom","CUSTOM"]].map(([v,l])=>({
