@@ -1,0 +1,197 @@
+{
+ "widget_lyrics_600x380_analogue_dark": {
+  "inner": [
+   600,
+   380
+  ],
+  "s": 1.2666666666666666,
+  "preset": "lyrics",
+  "host": {
+   "x": 1,
+   "y": 187,
+   "w": 597,
+   "h": 191
+  },
+  "hostDisp": "flex",
+  "view": {
+   "x": 16,
+   "y": 225,
+   "w": 567,
+   "h": 153
+  },
+  "viewOv": "auto/hidden",
+  "viewAbs": "relative",
+  "status": {
+   "x": 16,
+   "y": 187,
+   "w": 567,
+   "h": 25
+  },
+  "lineH": {
+   "x": 60,
+   "y": 257,
+   "w": 534,
+   "h": 113
+  },
+  "lineFS": "26.0214px",
+  "lines": 6,
+  "active": 1,
+  "wrapScrollH": 549,
+  "viewClientH": 121,
+  "art": {
+   "x": 0,
+   "y": 0,
+   "w": 0,
+   "h": 0
+  },
+  "title": {
+   "x": 16,
+   "y": 14,
+   "w": 364,
+   "h": 24
+  },
+  "seek": {
+   "x": 16,
+   "y": 99,
+   "w": 567,
+   "h": 23
+  },
+  "transport": {
+   "x": 1,
+   "y": 122,
+   "w": 597,
+   "h": 66
+  },
+  "ovf": 1
+ },
+ "widget_card_600x380_analogue_dark_nolyr": {
+  "inner": [
+   600,
+   380
+  ],
+  "s": 1.4615384615384615,
+  "preset": "card",
+  "host": {
+   "x": 0,
+   "y": 0,
+   "w": 0,
+   "h": 0
+  },
+  "hostDisp": "none",
+  "view": {
+   "x": 0,
+   "y": 0,
+   "w": 0,
+   "h": 0
+  },
+  "viewOv": "auto/hidden",
+  "viewAbs": "relative",
+  "status": {
+   "x": 0,
+   "y": 0,
+   "w": 0,
+   "h": 0
+  },
+  "lineH": {
+   "x": 0,
+   "y": 0,
+   "w": 0,
+   "h": 0
+  },
+  "lineFS": "14.448px",
+  "lines": 6,
+  "active": 1,
+  "wrapScrollH": 0,
+  "viewClientH": 0,
+  "art": {
+   "x": 19,
+   "y": 19,
+   "w": 140,
+   "h": 140
+  },
+  "title": {
+   "x": 177,
+   "y": 22,
+   "w": 170,
+   "h": 28
+  },
+  "seek": {
+   "x": 19,
+   "y": 177,
+   "w": 562,
+   "h": 26
+  },
+  "transport": {
+   "x": 1,
+   "y": 203,
+   "w": 597,
+   "h": 82
+  },
+  "ovf": 0
+ },
+ "widget_lyrics_preset_nolyr": {
+  "inner": [
+   600,
+   380
+  ],
+  "s": 1.2666666666666666,
+  "preset": "lyrics",
+  "host": {
+   "x": 1,
+   "y": 187,
+   "w": 597,
+   "h": 191
+  },
+  "hostDisp": "flex",
+  "view": {
+   "x": 16,
+   "y": 225,
+   "w": 567,
+   "h": 153
+  },
+  "viewOv": "auto/hidden",
+  "viewAbs": "relative",
+  "status": {
+   "x": 16,
+   "y": 187,
+   "w": 567,
+   "h": 25
+  },
+  "lineH": {
+   "x": 60,
+   "y": 257,
+   "w": 534,
+   "h": 113
+  },
+  "lineFS": "26.0214px",
+  "lines": 6,
+  "active": 1,
+  "wrapScrollH": 549,
+  "viewClientH": 121,
+  "art": {
+   "x": 0,
+   "y": 0,
+   "w": 0,
+   "h": 0
+  },
+  "title": {
+   "x": 16,
+   "y": 14,
+   "w": 364,
+   "h": 24
+  },
+  "seek": {
+   "x": 16,
+   "y": 99,
+   "w": 567,
+   "h": 23
+  },
+  "transport": {
+   "x": 1,
+   "y": 122,
+   "w": 597,
+   "h": 66
+  },
+  "ovf": 1
+ }
+}

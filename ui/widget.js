@@ -357,7 +357,8 @@ function applyWidgetPin(v){try{window.curWin&&window.curWin.setAlwaysOnTop(!!v)}
 window.applyWidgetPin=applyWidgetPin;
 function applyWidgetLyrics(v){
   S.lyricsOpen=!!v;
-  if(W.preset!=="strip")WID.wLyrHost.style.display=v?"flex":"none";
+  /* the lyrics PRESET is the pane: only a preset change can hide it */
+  if(W.preset!=="strip"&&W.preset!=="lyrics")WID.wLyrHost.style.display=v?"flex":"none";
 }
 window.applyWidgetLyrics=applyWidgetLyrics;
 function applyWidgetSeek(v){WID.wSeek.style.display=v?"":"none"}
