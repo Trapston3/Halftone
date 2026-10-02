@@ -33,7 +33,17 @@ body{background:transparent;overflow:hidden}
   position:fixed;left:0;top:0;transform-origin:0 0;z-index:1;
   display:flex;flex-direction:column;
   background:var(--panel-bg);border:1px solid var(--panel-border);
-  border-radius:calc(var(--R-w));overflow:hidden;
+  border-radius:calc(var(--R-w));
+  /* NOTE was overflow:hidden — clipped the liquid-glass button glow
+     (digital dark mode .btn-orb.lg has an 18-26px external box-shadow
+     bloom) against the stage's own tight edges, producing a visible
+     flat cut on the glow (owner bug: "buttons clipping on the widget").
+     border-radius still clips the stage's OWN background/border (that
+     is independent of overflow), so the rounded-card look is unchanged;
+     only child overflow (glow/hover-scale) is no longer clamped here.
+     Art (.w-art) and the lyrics scroll view keep their own
+     overflow:hidden/auto, so nothing that needs clipping loses it. */
+  overflow:visible;
 }
 .w-head{display:flex;align-items:flex-start;gap:var(--sp3);padding:var(--sp3);min-height:0}
 .w-artwrap{position:relative;flex:none}
