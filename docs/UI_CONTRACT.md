@@ -15,18 +15,22 @@ listed here, add it to this file in the same commit.
 | `ui/theme.js` | foundation | theme engine, tokens -> canvas colors, transitions |
 | `ui/themes/base.css` | foundation | layout + structure. Uses ONLY tokens below |
 | `ui/themes/analogue.css` | themes | the current dither/LED look, dark + NEW light |
+| `ui/themes/palettes.css` | themes | analogue palette presets — pure token overrides, see below |
 | `ui/themes/digital.css` | themes | Frutiger Aero x liquid glass, light + dark |
 | `ui/test/theme_gallery.html` | themes | every component below, all 4 theme/mode combos |
 
 Load order in both pages: `themes/base.css`, `themes/analogue.css`,
-`themes/digital.css`, then `common.js`, `theme.js`, `settings.js`, page script.
-No build step, no frameworks, no CDN (CSP is `'self'`).
+`themes/palettes.css`, `themes/digital.css`, then `common.js`, `theme.js`,
+`settings.js`, page script. No build step, no frameworks, no CDN (CSP is `'self'`).
 
 ## Root attributes (set by theme.js on `<html>`)
 
 ```
 data-theme   = analogue | digital
 data-mode    = light | dark            (resolved; "system" resolves via prefers-color-scheme)
+data-palette = classic | catppuccin | tokyonight | gruvbox | nord | rosepine | dracula
+               (analogue only — see "Analogue palette presets" below; harmless no-op
+               attribute when data-theme="digital", since no digital.css selector reads it)
 data-motion  = full | reduced | off
 data-density = compact | cozy | comfy
 data-surface = main | widget
@@ -74,6 +78,49 @@ lit meter/LED cells print in `--canvas-ink` instead of the accent color).
 Glow tokens (per-theme, consumed by base/shared rules):
 `--glow-accent` (box-shadow bloom on active controls; `none` allowed),
 `--glow-text` (text-shadow on active text; `none` allowed).
+
+Analogue-only ink tokens: `--riso-blue` (light mode primary spot ink —
+headings, stamped buttons, active nav/row/lyric), `--riso-pink` (secondary
+spot ink, decorative misregistration shadow only), `--accent-print`
+(theme-owned LED/active-row/marker accent — distinct from the JS `--accent`;
+dark analogue aliases it to `var(--accent)`, light analogue/palettes set a
+concrete hex). `--fg-rgb` / `--riso-pink-rgb` hold the SAME colors as `--fg`
+/ `--riso-pink` but as a bare `r,g,b` triplet (no `#`, no `rgb()` wrapper) so
+`rgba(var(--fg-rgb), .13)`-style decorative overlays (halftone dot texture,
+paper grain, ink-bleed shadows) can retint per palette — keep these two
+pairs in sync whenever you change `--fg` or `--riso-pink`.
+
+## Analogue palette presets (`ui/themes/palettes.css`)
+
+`data-palette` selects a recolor of the analogue theme on top of
+`analogue.css`, scoped as
+`:root[data-theme="analogue"][data-palette="<id>"][data-mode="dark|light"]`
+(one extra attribute selector than the base analogue rule, so it always
+wins regardless of CSS source order). Each preset is a PURE token override
+— no selectors, no structural CSS — remapped by role, not by blindly
+copying the source palette's hex list:
+
+- `--bg`/`--bg-2`/`--bg-3` -> background / panel / raised-hover
+- `--fg`/`--fg-2`/`--fg-3` (+ `--fg-rgb`) -> text / secondary / muted
+- `--line`/`--line-2` -> hairline / stronger borders
+- `--accent-fg` -> text on an accent-filled surface
+- `--ok`/`--warn`/`--danger` -> the palette's own green/yellow/red
+- `--canvas-bg`/`--canvas-off`/`--canvas-ink` -> dither art + LED canvas
+  (read live via `getComputedStyle` by `ui/theme.js` `readTokens()` and
+  `ui/common.js` canvas painters — no JS changes needed per preset)
+- `--accent-print` (+ `--glow-accent`/`--glow-text` tuned to it) -> the
+  palette's signature hue, used for LED cells, active row/lyric markers
+- light mode only: `--riso-blue`/`--riso-pink` (+ `--riso-pink-rgb`) ->
+  the palette's primary/secondary ink, re-keying every riso stamp/heading
+
+`id` values: `classic` (default; the existing look, needs no override
+block at all), `catppuccin` (Mocha / Latte), `tokyonight` (Night / Day),
+`gruvbox`, `nord` (Polar Night+Frost / Snow Storm), `rosepine` (main /
+Dawn), `dracula` (official dark / Alucard-style light derivative). Set via
+the `palette` setting (Appearance group, `window.htSetPalette`) or the
+Ctrl+K command palette ("Analogue palette: …", shown only when
+`theme === "analogue"`). All 7 x 2 modes pass the WCAG AA contrast audit
+in `ui/test/test-contrast.js`.
 
 ## Components (foundation emits this DOM; themes style the look)
 
