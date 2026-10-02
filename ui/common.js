@@ -857,6 +857,7 @@ window.rescanLibrary=rescanLibrary;
    ============================================================ */
 async function setPlaying(v){
   S.playing=v;
+  wakeLoop();   /* BEFORE the await: a.play() may never settle (headless/edge); transport paint must not wait for it */
   const a=document.getElementById("aud");
   if(IS_OWNER&&a){
     ensureAudio();
@@ -1484,6 +1485,22 @@ function loop(now){
 window.__htIdleLoopActive=function(){return !!idleLoopTimer};
 function g_clear(cv){const g=cv.getContext("2d");if(g)g.clearRect(0,0,cv.width,cv.height)}
 window.requestAnimationFrame(loop);
+/* hidden-floor arming must not depend on a live rAF tick: when the window is
+   hidden the compositor throttles rAF (the exact condition this insures
+   against), so arm/cancel from visibilitychange as well. */
+document.addEventListener("visibilitychange",function(){
+  if(document.hidden){
+    if(!idleLoopTimer&&(S.playing||ACC.anim||artDirty)){
+      idleLoopTimer=setInterval(function(){
+        if(document.hidden&&(S.playing||ACC.anim||artDirty)){rafPending=false;loop(performance.now())}
+        else{clearInterval(idleLoopTimer);idleLoopTimer=null}
+      },250);
+    }
+  }else if(idleLoopTimer){
+    clearInterval(idleLoopTimer);idleLoopTimer=null;
+    wakeLoop();
+  }
+});
 
 /* ============================================================
    CONTEXT MENU (DOM fallback; widget may prefer native)
