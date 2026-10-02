@@ -48,8 +48,23 @@ pub(crate) fn app_handle() -> Option<tauri::AppHandle> {
 mod win_corners {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Dwm::{
-        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DWMWCP_ROUND,
+        DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE,
+        DWMWCP_DONOTROUND, DWMWCP_ROUND,
     };
+    use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+
+    fn get_preference(hwnd: HWND) -> i32 {
+        let mut v: i32 = 0;
+        unsafe {
+            let _ = DwmGetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &mut v as *mut _ as *mut core::ffi::c_void,
+                std::mem::size_of_val(&v) as u32,
+            );
+        }
+        v
+    }
 
     fn set_preference(hwnd: HWND, round: bool) {
         let pref = if round { DWMWCP_ROUND } else { DWMWCP_DONOTROUND };
@@ -63,20 +78,51 @@ mod win_corners {
         }
     }
 
-    /// Apply native rounding to a newly-registered WebviewWindow.
-    /// `round=false` forces square corners (used when the window is
-    /// maximized/fullscreen, matching the CSS `[data-max="1"]` rule).
+    /// DWM rounds the TOP-LEVEL window; hwnd() may return the WebView2 child.
+    fn root_hwnd(hwnd: HWND) -> HWND {
+        unsafe {
+            let root = GetAncestor(hwnd, GA_ROOT);
+            if root.0.is_null() { hwnd } else { root }
+        }
+    }
+
+    /// Apply + VERIFY by read-back. `round=false` forces square corners
+    /// (maximized/fullscreen, matching the CSS `[data-max="1"]` rule).
+    /// Returns true only if a read-back confirms the value stuck.
+    pub fn apply_hwnd(hwnd: HWND, round: bool) -> bool {
+        let h = root_hwnd(hwnd);
+        set_preference(h, round);
+        let want = if round { 2 } else { 1 };  /* DWMWCP_ROUND / DONOTROUND */
+        get_preference(h) == want
+    }
+
     pub fn apply(window: &tauri::WebviewWindow, round: bool) {
         if let Ok(hwnd) = window.hwnd() {
-            set_preference(HWND(hwnd.0), round);
+            apply_hwnd(HWND(hwnd.0), round);
         }
     }
 
     /// Same, but for the plain `Window` reference `on_window_event` hands us.
     pub fn apply_window<R: tauri::Runtime>(window: &tauri::Window<R>, round: bool) {
         if let Ok(hwnd) = window.hwnd() {
-            set_preference(HWND(hwnd.0), round);
+            apply_hwnd(HWND(hwnd.0), round);
         }
+    }
+
+    /// Retry until the read-back confirms (HWND timing at setup; the native
+    /// window may not be settled yet). Runs on its own thread, cheap.
+    /// Takes the hwnd as isize (HWND's raw pointer is not Send; the integer
+    /// is) and reconstructs it inside the thread.
+    pub fn apply_verified(hwnd_isize: isize, round: bool) {
+        std::thread::spawn(move || {
+            for _ in 0..10 {
+                let h = HWND(hwnd_isize as *mut core::ffi::c_void);
+                if apply_hwnd(h, round) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            }
+        });
     }
 }
 
@@ -1703,7 +1749,9 @@ pub fn run() {
             // resolves once the native HWND exists.
             for label in ["main", "widget"] {
                 if let Some(w) = app.get_webview_window(label) {
-                    win_corners::apply(&w, true);
+                    if let Ok(hwnd) = w.hwnd() {
+                        win_corners::apply_verified(hwnd.0 as isize, true);
+                    }
                 }
             }
             let _ = APP.set(app.handle().clone());
