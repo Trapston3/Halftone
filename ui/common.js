@@ -1094,9 +1094,10 @@ function buildLyrics(){
     S.lyrics.forEach(l=>{
       const d=document.createElement("div");
       d.className="lyric-line";
-      d.dataset.t=(l.t||0)/1000;
+      d.dataset.t=+l.t||0;   /* backend LyricLine.t is SECONDS (lib.rs parse_lrc) */
       d.textContent=l.text||"";
-      d.onclick=()=>seekTo((l.t||0)/1000+(S.cfg.lyricsOffset||0)/1000*-1);
+      /* lyricFollow lights a line when pos-offset >= t, so seek to t+offset */
+      d.onclick=()=>seekTo(Math.max(0,(+l.t||0)+(S.cfg.lyricsOffset||0)/1000));
       wrap.appendChild(d);
     });
   }else if(S.lyricsPlain){
