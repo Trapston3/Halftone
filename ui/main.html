@@ -567,7 +567,11 @@ function mkCover(holder,track){
     trackCoverUrl(track).then(u=>{if(u)img.src=u});
     return img;
   }
-  const cv=document.createElement("canvas");cv.className="art-dither";
+  /* the canvas REPLACES the .card-art holder (caller does holder.replaceWith),
+     so it must carry the holder's class itself or the .card-art sizing rule
+     (width:100%;aspect-ratio:1;border;background) never applies — album tiles
+     and the album-detail hero rendered at default canvas size, unstyled. */
+  const cv=document.createElement("canvas");cv.className="card-art art-dither";
   lazyDither(cv,track);
   return cv;
 }
