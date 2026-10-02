@@ -35,6 +35,10 @@ function applyStage(){
     s=clamp(s,0.5,3);
   }
   W.s=s;
+  /* stage logical size = window/s by construction below, so the stage
+     ALWAYS fills the window (no letterbox, even in fixed mode). Fixed
+     % therefore zooms the fixed-px chrome; fluid lyric type (cqh in
+     index.html) stays proportionate to the window in both modes. */
   const lw=innerWidth/s,lh=innerHeight/s;
   const st=WID.stage;
   st.style.setProperty("--s",s.toFixed(4));
@@ -369,6 +373,64 @@ function updateSwitchAttrs(){
 document.addEventListener("halftone:track",()=>{paintInfo();loadArt()});
 document.addEventListener("halftone:state",paintAll);
 document.addEventListener("halftone:lyrics",()=>{paintLyricsStatus();buildLyricsDom()});
+/* after ANY lyrics (re)build: preserve scroll position when the content
+   is identical (applySync re-sends lyrics on EVERY sync — play, seek,
+   volume — and common.js buildLyrics() wipes innerHTML each time; that
+   wipe is what made the pane impossible to scroll by hand). Only a
+   genuinely NEW line set re-centres on the active line.
+   MutationObserver because every rebuild path (applySync on sync,
+   lyrics fetch, retry) runs inside common.js closures — this is the
+   one widget-owned hook that sees them all. */
+(function(){
+  const wrap=document.getElementById("lyrWrap"),view=WID.wLyrView;
+  if(!wrap||!view||!window.MutationObserver)return;
+  const settle=()=>{
+    requestAnimationFrame(()=>{
+      try{
+        const lines=wrap.children;
+        const first=lines[0],last=lines[lines.length-1];
+        const sig=lines.length+"|"+(first?first.dataset.t:"")+"|"+(last?last.dataset.t:"");
+        if(S._lyrSig===sig)return;             /* identical rebuild: keep scroll */
+        S._lyrSig=sig;
+        if(!lines.length)return;
+        const idx=Math.max(0,S.lidx);
+        const ln=lines[Math.min(idx,lines.length-1)];
+        view.scrollTop=Math.max(0,ln.offsetTop-view.clientHeight/2+ln.offsetHeight/2);
+      }catch(_){}
+    });
+  };
+  new MutationObserver(settle).observe(wrap,{childList:true});
+})();
+/* manual scroll detection: wire S._lyrManual (common.js lyricFollow
+   reads it to suppress auto-follow, but nothing ever set it). Wheel,
+   touch and scrollbar drags pause follow; clicking a line (deliberate
+   seek) or 6s of quiet resumes it. */
+(function(){
+  const view=WID.wLyrView;if(!view)return;
+  let timer=null;
+  const mark=()=>{S._lyrManual=true;if(timer)clearTimeout(timer);
+    timer=setTimeout(()=>{S._lyrManual=false},6000)};
+  view.addEventListener("wheel",mark,{passive:true});
+  view.addEventListener("touchmove",mark,{passive:true});
+  view.addEventListener("pointerdown",e=>{
+    /* only scrollbar/press-drag interactions, not line clicks */
+    const line=e.target.closest&&e.target.closest(".lyric-line");
+    if(!line)mark();
+  });
+  document.addEventListener("halftone:seeked",()=>{S._lyrManual=false;if(timer)clearTimeout(timer)});
+})();
+/* scale settings changed from the MAIN window: widget.js closure vars W
+   are only synced from the store at boot, so a live change of
+   widgetScaleMode / widgetScale in main's settings never re-staged
+   (fixed mode silently kept the old mode/% until widget reload) */
+document.addEventListener("halftone:settings",e=>{
+  const d=e.detail||{},vals=d.values||{};
+  try{
+    if("widgetScaleMode" in vals)W.scaleMode=vals.widgetScaleMode;
+    if("widgetScale" in vals)W.scalePct=+vals.widgetScale;
+    if("widgetScaleMode" in vals||"widgetScale" in vals)scheduleStage();
+  }catch(_){}
+});
 
 /* ---------- boot ---------- */
 (async function boot(){

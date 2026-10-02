@@ -89,7 +89,8 @@ for(let k=3;k<24;k++)FAKE_TRACKS.push(fakeTrack(k));
 
 const FAKE_LRC=(function(){
   const lines=["Counting halftone dots in the dark","Every cell a promise of the light","The grid remembers what the eye forgets","Sweep the needle cross the amber night","Pixels falling like a summer rain","Hold the beat, the buffer's burning slow"];
-  return lines.map((text,k)=>({t:k*5200,text}));
+  /* LyricLine.t is SECONDS from the backend (a10b2ae, lib.rs parse_lrc) */
+  return lines.map((text,k)=>({t:k*5.2,text}));
 })();
 const PLAIN_TEXT="There is no time signature here\nJust a wall of words, line after line\nNo highlight sweeps across\nThe screen to tell you when to breathe\nThis is the plain lyrics state";
 
