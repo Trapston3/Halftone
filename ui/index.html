@@ -60,17 +60,59 @@ body{background:transparent;overflow:hidden}
 .w-transport .btn-orb svg{width:14px;height:14px}
 .w-transport .btn-orb.lg svg{width:17px;height:17px}
 .w-time{font-size:.625rem;color:var(--fg-3);font-family:var(--font-mono);font-variant-numeric:tabular-nums;min-width:76px}
+/* ============ LYRICS LAYOUT (widget) ============
+   The stage is a SIZE CONTAINER: lyric type is sized in cqh/cqw so it
+   scales with the widget's own LOGICAL size — in fit mode (stage logical
+   size follows the window) and in fixed-scale mode (where a 70% stage
+   has a much larger logical area than a 200% one). Font sizes stay
+   fluid per preset via --lyr-fs; base.css .lyric-line consumes it. */
+.widget-stage{container-type:size;container-name:stage}
 .w-lyrics-host{flex:1;min-height:0;padding:0 var(--sp3) var(--sp3);display:flex}
-.widget-lyrics{flex:1;min-height:0;position:relative}
-.widget-lyrics .lyr-view{position:absolute;inset:0;-webkit-mask-image:linear-gradient(transparent,#000 14%,#000 86%,transparent);mask-image:linear-gradient(transparent,#000 14%,#000 86%,transparent)}
-.widget-lyrics .lyr-wrap{padding-bottom:40%}
-.widget-lyrics .lyr-status{display:flex;gap:var(--sp2);align-items:center;min-height:16px;padding:0 var(--sp1) var(--sp1)}
+.widget-lyrics{flex:1;min-height:0;display:flex;flex-direction:column}
+.widget-lyrics .lyr-status{flex:none;display:flex;gap:var(--sp2);align-items:center;
+  min-height:16px;padding:0 var(--sp1) 4px}
 .widget-lyrics .lyr-status .btn{padding:2px 8px;font-size:.5625rem}
-.wp-lyrics .widget-lyrics .lyr-view{position:relative;inset:auto}
+/* real scroll container: the view is a plain flex child (NOT absolutely
+   positioned — the old inset:0 overlay painted the lyrics ON TOP of the
+   status row and never gave the host a height). Hidden-but-styled
+   scrollbar, contained overscroll. */
+.widget-lyrics .lyr-view{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;
+  overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;
+  padding:0 var(--sp2);
+  scrollbar-width:thin;scrollbar-color:var(--line-2) transparent;
+  -webkit-mask-image:linear-gradient(transparent,#000 12%,#000 88%,transparent);
+          mask-image:linear-gradient(transparent,#000 12%,#000 88%,transparent)}
+.widget-lyrics .lyr-view::-webkit-scrollbar{width:8px}
+.widget-lyrics .lyr-view::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px}
+.widget-lyrics .lyr-view::-webkit-scrollbar-track{background:transparent}
+/* wrap grows to fill when the list is short (vertically centred hero
+   block) and scrolls normally when it is long; no %-of-width padding
+   hack (the old padding-bottom:40% reserved a WIDTH-proportional slab
+   that had nothing to do with available height) */
+.widget-lyrics .lyr-wrap{flex:1 0 auto;display:flex;flex-direction:column;
+  justify-content:center;padding:6px 0}
+/* type scale: ~5% of stage height for strip-in-card presets,
+   ~7.5% for the lyrics hero, clamped to readable bounds.
+   --lyr-fs lives on the pane so the scroll view can floor its own
+   height in the same units (over-zoomed fixed mode keeps ~2 lines). */
+.widget-lyrics{--lyr-fs:clamp(0.72rem,5cqh,1.9rem)}
+.widget-stage.wp-lyrics .widget-lyrics{--lyr-fs:clamp(0.95rem,7.4cqh,2.6rem)}
+.widget-lyrics .lyr-view{min-height:calc(var(--lyr-fs,1rem)*4.4)}
+/* theme files set fixed px lyric sizes for the main window
+   (:root[data-theme="…"] .lyrics .lyric-line = specificity 0,4,0; the
+   digital dark-mode variant even 0,5,0/0,6,0). This block re-points them
+   at the fluid var with HIGHER specificity (:root[data-theme] prefix →
+   0,5,0 / 0,6,0; ties beat the theme because this inline block comes
+   after the theme <link>s), or the fixed 26px/24px(+32px active)
+   hardcode would override --lyr-fs in the widget (owner bug 1). */
+:root[data-theme] .widget-lyrics .lyr-wrap .lyric-line{font-size:var(--lyr-fs,1.75rem)}
+:root[data-theme] .widget-lyrics .lyr-wrap .lyric-line.active{font-size:calc(var(--lyr-fs,1.75rem)*1.12)}
+:root[data-theme] .widget-stage.wp-lyrics .widget-lyrics .lyr-wrap .lyric-line.active{font-size:calc(var(--lyr-fs,1.75rem)*1.18)}
 
 /* presets */
 .widget-stage.wp-card{--w-base-w:380;--w-base-h:260}
-.widget-stage.wp-strip{--w-base-w:380;--w-base-h:132}
+.widget-stage.wp-strip{--w-base-w:380;--w-base-h:132;
+  justify-content:center}   /* nothing flex-grows in strip: centre the stack in big windows */
 /* strip: compact single-column stack that actually fits —
    small art, slim rows, hidden vol, transport inline with time */
 .widget-stage.wp-strip .w-head{padding:8px 10px 4px;gap:10px;align-items:center}
@@ -92,13 +134,39 @@ body{background:transparent;overflow:hidden}
 .widget-stage.wp-strip .w-lyrics-host{display:none}
 .widget-stage.wp-strip .w-tech{display:none}
 .widget-stage.wp-square{--w-base-w:300;--w-base-h:400}
-.widget-stage.wp-square .w-artwrap{width:100%}
-.widget-stage.wp-square .w-art{width:100%;height:auto;aspect-ratio:1}
-.widget-stage.wp-square .w-head{flex-direction:column}
-.widget-stage.wp-square .w-meta{padding-top:0}
+/* square: the art can NOT be a fixed 100%-width block (it grew with the
+   window and shoved title/transport/lyrics off-screen). Instead the
+   artwrap is a flex peer of the lyrics pane: fixed chrome first, then
+   art and pane SHARE what is left — art floored at 72px so the preset
+   keeps its identity, pane yielding rather than overlapping. Tall
+   windows give the big square art back. */
+.widget-stage.wp-square .w-artwrap{flex:1 1 0;min-height:72px;width:100%;
+  display:flex;justify-content:center;align-items:stretch}
+.widget-stage.wp-square .w-art{width:auto;height:100%;aspect-ratio:1;max-width:100%}
+.widget-stage.wp-square .w-head{flex-direction:column;flex:1;min-height:0;overflow:hidden}
+.widget-stage.wp-square .w-meta{padding-top:0;flex:none}
+.widget-stage.wp-square .w-actions{flex:none;margin-left:0;align-self:flex-end}
+.widget-stage.wp-square .widget-lyrics .lyr-view{min-height:0}
 .widget-stage.wp-lyrics{--w-base-w:380;--w-base-h:300}
+/* lyrics hero: art gone, head + transport collapse to slim rows so the
+   pane is the hero; centre the active line by giving the scroll view
+   generous top/bottom padding (wrap centers when short, scrolls when long) */
 .widget-stage.wp-lyrics .w-artwrap{display:none}
-.widget-stage.wp-lyrics .w-lyrics-host{display:flex}
+.widget-stage.wp-lyrics .w-head{padding:var(--sp2) var(--sp3) 0}
+.widget-stage.wp-lyrics .w-transport{padding-bottom:var(--sp2)}
+.widget-stage.wp-lyrics .w-lyrics-host{display:flex;padding:0 var(--sp3)}
+/* NOTE: no %-of-height padding inside the scroll view here — the wrap
+   centres itself via flex when it fits, and widget.js instantly centres
+   the active line after a lyrics rebuild; extra padding double-counted
+   and pushed the active line below the fold. */
+/* lyric rhythm: theme files own colour/type treatment; the widget owns
+   spacing so inactive lines read as context around the active one */
+.widget-lyrics .lyr-wrap .lyric-line{padding:.32em 0}
+/* hit area: lines can be small at strip scale — keep the CLICK target
+   >=32px tall without changing the visual rhythm */
+.widget-lyrics .lyr-wrap .lyric-line{position:relative}
+.widget-lyrics .lyr-wrap .lyric-line::after{content:"";position:absolute;left:0;right:0;
+  top:50%;height:max(100%,32px);transform:translateY(-50%)}
 
 /* un-scaled overlay: menus/sheets/tooltips live here (never divide by a zoom factor) */
 .w-overlay{position:fixed;inset:0;z-index:50;pointer-events:none}
