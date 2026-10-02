@@ -1427,6 +1427,7 @@ function ownerPump(){
 if(IS_OWNER){ownerPumpTimer=setInterval(ownerPump,1000/30);window.__htOwnerPumpTimer=ownerPumpTimer}
 
 function loop(now){
+  window.__htLoopN=(window.__htLoopN||0)+1;   /* QA: loop-body runs (rAF + hidden-floor interval) */
   rafPending=false;
   const hidden=document.hidden;
   tickAccent(now);
