@@ -1,6 +1,6 @@
 [package]
 name = "halftone"
-version = "0.2.2"
+version = "0.2.3"
 description = "Floating desktop mini-player widget for a local music library"
 license = "MIT"
 edition = "2021"
