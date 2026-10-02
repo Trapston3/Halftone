@@ -123,6 +123,7 @@ const SCHEMA=[
   options:[["center","CENTER"],["left","LEFT"]],
   apply:v=>document.documentElement.style.setProperty("--lyr-align",v==="center"?"center":"left")},
 {key:"lyricsOffset",group:"Lyrics",label:"Sync offset",type:"range",surface:"both",default:0,min:-2000,max:2000,step:50,
+  hint:"Shifts synced-lyric timing in ms. Positive = lyrics LATER (lines highlight after their timestamp); negative = earlier.",
   apply:v=>{document.documentElement.style.setProperty("--lyr-offset",(+v|0));window.applyLyricsOffset&&window.applyLyricsOffset(+v)}},
 {key:"lyricsDimPast",group:"Lyrics",label:"Dim past lines",type:"toggle",surface:"both",default:true,
   apply:v=>document.documentElement.classList.toggle("lyr-nodim",!v)},

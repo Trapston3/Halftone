@@ -841,7 +841,7 @@ document.addEventListener("halftone:art",()=>{paintNP()});
 function paintLyrStatus(){
   const st=S.lyricsStatus;
   const m=S.meta;
-  if(S.lyrics.length){
+  if(S.lyrics.length||S.lyricsPlain){
     const label={sidecar:"SIDECAR .LRC",embedded:"EMBEDDED",cache:"CACHED",lrclib:"LRCLIB.NET"}[st]||st.toUpperCase();
     el.lyrStatus.innerHTML=`<span class="badge ${S._lyricsSynced===false?"":"lossless"}">${label}${S._lyricsSynced===false?" \u00b7 PLAIN":""}</span>`;
     el.npNoLrc.style.display="none";
@@ -862,9 +862,10 @@ document.addEventListener("halftone:lyrics-status",()=>paintLyrStatus());
 el.lrcSearch.onclick=()=>openLrcSearch();
 el.lrcRetry.onclick=()=>retryLyrics();
 
-/* main lyric follow is in common.js (lyricFollow); wire manual-scroll pause */
-el.npLyrView.addEventListener("wheel",()=>{S._lyrManual=true},{passive:true});
-document.addEventListener("halftone:seeked",()=>{S._lyrManual=false});
+/* main lyric follow is in common.js (lyricFollow); manual-scroll pause
+   + the ● LIVE pill live there too (wireLyrScroll bound in index/main) */
+try{wireLyrScroll(document)}catch(e){console.warn(e)}
+document.addEventListener("halftone:seeked",()=>{if(!S._lyrManual)S.lidx=-1});
 
 /* ============ state/transport ============ */
 document.addEventListener("halftone:state",()=>{
