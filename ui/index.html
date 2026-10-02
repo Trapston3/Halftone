@@ -98,12 +98,16 @@ body{background:transparent;overflow:hidden}
 .widget-lyrics{--lyr-fs:clamp(0.72rem,5cqh,1.9rem)}
 .widget-stage.wp-lyrics .widget-lyrics{--lyr-fs:clamp(0.95rem,7.4cqh,2.6rem)}
 .widget-lyrics .lyr-view{min-height:calc(var(--lyr-fs,1rem)*4.4)}
-/* theme files set fixed px lyric sizes for the main window; same
-   specificity, but this block comes later in the cascade, and these
-   widget-scoped rules re-point them at the fluid var */
-.widget-lyrics .lyr-wrap .lyric-line{font-size:var(--lyr-fs,1.75rem)}
-.widget-lyrics .lyr-wrap .lyric-line.active{font-size:calc(var(--lyr-fs,1.75rem)*1.12)}
-.widget-stage.wp-lyrics .widget-lyrics .lyr-wrap .lyric-line.active{font-size:calc(var(--lyr-fs,1.75rem)*1.18)}
+/* theme files set fixed px lyric sizes for the main window
+   (:root[data-theme="…"] .lyrics .lyric-line = specificity 0,4,0; the
+   digital dark-mode variant even 0,5,0/0,6,0). This block re-points them
+   at the fluid var with HIGHER specificity (:root[data-theme] prefix →
+   0,5,0 / 0,6,0; ties beat the theme because this inline block comes
+   after the theme <link>s), or the fixed 26px/24px(+32px active)
+   hardcode would override --lyr-fs in the widget (owner bug 1). */
+:root[data-theme] .widget-lyrics .lyr-wrap .lyric-line{font-size:var(--lyr-fs,1.75rem)}
+:root[data-theme] .widget-lyrics .lyr-wrap .lyric-line.active{font-size:calc(var(--lyr-fs,1.75rem)*1.12)}
+:root[data-theme] .widget-stage.wp-lyrics .widget-lyrics .lyr-wrap .lyric-line.active{font-size:calc(var(--lyr-fs,1.75rem)*1.18)}
 
 /* presets */
 .widget-stage.wp-card{--w-base-w:380;--w-base-h:260}
