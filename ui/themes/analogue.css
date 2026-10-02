@@ -53,6 +53,10 @@
   --art-default: dither;
   --ambient-default: dither;
   --accent-print: var(--accent); /* mint reads fine on near-black */
+  /* RGB triplet of --fg (no '#', so it drops into rgba(var(--fg-rgb),a))
+     — palette presets override this alongside --fg so the halftone dot
+     texture always matches the active ink, never a hardcoded cream */
+  --fg-rgb: 242,232,207;
   /* glow: soft phosphor bloom on lit/active elements (v0.1.2 signature) */
   --glow-accent: 0 0 12px rgba(102, 224, 194, .35), 0 0 2px rgba(102, 224, 194, .5);
   --glow-text: 0 0 8px rgba(102, 224, 194, .35);
@@ -80,8 +84,13 @@
   --panel-highlight: none;
   --glass-blur: 0px;
   --glass-sat: 100%;
-  --shadow-1: 2px 3px 0 rgba(26, 44, 61, 0.14); /* offset ink-bleed */
-  --shadow-2: 4px 6px 0 rgba(26, 44, 61, 0.12);
+  /* RGB triplets (no '#') so rgba(var(--x-rgb),a) can tint by alpha —
+     palette presets override these alongside --fg/--riso-pink so every
+     ink-bleed shadow, dot texture and misregistration shadow retints */
+  --fg-rgb: 26,44,61;
+  --riso-pink-rgb: 255,72,176;
+  --shadow-1: 2px 3px 0 rgba(var(--fg-rgb), 0.14); /* offset ink-bleed */
+  --shadow-2: 4px 6px 0 rgba(var(--fg-rgb), 0.12);
 
   --font-ui: Consolas, ui-monospace, "Cascadia Mono", monospace;
   --font-mono: Consolas, ui-monospace, "Cascadia Mono", monospace;
@@ -138,12 +147,12 @@
 /* risograph halftone dot texture — visible but never noisy */
 :root[data-theme="analogue"][data-mode="light"] .shell {
   background-color: var(--bg);
-  background-image: radial-gradient(rgba(26,44,61,.13) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(var(--fg-rgb),.13) 1px, transparent 1px);
   background-size: 5px 5px;
 }
 :root[data-theme="analogue"][data-mode="dark"] .shell {
   background-color: var(--bg);
-  background-image: radial-gradient(rgba(242,232,207,.035) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(var(--fg-rgb),.035) 1px, transparent 1px);
   background-size: 5px 5px;
 }
 
@@ -173,8 +182,8 @@
   z-index: 0;
   opacity: .5;
   background:
-    repeating-conic-gradient(rgba(26,44,61,.028) 0% 25%, transparent 0% 50%) 0 0/3px 3px,
-    repeating-conic-gradient(rgba(255,72,176,.02) 0% 25%, transparent 0% 50%) 1.5px 1.5px/4px 4px;
+    repeating-conic-gradient(rgba(var(--fg-rgb),.028) 0% 25%, transparent 0% 50%) 0 0/3px 3px,
+    repeating-conic-gradient(rgba(var(--riso-pink-rgb),.02) 0% 25%, transparent 0% 50%) 1.5px 1.5px/4px 4px;
 }
 /* headings print in riso blue with a pink pass offset 1.5px (misregistration) */
 :root[data-theme="analogue"][data-mode="light"] .h1,
@@ -182,7 +191,7 @@
 :root[data-theme="analogue"][data-mode="light"] .section-title {
   color: var(--riso-blue);
   position: relative;
-  text-shadow: 1.5px 1px 0 rgba(255, 72, 176, .55);
+  text-shadow: 1.5px 1px 0 rgba(var(--riso-pink-rgb), .55);
 }
 :root[data-theme="analogue"][data-mode="light"] .np-title { letter-spacing: .01em; }
 
@@ -276,7 +285,7 @@
   border-color: var(--riso-blue);
   color: var(--riso-blue);
   background: transparent;
-  box-shadow: 1.5px 1.5px 0 rgba(255, 72, 176, .35);
+  box-shadow: 1.5px 1.5px 0 rgba(var(--riso-pink-rgb), .35);
 }
 :root[data-theme="analogue"][data-mode="light"] .btn:hover,
 :root[data-theme="analogue"][data-mode="light"] .btn-icon:hover,
@@ -284,7 +293,7 @@
 :root[data-theme="analogue"][data-mode="light"] .pill:hover {
   background: var(--riso-blue);
   color: var(--accent-fg);
-  box-shadow: 2px 2px 0 rgba(255, 72, 176, .5);
+  box-shadow: 2px 2px 0 rgba(var(--riso-pink-rgb), .5);
 }
 
 :root[data-theme="analogue"] .btn-icon,
@@ -319,7 +328,7 @@
   border-color: var(--riso-blue);
   background: var(--riso-blue);
   color: var(--accent-fg);
-  box-shadow: 2px 2px 0 rgba(255, 72, 176, .5);
+  box-shadow: 2px 2px 0 rgba(var(--riso-pink-rgb), .5);
 }
 
 :root[data-theme="analogue"] .btn-orb:hover,
@@ -455,7 +464,7 @@
   color: var(--accent-fg);
   background: var(--riso-blue);
   border-color: var(--riso-blue);
-  box-shadow: 1.5px 1.5px 0 rgba(255, 72, 176, .45);
+  box-shadow: 1.5px 1.5px 0 rgba(var(--riso-pink-rgb), .45);
 }
 
 :root[data-theme="analogue"][data-nav="bottom"] .nav {
@@ -603,7 +612,7 @@
 /* light: seek strip prints in ink — border + rail read as halftone plate */
 :root[data-theme="analogue"][data-mode="light"] .seek {
   border-color: var(--riso-blue);
-  box-shadow: 1.5px 1.5px 0 rgba(255, 72, 176, .3);
+  box-shadow: 1.5px 1.5px 0 rgba(var(--riso-pink-rgb), .3);
 }
 
 /* ----------------------------------------------------
@@ -687,7 +696,7 @@
 }
 :root[data-theme="analogue"][data-mode="light"] .lyrics .lyric-line.active {
   color: var(--riso-blue);
-  text-shadow: 1.2px .8px 0 rgba(255, 72, 176, .4);
+  text-shadow: 1.2px .8px 0 rgba(var(--riso-pink-rgb), .4);
 }
 /* ▸ marker lives in a reserved left gutter (absolute) so it never
    reflows/wraps the text when the line activates */
