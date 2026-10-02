@@ -1323,23 +1323,23 @@ document.body.addEventListener("contextmenu",e=>{
   const ct=coverMenuTarget(e.target);
   if(ct){
     e.preventDefault();
-    openCtx(e.clientX,e.clientY,[
+    openCtx(e.clientX,e.clientY,(()=>{try{return [
       {label:"CHANGE COVER ART",children:[
         {label:"IMPORT IMAGE…",onClick:()=>coverImportFor(ct)},
         {label:"SEARCH THE WEB…",onClick:()=>openCoverSearch(ct)},
         {label:"RESET TO DEFAULT",onClick:()=>coverResetFor(ct)},
       ]},
       {sep:1},
-      {label:"SHOW WIDGET \u00b7 MINIPLAYER",onClick:()=>el.btnWidget.click()},
-      {label:"MINIMIZE",onClick:()=>{window.curWin&&window.curWin.minimize().catch(()=>{})}},
-      {label:"HIDE MAIN",onClick:()=>{window.curWin&&window.curWin.hide().catch(()=>{})}},
+      {label:"SHOW WIDGET · MINIPLAYER",onClick:()=>el.btnWidget&&el.btnWidget.click()},
+      {label:"MINIMIZE",onClick:()=>{window.curWin&&window.curWin.minimize&&window.curWin.minimize().catch(()=>{})}},
+      {label:"HIDE MAIN",onClick:()=>{window.curWin&&window.curWin.hide&&window.curWin.hide().catch(()=>{})}},
       {sep:1},
       {label:"NAV POSITION",children:[
         {label:"LEFT RAIL",checked:S.cfg.nav==="left",onClick:()=>pageHtSet("nav","left")},
         {label:"RIGHT RAIL",checked:S.cfg.nav==="right",onClick:()=>pageHtSet("nav","right")},
         {label:"TOP TABS",checked:S.cfg.nav==="top",onClick:()=>pageHtSet("nav","top")},
         {label:"BOTTOM DOCK",checked:S.cfg.nav==="bottom",onClick:()=>pageHtSet("nav","bottom")},
-        {label:"HIDDEN \u00b7 CTRL+K",checked:S.cfg.nav==="hidden",onClick:()=>pageHtSet("nav","hidden")},
+        {label:"HIDDEN · CTRL+K",checked:S.cfg.nav==="hidden",onClick:()=>pageHtSet("nav","hidden")},
       ]},
       {label:"ALBUM ART",children:[
         {label:"REAL PHOTO",checked:S.cfg.art==="real",onClick:()=>pageHtSet("art","real")},
@@ -1347,21 +1347,25 @@ document.body.addEventListener("contextmenu",e=>{
         {label:"THEME DEFAULT",checked:S.cfg.art==="theme",onClick:()=>pageHtSet("art","theme")},
       ]},
       {label:"ACCENT",children:accentMenuItems()},
-    ]);
+    ]}catch(err){console.error("ctxmenu: item builder failed",err);return [
+      {label:"SHOW WIDGET · MINIPLAYER",onClick:()=>el.btnWidget&&el.btnWidget.click()},
+      {label:"MINIMIZE",onClick:()=>{window.curWin&&window.curWin.minimize&&window.curWin.minimize().catch(()=>{})}},
+      {label:"HIDE MAIN",onClick:()=>{window.curWin&&window.curWin.hide&&window.curWin.hide().catch(()=>{})}},
+    ]}})());
     return;
   }
   e.preventDefault();
-  openCtx(e.clientX,e.clientY,[
-    {label:"SHOW WIDGET \u00b7 MINIPLAYER",onClick:()=>el.btnWidget.click()},
-    {label:"MINIMIZE",onClick:()=>{window.curWin&&window.curWin.minimize().catch(()=>{})}},
-    {label:"HIDE MAIN",onClick:()=>{window.curWin&&window.curWin.hide().catch(()=>{})}},
+  openCtx(e.clientX,e.clientY,(()=>{try{return [
+    {label:"SHOW WIDGET · MINIPLAYER",onClick:()=>el.btnWidget&&el.btnWidget.click()},
+    {label:"MINIMIZE",onClick:()=>{window.curWin&&window.curWin.minimize&&window.curWin.minimize().catch(()=>{})}},
+    {label:"HIDE MAIN",onClick:()=>{window.curWin&&window.curWin.hide&&window.curWin.hide().catch(()=>{})}},
     {sep:1},
     {label:"NAV POSITION",children:[
       {label:"LEFT RAIL",checked:S.cfg.nav==="left",onClick:()=>pageHtSet("nav","left")},
       {label:"RIGHT RAIL",checked:S.cfg.nav==="right",onClick:()=>pageHtSet("nav","right")},
       {label:"TOP TABS",checked:S.cfg.nav==="top",onClick:()=>pageHtSet("nav","top")},
       {label:"BOTTOM DOCK",checked:S.cfg.nav==="bottom",onClick:()=>pageHtSet("nav","bottom")},
-      {label:"HIDDEN \u00b7 CTRL+K",checked:S.cfg.nav==="hidden",onClick:()=>pageHtSet("nav","hidden")},
+      {label:"HIDDEN · CTRL+K",checked:S.cfg.nav==="hidden",onClick:()=>pageHtSet("nav","hidden")},
     ]},
     {label:"ALBUM ART",children:[
       {label:"REAL PHOTO",checked:S.cfg.art==="real",onClick:()=>pageHtSet("art","real")},
@@ -1369,7 +1373,11 @@ document.body.addEventListener("contextmenu",e=>{
       {label:"THEME DEFAULT",checked:S.cfg.art==="theme",onClick:()=>pageHtSet("art","theme")},
     ]},
     {label:"ACCENT",children:accentMenuItems()},
-  ]);
+  ]}catch(err){console.error("ctxmenu: item builder failed",err);return [
+    {label:"SHOW WIDGET · MINIPLAYER",onClick:()=>el.btnWidget&&el.btnWidget.click()},
+    {label:"MINIMIZE",onClick:()=>{window.curWin&&window.curWin.minimize&&window.curWin.minimize().catch(()=>{})}},
+    {label:"HIDE MAIN",onClick:()=>{window.curWin&&window.curWin.hide&&window.curWin.hide().catch(()=>{})}},
+  ]}})());
 });
 /* page-side pageHtSet(key,value): settings.js owns window.htSet (schema set);
    this thin wrapper exists for inline menu handlers and resolves at call
