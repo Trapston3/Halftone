@@ -151,9 +151,15 @@ body{background:transparent;overflow:hidden}
    keeps its identity, pane yielding rather than overlapping. Tall
    windows give the big square art back. */
 .widget-stage.wp-square .w-artwrap{flex:1 1 0;min-height:72px;width:100%;
-  display:flex;justify-content:center;align-items:stretch}
+  display:flex;justify-content:center;align-items:stretch;
+  /* clip the art box itself here (its aspect-ratio can overflow the
+     column during flex sizing) instead of on .w-head below — w-head's
+     own overflow:hidden also clipped .w-actions' button glow (same
+     class of bug as the stage-level fix above), and the art needs
+     containment but the actions row does not. */
+  overflow:hidden}
 .widget-stage.wp-square .w-art{width:auto;height:100%;aspect-ratio:1;max-width:100%}
-.widget-stage.wp-square .w-head{flex-direction:column;flex:1;min-height:0;overflow:hidden}
+.widget-stage.wp-square .w-head{flex-direction:column;flex:1;min-height:0}
 .widget-stage.wp-square .w-meta{padding-top:0;flex:none}
 .widget-stage.wp-square .w-actions{flex:none;margin-left:0;align-self:flex-end}
 .widget-stage.wp-square .widget-lyrics .lyr-view{min-height:0}
