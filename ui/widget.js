@@ -35,6 +35,10 @@ function applyStage(){
     s=clamp(s,0.5,3);
   }
   W.s=s;
+  /* stage logical size = window/s by construction below, so the stage
+     ALWAYS fills the window (no letterbox, even in fixed mode). Fixed
+     % therefore zooms the fixed-px chrome; fluid lyric type (cqh in
+     index.html) stays proportionate to the window in both modes. */
   const lw=innerWidth/s,lh=innerHeight/s;
   const st=WID.stage;
   st.style.setProperty("--s",s.toFixed(4));
@@ -114,10 +118,14 @@ function paintState(){
 }
 function paintLyricsStatus(){
   /* lyrics host visible whenever the preset needs it or lyrics exist */
-  const wantLyrics=(window.getCfg&&window.getCfg("widgetLyrics"))||S.lyrics.length>0||S.lyricsStatus==="searching";
+  const wantLyrics=(window.getCfg&&window.getCfg("widgetLyrics"))||S.lyrics.length>0||S.lyricsPlain||S.lyricsStatus==="searching";
   WID.wLyrHost.style.display=(W.preset==="strip")?"none":(wantLyrics?"flex":"none");
   if(S.lyrics.length){
     WID.wLyrStatus.innerHTML='<span class="badge lossless">'+(S._lyricsSynced===false?"PLAIN":"SYNCED")+"</span>";
+    WID.wLyrView.style.display="";
+  }else if(S.lyricsPlain){
+    /* unsynced lyrics: same pane, no highlight (mirrors main's paintLyrStatus) */
+    WID.wLyrStatus.innerHTML='<span class="badge lossless">PLAIN</span>';
     WID.wLyrView.style.display="";
   }else if(S.lyricsStatus==="searching"){
     WID.wLyrStatus.innerHTML='<span class="h-caps mono">SEARCHING\u2026</span>';
@@ -267,7 +275,11 @@ function buildVolDom(){
 })();
 addEventListener("keydown",e=>{if(e.code==="Space"&&!e.target.closest("input")){e.preventDefault();emitCmd({cmd:"play"})}});
 addEventListener("wheel",e=>{
-  if(e.target.closest(".lyr-view"))return;
+  /* volume-on-wheel only outside scrollables (lyrics scroll freely) and
+     only when the wheel is actually over the widget chrome — events from
+     nested elements (seek strip has its own handler) must not double-fire */
+  if(e.target.closest(".lyr-view,.w-seek,.w-sheet,.menu"))return;
+  if(!(e.target===document.body||e.target===WID.stage||WID.stage.contains(e.target)))return;
   e.preventDefault();
   emitCmd({cmd:"vol",v:clamp(S.vol+(e.deltaY<0?.05:-.05),0,1)});
 },{passive:false});
@@ -324,12 +336,25 @@ document.addEventListener("contextmenu",e=>{
   ]);
 });
 /* right-click ON THE ART itself: "Change cover art" (task 10) — the owner
-   main window owns the sheet/import/search flows, so it forwards via cmd */
+   main window owns the sheet/import/search flows, so it forwards via cmd.
+   NOTE: no stopPropagation here — the document-level contextmenu handler
+   opens the full preset menu; the art case is expressed by prepending the
+   cover item so both fire exactly once. stopPropagation made the art's
+   menu silently swallow the document one in the real app (v0.2.1 bug:
+   right-click on widget art did nothing). */
 WID.wArt.addEventListener("contextmenu",e=>{
-  if(!S.meta||!S.meta.path)return;
-  e.preventDefault();e.stopPropagation();
+  if(!S.meta||!S.meta.path)return;   /* fall through to the default menu */
+  e.preventDefault();
   openCtx(e.clientX,e.clientY,[
     {label:"CHANGE COVER ART",onClick:()=>emitCmd({cmd:"cover",path:S.meta.path})},
+    {sep:1},
+    {label:"PRESET: CARD",checked:W.preset==="card",onClick:()=>{window.setCfg&&window.setCfg("widgetPreset","card")}},
+    {label:"PRESET: STRIP",checked:W.preset==="strip",onClick:()=>{window.setCfg&&window.setCfg("widgetPreset","strip")}},
+    {label:"PRESET: SQUARE",checked:W.preset==="square",onClick:()=>{window.setCfg&&window.setCfg("widgetPreset","square")}},
+    {label:"PRESET: LYRICS",checked:W.preset==="lyrics",onClick:()=>{window.setCfg&&window.setCfg("widgetPreset","lyrics")}},
+    {sep:1},
+    {label:"WIDGET SETTINGS\u2026",onClick:()=>openWidgetSheet()},
+    {label:"HIDE WIDGET",onClick:()=>{try{window.curWin&&window.curWin.hide()}catch(_){}}},
   ]);
 });
 
@@ -353,7 +378,8 @@ function applyWidgetPin(v){try{window.curWin&&window.curWin.setAlwaysOnTop(!!v)}
 window.applyWidgetPin=applyWidgetPin;
 function applyWidgetLyrics(v){
   S.lyricsOpen=!!v;
-  if(W.preset!=="strip")WID.wLyrHost.style.display=v?"flex":"none";
+  /* the lyrics PRESET is the pane: only a preset change can hide it */
+  if(W.preset!=="strip"&&W.preset!=="lyrics")WID.wLyrHost.style.display=v?"flex":"none";
 }
 window.applyWidgetLyrics=applyWidgetLyrics;
 function applyWidgetSeek(v){WID.wSeek.style.display=v?"":"none"}
@@ -369,6 +395,59 @@ function updateSwitchAttrs(){
 document.addEventListener("halftone:track",()=>{paintInfo();loadArt()});
 document.addEventListener("halftone:state",paintAll);
 document.addEventListener("halftone:lyrics",()=>{paintLyricsStatus();buildLyricsDom()});
+/* after ANY lyrics (re)build: preserve scroll position when the content
+   is identical (applySync re-sends lyrics on EVERY sync — play, seek,
+   volume — and common.js buildLyrics() wipes innerHTML each time; that
+   wipe is what made the pane impossible to scroll by hand). Only a
+   genuinely NEW line set re-centres on the active line.
+   MutationObserver because every rebuild path (applySync on sync,
+   lyrics fetch, retry) runs inside common.js closures — this is the
+   one widget-owned hook that sees them all. */
+(function(){
+  const wrap=document.getElementById("lyrWrap"),view=WID.wLyrView;
+  if(!wrap||!view||!window.MutationObserver)return;
+  const settle=()=>{
+    requestAnimationFrame(()=>{
+      try{
+        const lines=wrap.children;
+        const first=lines[0],last=lines[lines.length-1];
+        const sig=lines.length+"|"+(first?first.dataset.t:"")+"|"+(last?last.dataset.t:"");
+        if(S._lyrSig===sig)return;             /* identical rebuild: keep scroll */
+        S._lyrSig=sig;
+        if(!lines.length)return;
+        const idx=Math.max(0,S.lidx);
+        const ln=lines[Math.min(idx,lines.length-1)];
+        view.scrollTop=Math.max(0,ln.offsetTop-view.clientHeight/2+ln.offsetHeight/2);
+      }catch(_){}
+    });
+  };
+  new MutationObserver(settle).observe(wrap,{childList:true});
+})();
+/* manual scroll detection (widget surface): delegate to common.js's
+   canonical lyrPause/lyrResume so the widget behaves EXACTLY like main —
+   one timer (3s resume), the ● LIVE pill, mask-off `.manual` state.
+   common.js wireLyrScroll already binds #wLyrView (same element), so
+   this block only marks pause on scrollbar press-drags, which the
+   common.js gutter heuristic can miss in the transform-scaled stage. */
+(function(){
+  const view=WID.wLyrView;if(!view)return;
+  view.addEventListener("pointerdown",e=>{
+    const line=e.target.closest&&e.target.closest(".lyric-line");
+    if(!line&&window.lyrPause)lyrPause();
+  });
+})();
+/* scale settings changed from the MAIN window: widget.js closure vars W
+   are only synced from the store at boot, so a live change of
+   widgetScaleMode / widgetScale in main's settings never re-staged
+   (fixed mode silently kept the old mode/% until widget reload) */
+document.addEventListener("halftone:settings",e=>{
+  const d=e.detail||{},vals=d.values||{};
+  try{
+    if("widgetScaleMode" in vals)W.scaleMode=vals.widgetScaleMode;
+    if("widgetScale" in vals)W.scalePct=+vals.widgetScale;
+    if("widgetScaleMode" in vals||"widgetScale" in vals)scheduleStage();
+  }catch(_){}
+});
 
 /* ---------- boot ---------- */
 (async function boot(){
@@ -396,4 +475,9 @@ document.addEventListener("halftone:lyrics",()=>{paintLyricsStatus();buildLyrics
   applyStage();
   paintAll();
 })();
-wireDrag(WID.stage);
+/* drag region: native drag must NOT start over interactive surfaces —
+   lyrics (click-to-seek + free scroll), transport, sheets, the seek
+   strip. With Webview2 a native drag swallows pointer events, so the
+   lyrics pane was unclickable/unscrollable (owner bugs 2+3). */
+wireDrag(WID.stage,e=>!e.target.closest(
+  ".lyr-view,.lyric-line,.w-seek,.w-transport,.vol,.btn,.btn-icon,.btn-orb,.w-sheet,.menu,input,select,button"));

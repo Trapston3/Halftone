@@ -58,6 +58,8 @@ const S={
   view:"nowplaying",
   drag:null, pinned:false, lyricsOpen:false,
   _img:null, _artUrl:null, _barsRcv:new Float32Array(NBARS), _pos:0,
+  _lyrManual:false,       /* lyrics auto-follow paused (user is scrolling) */
+  _lyrManualT:0,          /* timer id for the 3s auto-follow resume */
 };
 window.S=S;
 const ACC={hex:[102,224,194],cur:[102,224,194],anim:false,from:null,to:null,t0:0,mode:"album",custom:null};
@@ -617,10 +619,11 @@ window.pushEq=pushEq;
    ============================================================ */
 function curWin(){try{return T&&T.window?T.window.getCurrentWindow():null}catch(e){return null}}
 window.curWin=curWin();
-function wireDrag(elm){
+function wireDrag(elm,allow){
   if(!elm)return;
   elm.addEventListener("pointerdown",e=>{
     if(e.target.closest("button,input,select,a,.seek,.slider,.menu,.sheet"))return;
+    if(allow&&!allow(e))return;
     if(e.button!==0)return;
     const w=window.curWin;
     if(w&&w.startDragging){try{w.startDragging()}catch(err){console.warn(err)}}
@@ -1087,16 +1090,22 @@ function buildLyrics(){
   if(!wrap)return;
   wrap.innerHTML="";
   S.lidx=-1;
-  const box=wrap.closest(".lyr-view")||wrap.closest(".lyr-view".toLowerCase())||wrap.parentElement;
+  const view=wrap.closest(".lyr-view");
   if(S.lyrics.length){
     const host=wrap.closest(".lyrics")||wrap.closest(".widget-lyrics");
     if(host)host.classList.remove("plain");
     S.lyrics.forEach(l=>{
       const d=document.createElement("div");
       d.className="lyric-line";
-      d.dataset.t=(l.t||0)/1000;
+      d.dataset.t=+l.t||0;   /* backend LyricLine.t is SECONDS (lib.rs parse_lrc) */
       d.textContent=l.text||"";
-      d.onclick=()=>seekTo((l.t||0)/1000+(S.cfg.lyricsOffset||0)/1000*-1);
+      /* lyricFollow lights a line when pos-offset >= t, so seek to t+offset */
+      d.onclick=()=>{
+        const t=Math.max(0,(+l.t||0)+(S.cfg.lyricsOffset||0)/1000);
+        if(IS_OWNER)seekTo(t);                       /* owner: applies to <audio> */
+        else{S._pos=t;emitCmd({cmd:"seek",t})}       /* viewer: owner applies it (a10b2ae path) */
+        lyrResume();
+      };
       wrap.appendChild(d);
     });
   }else if(S.lyricsPlain){
@@ -1109,8 +1118,84 @@ function buildLyrics(){
       wrap.appendChild(d);
     });
   }
+  /* fresh lyrics -> auto-follow resumes from a clean slate */
+  if(view)view.classList.remove("manual");
+  if(wrap._lrcPill){wrap._lrcPill.remove();wrap._lrcPill=null}
 }
 window.buildLyrics=buildLyrics;
+
+/* ---------- manual scroll vs auto-follow ----------
+   Wheel / touchpad / touch / drag-scrollbar over the lyrics pauses
+   auto-follow (`S._lyrManual`); it resumes 3s after the last manual
+   scroll, when a line is clicked (lyrResume), or via the "LIVE" pill. */
+function lyrPause(){
+  if(!S._lyrManual){
+    S._lyrManual=true;
+    const wrap=document.getElementById("lyrWrap")||document.getElementById("lyr-wrap");
+    const view=wrap&&wrap.closest(".lyr-view");
+    if(view)view.classList.add("manual");
+    lyrPill();
+  }
+  clearTimeout(S._lyrManualT);
+  S._lyrManualT=setTimeout(lyrResume,3000);
+}
+function lyrResume(){
+  clearTimeout(S._lyrManualT);S._lyrManualT=0;
+  if(!S._lyrManual)return;
+  S._lyrManual=false;
+  const wrap=document.getElementById("lyrWrap")||document.getElementById("lyr-wrap");
+  if(!wrap){
+    const view=document.getElementById("npLyrView")||document.getElementById("wLyrView");
+    if(view){view.classList.remove("manual")}
+    return;
+  }
+  const view=wrap.closest(".lyr-view");
+  if(view)view.classList.remove("manual");
+  if(wrap._lrcPill){wrap._lrcPill.remove();wrap._lrcPill=null}
+  S.lidx=-1;   /* re-center on the current line right away */
+  lyricFollow();
+}
+window.lyrPause=lyrPause;window.lyrResume=lyrResume;window.lyrPill=lyrPill;
+/* "● LIVE" pill: click = jump back to the playing line now.
+   Lives in the lyrics HOST (not the scrolling view) so it is pinned to
+   the visible bottom-right corner no matter the scroll position. */
+function lyrPill(){
+  const wrap=document.getElementById("lyrWrap")||document.getElementById("lyr-wrap");
+  if(!wrap)return;
+  const host=wrap.closest(".lyrics")||wrap.closest(".lyr-view");
+  if(!host)return;
+  if(!wrap._lrcPill){
+    const p=document.createElement("button");
+    p.className="lyr-live";
+    p.type="button";
+    p.textContent="\u25cf LIVE";
+    p.title="Back to the playing line";
+    p.onclick=e=>{e.stopPropagation();lyrResume()};
+    wrap._lrcPill=p;
+    host.appendChild(p);
+  }
+  wrap._lrcPill.classList.add("show");
+}
+/* free scrolling: wheel over lyrics never seeks (only .seek uses the
+   wheel), and any manual scroll pauses auto-follow */
+function wireLyrScroll(doc){
+  doc=doc||document;
+  const bind=el=>{
+    if(!el)return;
+    el.addEventListener("wheel",e=>{if(!e.ctrlKey&&!e.shiftKey)lyrPause()},{passive:true});
+    el.addEventListener("touchmove",lyrPause,{passive:true});
+    el.addEventListener("pointerdown",e=>{
+      /* drag on the scrollbar (~15px gutter) = manual scroll */
+      if(e.target.closest(".lyric-line"))return;
+      const r=el.getBoundingClientRect();
+      if(e.clientX>=r.right-16)lyrPause();
+    });
+  };
+  bind(doc.getElementById("npLyrView"));
+  bind(doc.getElementById("wLyrView"));
+}
+window.wireLyrScroll=wireLyrScroll;
+
 function lyricFollow(){
   const wrap=document.getElementById("lyrWrap")||document.getElementById("lyr-wrap");
   if(!wrap||!S.lyrics.length)return;
@@ -1128,6 +1213,12 @@ function lyricFollow(){
       const ln=lines[idx];
       const top=ln.offsetTop-view.clientHeight/2+ln.offsetHeight/2;
       view.scrollTo({top:Math.max(0,top),behavior:"smooth"});
+    }
+    /* LIVE pill stays visible for the whole manual pause (resume =
+       pill click, a line click, a seek, or the 3s scroll timer) */
+    if(S._lyrManual){
+      const p=wrap._lrcPill;
+      if(p)p.classList.add("show");
     }
   }
 }
@@ -1167,6 +1258,10 @@ function wireSeek(seekEl){
   seekEl.addEventListener("pointerup",end);
   seekEl.addEventListener("pointercancel",end);
   seekEl.addEventListener("wheel",e=>{
+    /* only the seekbar itself seeks on wheel — events bubbling from
+       children/grandchildren (e.g. tooltips over the lyrics pane) must
+       scroll normally instead of yanking playback (owner bug 2) */
+    if(!(e.target===seekEl||seekEl.contains(e.target)))return;
     e.preventDefault();
     seekTo(posSec()+(e.deltaY<0?5:-5));
   },{passive:false});
@@ -1318,42 +1413,103 @@ window.requestAnimationFrame(loop);
    CONTEXT MENU (DOM fallback; widget may prefer native)
    ============================================================ */
 function openCtx(x,y,items){
-  document.querySelectorAll(".menu.ctxroot").forEach(m=>m.remove());
+  closeCtx();
   const m=document.createElement("div");
   m.className="menu ctxroot open";
   const build=(list,host)=>{
+    let i=0;
     for(const it of list){
       if(it.sep){const s=document.createElement("div");s.className="menu-sep";host.appendChild(s);continue}
       const w=document.createElement("div");
-      if(it.children){
-        w.className="ctxwrap";
-        const b=document.createElement("button");b.className="menu-item";
-        b.innerHTML=`<span class="ctxdot"></span>${esc(it.label)}<span class="ctxarrow">\u25B8</span>`;
-        w.appendChild(b);
-        const sub=document.createElement("div");sub.className="menu sub open";
-        build(it.children,sub);
-        w.appendChild(sub);
-      }else{
-        const b=document.createElement("button");b.className="menu-item"+(it.checked?" on":"");
-        b.innerHTML=`<span class="ctxdot"></span>${esc(it.label)}`;
-        b.onclick=()=>{closeCtx();it.onClick&&it.onClick()};
-        w.appendChild(b);
+      try{
+        if(it.children){
+          w.className="ctxwrap";
+          const b=document.createElement("button");b.className="menu-item";
+          b.innerHTML=`<span class="ctxdot"></span>${esc(it.label)}<span class="ctxarrow">\u25B8</span>`;
+          w.appendChild(b);
+          const sub=document.createElement("div");sub.className="menu sub open";
+          build(it.children,sub);
+          w.appendChild(sub);
+        }else{
+          const b=document.createElement("button");b.className="menu-item"+(it.checked?" on":"");
+          b.innerHTML=`<span class="ctxdot"></span>${esc(it.label)}`;
+          b.onclick=()=>{closeCtx();it.onClick&&it.onClick()};
+          w.appendChild(b);
+        }
+        host.appendChild(w);
+      }catch(err){
+        /* a broken item must not take down the whole menu in the real app */
+        console.error("openCtx: item "+i+" failed to build",err);
+        if(!w.firstChild){w.className="menu-item";w.style.opacity=".45";w.textContent="ITEM UNAVAILABLE"}
+        host.appendChild(w);
       }
-      host.appendChild(w);
+      i++;
     }
   };
   build(items,m);
   document.body.appendChild(m);
   const r=m.getBoundingClientRect();
-  m.style.left=clamp(x,4,innerWidth-r.width-4)+"px";
-  m.style.top=clamp(y,4,innerHeight-r.height-4)+"px";
-  setTimeout(()=>{
-    const close=e=>{if(!m.contains(e.target)){closeCtx();document.removeEventListener("pointerdown",close)}};
-    document.addEventListener("pointerdown",close);
-  },10);
+  /* widget windows are short: a tall menu can exceed innerHeight — clamp to
+     the biggest safe slot and let the menu itself scroll (ctx-scroll) */
+  m.style.left=clamp(x,4,Math.max(4,innerWidth-r.width-4))+"px";
+  m.style.top=clamp(y,4,Math.max(4,innerHeight-r.height-4))+"px";
+  if(r.height>innerHeight-8)m.classList.add("ctx-scroll");
+  /* submenus open to the right; flip to the left side when they would
+     cross the window edge (frameless windows clip, no OS menu manager) */
+  m.querySelectorAll(".menu.sub").forEach(s=>{
+    const sr=s.getBoundingClientRect();
+    if(sr.width&&sr.right>innerWidth-4)s.classList.add("sub-flip");
+  });
+  /* outside-close. WebView2 delivers a real right click as
+     pointerdown -> mousedown -> contextmenu, so a plain pointerdown
+     listener fired the instant our own right click landed; ignore every
+     right-button event and also watch mousedown/click/auxclick/touchstart
+     (focus/pointer-capture quirks can swallow pointerdown in WebView2). */
+  const close=e=>{if(e.button===2)return;if(!m.contains(e.target))closeCtx()};
+  const onKey=e=>{
+    if(e.key==="Escape"){closeCtx()}
+    else if(e.key==="ContextMenu"||(e.key==="F10"&&e.shiftKey)){
+      /* Windows convention: ContextMenu/Shift+F10 opens for the focused
+         element — re-dispatch a synthetic contextmenu at its centre so the
+         window's own menu builders run unchanged */
+      e.preventDefault();closeCtx();
+      const t=document.activeElement;
+      if(t&&t.dispatchEvent){
+        const r2=t.getBoundingClientRect?t.getBoundingClientRect():null;
+        const cx=r2&&r2.width?r2.left+r2.width/2:innerWidth/2;
+        const cy=r2&&r2.height?r2.top+Math.min(r2.height/2,150):innerHeight/2;
+        t.dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,cancelable:true,clientX:cx,clientY:cy}));
+      }
+    }
+    else if(e.key==="ArrowRight"){
+      const t=document.activeElement;
+      if(t&&t.classList&&t.classList.contains("menu-item")&&t.parentElement.classList.contains("ctxwrap")){
+        const f=t.parentElement.querySelector(".menu.sub .menu-item");
+        if(f){e.preventDefault();f.focus()}
+      }
+    }
+  };
+  const onBlur=()=>closeCtx();
+  ctxCleanup=()=>{
+    for(const ev of ["pointerdown","mousedown","click","auxclick","touchstart"])
+      document.removeEventListener(ev,close,true);
+    document.removeEventListener("keydown",onKey,true);
+    window.removeEventListener("blur",onBlur);
+    ctxCleanup=null;
+  };
+  for(const ev of ["pointerdown","mousedown","click","auxclick","touchstart"])
+    document.addEventListener(ev,close,true);
+  document.addEventListener("keydown",onKey,true);
+  window.addEventListener("blur",onBlur);
+  const first=m.querySelector(".menu-item");
+  if(first)try{first.focus({preventScroll:true})}catch(_){first.focus()}
   return m;
 }
-function closeCtx(){document.querySelectorAll(".menu.ctxroot").forEach(m=>m.remove())}
+let ctxCleanup=null;
+function closeCtx(){
+  document.querySelectorAll(".menu.ctxroot").forEach(m=>m.remove());
+  if(ctxCleanup){try{ctxCleanup()}catch(_){};ctxCleanup=null}
+}
 window.openCtx=openCtx;window.closeCtx=closeCtx;
 function accentMenuItems(){
   return [["album","FROM ALBUM ART"],["mint","MINT"],["sky","SKY"],["violet","VIOLET"],["rose","ROSE"],["amber","AMBER"],["red","RED"],["custom","CUSTOM"]].map(([v,l])=>({
