@@ -20,6 +20,7 @@ window.addEventListener("unhandledrejection",function(ev){
 </script>
 <link rel="stylesheet" href="themes/base.css">
 <link rel="stylesheet" href="themes/analogue.css">
+<link rel="stylesheet" href="themes/palettes.css">
 <link rel="stylesheet" href="themes/digital.css">
 <style>
 /* ============ main-window page styles (token-driven) ============ */
@@ -926,6 +927,12 @@ addEventListener("keydown",e=>{
 function cmdkItems(){
   const items=VIEWS.map(([id,label])=>({label:"Go to "+label,icon:navSVG(""),fn:()=>{S.view=id;render()}}));
   items.push({label:"Toggle theme",icon:navSVG(""),fn:()=>{const t=window.Theme;htSetTheme(t.name==="analogue"?"digital":"analogue")}});
+  if(window.Theme&&window.Theme.name==="analogue"){
+    const PAL=[["classic","Classic"],["catppuccin","Catppuccin"],["tokyonight","Tokyo Night"],
+      ["gruvbox","Gruvbox"],["nord","Nord"],["rosepine","Rosé Pine"],["dracula","Dracula"]];
+    PAL.forEach(([id,label])=>items.push({label:"Analogue palette: "+label,icon:navSVG(""),
+      fn:()=>{if(window.setCfg)setCfg("palette",id);else htSetPalette(id)}}));
+  }
   items.push({label:"Toggle light/dark",icon:navSVG(""),fn:()=>{const t=window.Theme;htSetMode(t.resolved==="dark"?"light":"dark")}});
   items.push({label:"Scan library",icon:navSVG(""),fn:()=>{if(S.root)scanLibrary(S.root).then(render)}});
   items.push({label:"Rescan (force)",icon:navSVG(""),fn:()=>rescanLibrary()});
