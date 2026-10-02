@@ -47,11 +47,95 @@ pub(crate) fn app_handle() -> Option<tauri::AppHandle> {
 #[cfg(windows)]
 mod win_corners {
     use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Gdi::{
+        CreateRectRgn, CreateRoundRectRgn, DeleteObject, GetRegionData, GetWindowRgn,
+        SetWindowRgn, HRGN, RGNDATA,
+    };
     use windows::Win32::Graphics::Dwm::{
         DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE,
         DWMWCP_DONOTROUND, DWMWCP_ROUND,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetAncestor, GetClientRect, GetWindowRect, GA_ROOT,
+    };
+
+    /// Win32 region radius that visually matches the CSS --r-w curve
+    /// (region radius = diameter/2, CSS radius = the curve's own size).
+    pub const CORNER_RADIUS_CSS: i32 = 14;
+
+    fn region_round(w: i32, h: i32, r: i32) -> HRGN {
+        unsafe { CreateRoundRectRgn(0, 0, w + 1, h + 1, r, r) }
+    }
+
+    /// Apply a rounded-rect window region. Returns true when a read-back
+    /// confirms the region took (GetWindowRgn box == window box).
+    fn set_region_round(hwnd: HWND, round: bool) -> bool {
+        unsafe {
+            let mut r = RECT::default();
+            if GetWindowRect(hwnd, &mut r).is_err() {
+                return false;
+            }
+            let w = r.right - r.left;
+            let h = r.bottom - r.top;
+            if w <= 0 || h <= 0 {
+                return false;
+            }
+            let hrgn = if round {
+                region_round(w, h, 16)
+            } else {
+                // square: clear any region by setting an exact full-window rect
+                region_round(w, h, 1)
+            };
+            // SetWindowRgn: nonzero = success; system owns the region after.
+            let ok = SetWindowRgn(hwnd, hrgn, true);
+            if ok == 0 {
+                return false;
+            }
+            if !round {
+                return true;
+            }
+            // VERIFY: copy the window's region into a scratch region and read
+            // its bounding box back via GetRegionData.
+            let scratch = unsafe { CreateRectRgn(0, 0, 0, 0) };
+            let got = unsafe { GetWindowRgn(hwnd, scratch) };
+            let mut verified = false;
+            if got.0 != 0 {
+                // got: 1=NULLREGION 2=SIMPLE 3=COMPLEX; 0=ERROR
+                let needed = unsafe { GetRegionData(scratch, 0, None) };
+                if needed > 0 {
+                    let mut buf = vec![0u8; needed as usize];
+                    let written = unsafe {
+                        GetRegionData(scratch, needed, Some(buf.as_mut_ptr() as *mut RGNDATA))
+                    };
+                    if written > 0 && buf.len() >= std::mem::size_of::<RGNDATA>() {
+                        let rd = unsafe { &*(buf.as_ptr() as *const RGNDATA) };
+                        let bw = rd.rdh.rcBound.right - rd.rdh.rcBound.left;
+                        let bh = rd.rdh.rcBound.bottom - rd.rdh.rcBound.top;
+                        verified = bw >= w - 8 && bh >= h - 8;
+                    }
+                }
+            }
+            unsafe {
+                let _ = DeleteObject(scratch);
+            }
+            verified
+        }
+    }
+
+    /// hwnd as isize (raw pointer is not Send).
+    fn root_of(hwnd_isize: isize) -> HWND {
+        let hwnd = HWND(hwnd_isize as *mut core::ffi::c_void);
+        unsafe {
+            let root = GetAncestor(hwnd, GA_ROOT);
+            if root.0.is_null() { hwnd } else { root }
+        }
+    }
+
+    /// Apply a rounded-rect window region. Returns true when a read-back
+    /// confirms the region took. (Legacy name kept; DWM-pref variant below
+    /// is unused on this app — transparent undecorated windows ignore it.)
+    fn _dwm_pref_unused() {}
 
     fn get_preference(hwnd: HWND) -> i32 {
         let mut v: i32 = 0;
@@ -88,12 +172,16 @@ mod win_corners {
 
     /// Apply + VERIFY by read-back. `round=false` forces square corners
     /// (maximized/fullscreen, matching the CSS `[data-max="1"]` rule).
-    /// Returns true only if a read-back confirms the value stuck.
+    /// Returns true only if a read-back confirms the region took.
     pub fn apply_hwnd(hwnd: HWND, round: bool) -> bool {
         let h = root_hwnd(hwnd);
-        set_preference(h, round);
-        let want = if round { 2 } else { 1 };  /* DWMWCP_ROUND / DONOTROUND */
-        get_preference(h) == want
+        let ok = set_region_round(h, round);
+        if ok {
+            // best-effort extra: DWM pref (works on non-transparent windows;
+            // ignored on these, harmless to try)
+            set_preference(h, round);
+        }
+        ok
     }
 
     pub fn apply(window: &tauri::WebviewWindow, round: bool) {
@@ -115,7 +203,7 @@ mod win_corners {
     /// is) and reconstructs it inside the thread.
     pub fn apply_verified(hwnd_isize: isize, round: bool) {
         std::thread::spawn(move || {
-            for _ in 0..10 {
+            for _ in 0..40 {
                 let h = HWND(hwnd_isize as *mut core::ffi::c_void);
                 if apply_hwnd(h, round) {
                     return;
@@ -123,6 +211,77 @@ mod win_corners {
                 std::thread::sleep(std::time::Duration::from_millis(300));
             }
         });
+    }
+
+    /// Post a WM_SIZE (current client size) to the window's own thread.
+    /// tao's wndproc runs on the event-loop thread -> fires the Resized
+    /// event -> on_window_event hook re-applies the region on that thread.
+    pub fn nudge_wm_size(hwnd_isize: isize) {
+        let hwnd = HWND(hwnd_isize as *mut core::ffi::c_void);
+        use windows::Win32::Foundation::LPARAM;
+        use windows::Win32::Foundation::WPARAM;
+        use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_SIZE};
+        unsafe {
+            let mut cr = RECT::default();
+            if GetClientRect(hwnd, &mut cr).is_ok() {
+                // +1 on width: tao dedupes WM_SIZE with unchanged dims, so a
+                // fake-but-different size guarantees the Resized event fires;
+                // the event hook re-reads real dims for the region itself.
+                let w = ((cr.right - cr.left).max(1) + 1) & 0xFFFF;
+                let h = (cr.bottom - cr.top).max(1) & 0xFFFF;
+                let lp = ((h as i32) << 16) | (w as i32);
+                let _ = PostMessageW(hwnd, WM_SIZE, WPARAM(0), LPARAM(lp as isize));
+            }
+        }
+    }
+
+    /// Apply to several hwnds until ALL verified (one thread, 40 tries).
+    pub fn apply_verified_all(hwnds: Vec<isize>, round: bool) {
+        std::thread::spawn(move || {
+            for _ in 0..40 {
+                let mut pending = hwnds.clone();
+                pending.retain(|&isz| {
+                    let h = HWND(isz as *mut core::ffi::c_void);
+                    !apply_hwnd(h, round)
+                });
+                if pending.is_empty() {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            }
+        });
+    }
+
+    /// QA + live resize support: returns (applied, w, h) of the current
+    /// window region, via htGetCorner from any window.
+    pub fn query(hwnd_isize: isize) -> (bool, i32, i32) {
+        let h = root_of(hwnd_isize);
+        unsafe {
+            let scratch = CreateRectRgn(0, 0, 0, 0);
+            let got = GetWindowRgn(h, scratch);
+            let mut result = (false, 0, 0);
+            if got.0 != 0 {
+                let needed = GetRegionData(scratch, 0, None);
+                if needed > 0 {
+                    let mut buf = vec![0u8; needed as usize];
+                    let written =
+                        GetRegionData(scratch, needed, Some(buf.as_mut_ptr() as *mut RGNDATA));
+                    if written > 0 && buf.len() >= std::mem::size_of::<RGNDATA>() {
+                        let rd = &*(buf.as_ptr() as *const RGNDATA);
+                        let bw = rd.rdh.rcBound.right - rd.rdh.rcBound.left;
+                        let bh = rd.rdh.rcBound.bottom - rd.rdh.rcBound.top;
+                        let mut wr = RECT::default();
+                        if GetWindowRect(h, &mut wr).is_ok() {
+                            let w = wr.right - wr.left;
+                            let hh = wr.bottom - wr.top;
+                            result = (bw >= w - 8 && bh >= hh - 8, bw, bh);
+                        }
+                    }
+                }
+            }
+            let _ = DeleteObject(scratch);
+            result
+        }
     }
 }
 
@@ -1389,6 +1548,18 @@ fn settings_save(app: tauri::AppHandle, v: serde_json::Value) -> Result<(), Stri
 }
 
 // ---------------------------------------------------------------------------
+// Window corners QA command: read the actual OS window region of this
+// window's root. Returns {applied, w, h}; applied=false means square/default.
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn ht_get_corner(window: tauri::WebviewWindow) -> Result<serde_json::Value, String> {
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+    let (applied, w, h) = win_corners::query(hwnd.0 as isize);
+    Ok(serde_json::json!({ "applied": applied, "w": w, "h": h }))
+}
+
+// ---------------------------------------------------------------------------
 // SMTC bridge commands (owner/UI only)
 // ---------------------------------------------------------------------------
 
@@ -1747,12 +1918,33 @@ pub fn run() {
             // window already registered from tauri.conf.json (main, widget);
             // the main window starts hidden (visible:false) but hwnd() still
             // resolves once the native HWND exists.
-            for label in ["main", "widget"] {
-                if let Some(w) = app.get_webview_window(label) {
-                    if let Ok(hwnd) = w.hwnd() {
-                        win_corners::apply_verified(hwnd.0 as isize, true);
+            // Corner regions: SetWindowRgn only takes when called on the
+            // event-loop (main) thread — foreign-thread calls silently fail
+            // (v5/v6 real-app evidence). The proven working path is the
+            // Resized-event hook, so NUDGE each window by 0.01 logical px
+            // until the region verifies. The widget never resizes by itself
+            // and main boots hidden, hence the artificial nudge.
+            {
+                let c_app = app.handle().clone();
+                std::thread::spawn(move || {
+                    use tauri::Manager;
+                    for label in ["main", "widget"] {
+                        for _ in 0..120 {
+                            if let Some(w) = c_app.get_webview_window(label) {
+                                if let Ok(hwnd) = w.hwnd() {
+                                    let (ok, _, _) = win_corners::query(
+                                        hwnd.0 as isize,
+                                    );
+                                    if ok {
+                                        break;
+                                    }
+                                    win_corners::nudge_wm_size(hwnd.0 as isize);
+                                }
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+                        }
                     }
-                }
+                });
             }
             let _ = APP.set(app.handle().clone());
             Ok(())
@@ -1772,6 +1964,22 @@ pub fn run() {
             // a window that's flush with the screen edges (visible notch at
             // the corners against the desktop).
             if let tauri::WindowEvent::Resized(_) = event {
+                // SetWindowRgn regions are absolute — a resized window keeps
+                // the OLD region until re-applied. Square when maximized
+                // (CSS [data-max="1"] rule), rounded otherwise.
+                let round = !window.is_maximized().unwrap_or(false);
+                win_corners::apply_window(window, round);
+            }
+            if let tauri::WindowEvent::ScaleFactorChanged { .. } = event {
+                let round = !window.is_maximized().unwrap_or(false);
+                win_corners::apply_window(window, round);
+            }
+            // Both windows are created (config) before this hook registers,
+            // so their boot Resized events were never seen; main works only
+            // because it is shown later (fires Resized). The widget never
+            // resizes or shows late -> arm on first focus. apply_window is
+            // idempotent (verified set -> true), so extra events are cheap.
+            if let tauri::WindowEvent::Focused(_) = event {
                 let round = !window.is_maximized().unwrap_or(false);
                 win_corners::apply_window(window, round);
             }
@@ -1805,7 +2013,8 @@ pub fn run() {
             mpris::smtc_clear,
             ota_check,
             ota_download,
-            ota_apply
+            ota_apply,
+            ht_get_corner
         ])
         .run(tauri::generate_context!())
         .expect("halftone widget failed to start");
