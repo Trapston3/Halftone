@@ -467,7 +467,7 @@ if(Q.get("page")){
           }
           /* manual scroll pause + LIVE pill + resume */
           iw.lyrPause();
-          iw.lyrFollow();
+          iw.lyricFollow();
           await new Promise(r=>setTimeout(r,30));
           ok("manual-pauses-follow",iw.S._lyrManual===true&&view.classList.contains("manual"),{manual:iw.S._lyrManual});
           ok("live-pill-shown",!!(wrap._lrcPill&&wrap._lrcPill.classList.contains("show")),{pill:!!wrap._lrcPill});
