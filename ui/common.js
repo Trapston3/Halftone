@@ -1414,7 +1414,12 @@ function loop(now){
     }
     /* dither repaint when accent tweens */
     if(artDirty||ACC.anim){
-      document.querySelectorAll("canvas.art-dither").forEach(cv=>drawDither(cv,S._img));
+      /* each canvas repaints ITS OWN image (cv._img) — pushing the
+         now-playing S._img into every dither canvas made album tiles show
+         the playing track's cover after any theme/accent redraw (the
+         "albums view shows the playing song's cover" bug). np/widget pass
+         the playing image explicitly in their own painters (correct). */
+      document.querySelectorAll("canvas.art-dither").forEach(cv=>{if(cv._img)drawDither(cv,cv._img)});
       artDirty=false;
     }
   }
