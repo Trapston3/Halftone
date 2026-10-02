@@ -118,10 +118,14 @@ function paintState(){
 }
 function paintLyricsStatus(){
   /* lyrics host visible whenever the preset needs it or lyrics exist */
-  const wantLyrics=(window.getCfg&&window.getCfg("widgetLyrics"))||S.lyrics.length>0||S.lyricsStatus==="searching";
+  const wantLyrics=(window.getCfg&&window.getCfg("widgetLyrics"))||S.lyrics.length>0||S.lyricsPlain||S.lyricsStatus==="searching";
   WID.wLyrHost.style.display=(W.preset==="strip")?"none":(wantLyrics?"flex":"none");
   if(S.lyrics.length){
     WID.wLyrStatus.innerHTML='<span class="badge lossless">'+(S._lyricsSynced===false?"PLAIN":"SYNCED")+"</span>";
+    WID.wLyrView.style.display="";
+  }else if(S.lyricsPlain){
+    /* unsynced lyrics: same pane, no highlight (mirrors main's paintLyrStatus) */
+    WID.wLyrStatus.innerHTML='<span class="badge lossless">PLAIN</span>';
     WID.wLyrView.style.display="";
   }else if(S.lyricsStatus==="searching"){
     WID.wLyrStatus.innerHTML='<span class="h-caps mono">SEARCHING\u2026</span>';
