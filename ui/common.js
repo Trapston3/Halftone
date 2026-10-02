@@ -843,6 +843,7 @@ async function setPlaying(v){
   updTransport&&updTransport();
   emitSync();
   document.dispatchEvent(new CustomEvent("halftone:state"));
+  wakeLoop();
 }
 window.setPlaying=setPlaying;
 function setVol(v){
@@ -1247,13 +1248,15 @@ function wireSeek(seekEl){
     try{seekEl.setPointerCapture(e.pointerId)}catch(_){}
     S.drag={p:apply(e),el:seekEl,t:apply(e)*durSec()};
     seekEl.classList.add("dragging");
+    wakeLoop();
   });
-  seekEl.addEventListener("pointermove",e=>{if(S.drag&&S.drag.el===seekEl){S.drag.p=apply(e);S.drag.t=S.drag.p*durSec()}});
+  seekEl.addEventListener("pointermove",e=>{if(S.drag&&S.drag.el===seekEl){S.drag.p=apply(e);S.drag.t=S.drag.p*durSec();wakeLoop()}});
   const end=()=>{
     if(!S.drag||S.drag.el!==seekEl)return;
     seekTo(S.drag.p*durSec());
     S.drag=null;S.lidx=-1;
     seekEl.classList.remove("dragging");
+    wakeLoop();
   };
   seekEl.addEventListener("pointerup",end);
   seekEl.addEventListener("pointercancel",end);
@@ -1264,6 +1267,7 @@ function wireSeek(seekEl){
     if(!(e.target===seekEl||seekEl.contains(e.target)))return;
     e.preventDefault();
     seekTo(posSec()+(e.deltaY<0?5:-5));
+    wakeLoop();
   },{passive:false});
 }
 window.wireSeek=wireSeek;
@@ -1364,9 +1368,13 @@ window.buildVol=buildVol;
 /* ============================================================
    RENDER LOOP (one per window; skips hidden work)
    ============================================================ */
-let rafPending=false,artDirty=true,themeDirty=true;
-function requestRedraw(why){artDirty=true}
+let rafPending=false,artDirty=true,themeDirty=true,idleLoopTimer=null;
+function requestRedraw(why){artDirty=true;wakeLoop()}
 window.requestRedraw=requestRedraw;
+/* wake the paint loop while paused (rAF is intentionally stopped for CPU
+   idle) — external callers get exactly one fresh frame */
+function wakeLoop(){if(!rafPending){rafPending=true;requestAnimationFrame(loop)}}
+window.wakeLoop=wakeLoop;
 /* ============================================================
    OWNER PUMP (T? bugfix): analyser sampling + the tick/bars
    broadcast to viewers (the widget) used to live inside the rAF
@@ -1421,8 +1429,27 @@ function loop(now){
   lyricFollow();
   /* owner tick/bars broadcast now lives in ownerPump() (setInterval,
      above) so it survives rAF throttling while main is hidden. */
-  if(!rafPending){rafPending=true;requestAnimationFrame(loop)}
+  /* ---- hibernation gate: rAF self-re-arms ONLY while there is motion.
+     Idle+paused previously re-armed at ~60 Hz forever, repainting
+     identical frames. While playing or accent-animating, rAF keeps its
+     vsync cadence as before. */
+  if(S.playing||ACC.anim){
+    if(!rafPending){rafPending=true;requestAnimationFrame(loop)}
+    return;
+  }
+  /* ---- hidden-window rAF insurance: the compositor throttles/pauses
+     rAF for occluded windows, so while hidden AND busy (playing,
+     mid-transition) a plain 250 ms setInterval keeps frames flowing —
+     intervals keep firing in hidden WebView2 windows where rAF does
+     not. Self-cancels when hidden ends or motion stops. */
+  if(document.hidden&&!idleLoopTimer){
+    idleLoopTimer=setInterval(function(){
+      if(document.hidden&&(S.playing||ACC.anim||artDirty)){rafPending=false;loop(performance.now())}
+      else{clearInterval(idleLoopTimer);idleLoopTimer=null}
+    },250);
+  }
 }
+window.__htIdleLoopActive=function(){return !!idleLoopTimer};
 function g_clear(cv){const g=cv.getContext("2d");if(g)g.clearRect(0,0,cv.width,cv.height)}
 window.requestAnimationFrame(loop);
 
