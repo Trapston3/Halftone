@@ -286,7 +286,22 @@ function observeCanvas(cv,onsize){
 }
 window.observeCanvas=observeCanvas;
 const BAYER4=[[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]].map(r=>r.map(v=>(v+.5)/16));
-const ditherCache=new Map();   /* key → {cv-key parts} to skip repaints */
+/* per-canvas dither cache: the old implementation kept a SINGLE shared
+   {_k,_cv} slot, so calling drawDither on a second canvas (the widget art,
+   an album card, np) evicted the only slot and made every other canvas
+   redraw on its next paint even when nothing about it had changed — a
+   latent "last canvas wins" bug. Keyed per-canvas (WeakMap) so N canvases
+   cache independently and correctly. */
+const ditherCache=new WeakMap();
+/* canvases we've already attached a resize watcher to (brief: a canvas
+   whose box is resized — window resize, widget stage rescale (T4), album
+   grid reflow — must redraw at the NEW backing size. Previously nothing
+   called drawDither again after a resize, so the old bitmap just got
+   stretched/squashed by the browser -> blurry, warped "messed up" dither
+   until some unrelated event (track/theme change) happened to repaint
+   it. observeCanvas() existed but was never wired to anything -- wire it
+   here so every dithered canvas self-heals on resize. */
+const _ditherObserved=new WeakSet();
 function ditherKey(img,N,cell,W,H){
   /* ink state included: riso light prints art in the spot ink, others in
      the accent — a theme/mode switch must invalidate the cache */
@@ -299,11 +314,20 @@ function themeMode(){return (window.Theme&&window.Theme.resolved)||"dark"}
 function drawDither(cv,img,opts){
   opts=opts||{};
   if(!cv)return;
+  /* self-heal on resize: attach once per canvas, redraw at the new size
+     using whatever image was last drawn into it (a resize never changes
+     which track's art is showing, only how big the backing store must
+     be) */
+  if(!_ditherObserved.has(cv)){
+    _ditherObserved.add(cv);
+    observeCanvas(cv,()=>{if(cv._img)drawDither(cv,cv._img,{force:true})});
+  }
   fitCanvas(cv);
   const g=cv.getContext("2d");
   if(!g)return;
   const W=cv.width,H=cv.height;
-  if(!img||(!img.naturalWidth&&!img.naturalHeight)){g.clearRect(0,0,W,H);return}
+  if(!img||(!img.naturalWidth&&!img.naturalHeight)){g.clearRect(0,0,W,H);cv._img=null;return}
+  cv._img=img;
   const density=(S.cfg&&S.cfg.grid)||32;
   const cell=Math.max(2,Math.round(W/density));
   const N=Math.max(2,Math.floor(W/cell));
@@ -318,8 +342,8 @@ function drawDither(cv,img,opts){
      backing so the two stops fighting. */
   _fitCache.set(cv,{w:BW,h:BH});
   const key=ditherKey(img,N,cell,BW,BH);
-  if(!opts.force&&ditherCache.get("_k")===key&&ditherCache.get("_cv")===cv)return;
-  ditherCache.set("_k",key);ditherCache.set("_cv",cv);
+  if(!opts.force&&ditherCache.get(cv)===key)return;
+  ditherCache.set(cv,key);
   console.log("[dither] backing="+BW+"x"+BH+" N="+N+" cell="+cell+" N*cell="+(N*cell)+" (exact="+((BW===N*cell&&BH===M*cell)?"YES":"NO")+")");
   g.imageSmoothingEnabled=false;
   /* ink color: risograph light prints dither art in the spot ink,

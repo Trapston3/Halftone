@@ -410,6 +410,10 @@ select.field option{background:var(--bg-2);color:var(--fg)}
 .card-art{width:100%;aspect-ratio:1;border-radius:var(--R-m);border:1px solid var(--line);
   background:var(--canvas-bg);display:block;object-fit:cover}
 .card-art canvas,.card-art img{width:100%;height:100%;border-radius:var(--R-m);display:block;object-fit:cover}
+/* dither canvases are hand-rasterized into solid N*cell blocks already —
+   any residual non-integer scale (WebView2 DPI virtualization, a resize
+   mid-transition) must snap those blocks, never blur them */
+canvas.art-dither{image-rendering:pixelated;image-rendering:-moz-crisp-edges}
 .card-title{font-size:.75rem;font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .card-sub{font-size:.625rem;color:var(--fg-3);letter-spacing:.08em;font-family:var(--font-mono)}
 
