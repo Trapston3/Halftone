@@ -423,23 +423,18 @@ document.addEventListener("halftone:lyrics",()=>{paintLyricsStatus();buildLyrics
   };
   new MutationObserver(settle).observe(wrap,{childList:true});
 })();
-/* manual scroll detection: wire S._lyrManual (common.js lyricFollow
-   reads it to suppress auto-follow, but nothing ever set it). Wheel,
-   touch and scrollbar drags pause follow; clicking a line (deliberate
-   seek) or 6s of quiet resumes it. */
+/* manual scroll detection (widget surface): delegate to common.js's
+   canonical lyrPause/lyrResume so the widget behaves EXACTLY like main —
+   one timer (3s resume), the ● LIVE pill, mask-off `.manual` state.
+   common.js wireLyrScroll already binds #wLyrView (same element), so
+   this block only marks pause on scrollbar press-drags, which the
+   common.js gutter heuristic can miss in the transform-scaled stage. */
 (function(){
   const view=WID.wLyrView;if(!view)return;
-  let timer=null;
-  const mark=()=>{S._lyrManual=true;if(timer)clearTimeout(timer);
-    timer=setTimeout(()=>{S._lyrManual=false},6000)};
-  view.addEventListener("wheel",mark,{passive:true});
-  view.addEventListener("touchmove",mark,{passive:true});
   view.addEventListener("pointerdown",e=>{
-    /* only scrollbar/press-drag interactions, not line clicks */
     const line=e.target.closest&&e.target.closest(".lyric-line");
-    if(!line)mark();
+    if(!line&&window.lyrPause)lyrPause();
   });
-  document.addEventListener("halftone:seeked",()=>{S._lyrManual=false;if(timer)clearTimeout(timer)});
 })();
 /* scale settings changed from the MAIN window: widget.js closure vars W
    are only synced from the store at boot, so a live change of
