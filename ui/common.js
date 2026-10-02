@@ -1464,18 +1464,21 @@ function loop(now){
      vsync cadence as before. */
   if(S.playing||ACC.anim){
     if(!rafPending){rafPending=true;requestAnimationFrame(loop)}
-    return;
   }
-  /* ---- hidden-window rAF insurance: the compositor throttles/pauses
-     rAF for occluded windows, so while hidden AND busy (playing,
-     mid-transition) a plain 250 ms setInterval keeps frames flowing —
-     intervals keep firing in hidden WebView2 windows where rAF does
-     not. Self-cancels when hidden ends or motion stops. */
-  if(document.hidden&&!idleLoopTimer){
-    idleLoopTimer=setInterval(function(){
-      if(document.hidden&&(S.playing||ACC.anim||artDirty)){rafPending=false;loop(performance.now())}
-      else{clearInterval(idleLoopTimer);idleLoopTimer=null}
-    },250);
+  /* ---- hidden-window rAF insurance (independent of the gate): the
+     compositor throttles/pauses rAF for occluded windows, so while
+     hidden AND there is motion a plain 250 ms setInterval keeps frames
+     flowing — intervals keep firing in hidden WebView2 windows where
+     rAF does not. Self-cancels when hidden ends or motion stops. */
+  if(document.hidden){
+    if(!idleLoopTimer&&(S.playing||ACC.anim||artDirty)){
+      idleLoopTimer=setInterval(function(){
+        if(document.hidden&&(S.playing||ACC.anim||artDirty)){rafPending=false;loop(performance.now())}
+        else{clearInterval(idleLoopTimer);idleLoopTimer=null}
+      },250);
+    }
+  }else if(idleLoopTimer){
+    clearInterval(idleLoopTimer);idleLoopTimer=null;
   }
 }
 window.__htIdleLoopActive=function(){return !!idleLoopTimer};
