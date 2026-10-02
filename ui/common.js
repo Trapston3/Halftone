@@ -78,7 +78,7 @@ window.EMA=EMA;
    ============================================================ */
 function $(id){return document.getElementById(id)}
 function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
-function fmt(sec){sec=Math.max(0,sec|0);const m=(sec/60)|0,s=sec%60;return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")}
+function fmt(sec){sec=Math.max(0,sec|0);const h=(sec/3600)|0,m=((sec%3600)/60)|0,s=sec%60;return (h>0?h+":"+String(m).padStart(2,"0"):String(m).padStart(2,"0"))+":"+String(s).padStart(2,"0")}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function lum(r,g,b){return (0.2126*(r/255)+0.7152*(g/255)+0.0722*(b/255))}
 function contrast(a,b){const l1=lum(...a),l2=lum(...b);const [hi,lo]=l1>l2?[l1,l2]:[l2,l1];return (hi+.05)/(lo+.05)}

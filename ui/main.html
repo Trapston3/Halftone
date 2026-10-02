@@ -837,6 +837,27 @@ function paintNP(){
 document.addEventListener("halftone:track",()=>{paintNP();updTransport()});
 document.addEventListener("halftone:art",()=>{paintNP()});
 
+/* ============ elapsed time readout (np-seek / mb-seek) ============
+   root cause of the "timer is messed up" report: this window never had
+   a window.htPagePaint hook, so the shared rAF loop (common.js `loop()`)
+   never ran any code to refresh #tCur/#nbCur — they stayed frozen at the
+   "00:00" baked into the HTML forever while the seek knob (driven by
+   paintGel/paintSeek, also in common.js) kept moving correctly off the
+   same posSec()/durSec() clock. The clock itself is fine; only the text
+   readout was never wired up. This also drives the scrub tooltip (#tip),
+   which was static for the same reason — read-only off S.drag (owned by
+   L2's wireSeek), never written here. */
+function paintTimes(){
+  const dragging=S.drag&&S.drag.el;
+  const cur=dragging?S.drag.t:posSec();
+  const dur=durSec();
+  const curTxt=fmt(cur),durTxt=fmt(dur);
+  if(el.tCur.textContent!==curTxt)el.tCur.textContent=curTxt;
+  if(el.nbCur.textContent!==curTxt)el.nbCur.textContent=curTxt;
+  if(el.tip&&el.tip.textContent!==curTxt+" / "+durTxt)el.tip.textContent=curTxt+" / "+durTxt;
+}
+window.htPagePaint=function(){paintTimes()};
+
 /* ============ lyrics pane (follow / status / offset) ============ */
 function paintLyrStatus(){
   const st=S.lyricsStatus;
