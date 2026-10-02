@@ -1144,19 +1144,26 @@ function lyrResume(){
   if(!S._lyrManual)return;
   S._lyrManual=false;
   const wrap=document.getElementById("lyrWrap")||document.getElementById("lyr-wrap");
-  if(wrap){
-    const view=wrap.closest(".lyr-view");
-    if(view)view.classList.remove("manual");
-    if(wrap._lrcPill){wrap._lrcPill.remove();wrap._lrcPill=null}
-    S.lidx=-1;   /* re-center on the current line right away */
-    lyricFollow();
+  if(!wrap){
+    const view=document.getElementById("npLyrView")||document.getElementById("wLyrView");
+    if(view){view.classList.remove("manual")}
+    return;
   }
+  const view=wrap.closest(".lyr-view");
+  if(view)view.classList.remove("manual");
+  if(wrap._lrcPill){wrap._lrcPill.remove();wrap._lrcPill=null}
+  S.lidx=-1;   /* re-center on the current line right away */
+  lyricFollow();
 }
-/* "● LIVE" pill: click = jump back to the playing line now */
+window.lyrPause=lyrPause;window.lyrResume=lyrResume;window.lyrPill=lyrPill;
+/* "● LIVE" pill: click = jump back to the playing line now.
+   Lives in the lyrics HOST (not the scrolling view) so it is pinned to
+   the visible bottom-right corner no matter the scroll position. */
 function lyrPill(){
   const wrap=document.getElementById("lyrWrap")||document.getElementById("lyr-wrap");
-  const view=wrap&&wrap.closest(".lyr-view");
-  if(!view)return;
+  if(!wrap)return;
+  const host=wrap.closest(".lyrics")||wrap.closest(".lyr-view");
+  if(!host)return;
   if(!wrap._lrcPill){
     const p=document.createElement("button");
     p.className="lyr-live";
@@ -1165,7 +1172,7 @@ function lyrPill(){
     p.title="Back to the playing line";
     p.onclick=e=>{e.stopPropagation();lyrResume()};
     wrap._lrcPill=p;
-    view.appendChild(p);
+    host.appendChild(p);
   }
   wrap._lrcPill.classList.add("show");
 }
@@ -1207,10 +1214,11 @@ function lyricFollow(){
       const top=ln.offsetTop-view.clientHeight/2+ln.offsetHeight/2;
       view.scrollTo({top:Math.max(0,top),behavior:"smooth"});
     }
-    /* show the LIVE pill while paused away from the playing line */
+    /* LIVE pill stays visible for the whole manual pause (resume =
+       pill click, a line click, a seek, or the 3s scroll timer) */
     if(S._lyrManual){
       const p=wrap._lrcPill;
-      if(p)p.classList.toggle("show",idx<0||!lines[idx].classList.contains("active"));
+      if(p)p.classList.add("show");
     }
   }
 }

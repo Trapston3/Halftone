@@ -475,6 +475,20 @@ if(Q.get("page")){
           await new Promise(r=>setTimeout(r,30));
           ok("resume-clears-manual",iw.S._lyrManual===false&&!view.classList.contains("manual"),{manual:iw.S._lyrManual});
           ok("scrollable",view.scrollHeight>view.clientHeight+4,{sh:view.scrollHeight,ch:view.clientHeight});
+          /* &lyrfreeze=1: leave the pane in manual state (scrolled away,
+             LIVE pill visible) so screenshots can capture it */
+          if(Q.get("lyrfreeze")){
+            iw.__HT_FREEZE="ran";
+            view.scrollTop=Math.max(0,lines[11].offsetTop||800);
+            iw.lyrPause();
+            /* frame timers need the FRAME window: bare clearTimeout here
+               is the parent's and cannot cancel lyrPause's 3s resume */
+            iw.clearTimeout(iw.S._lyrManualT);
+            view.classList.add("manual");
+            iw.lyrPill();
+            iw.S.lidx=-1;
+            iw.lyricFollow();
+          }
         }catch(e){ok("exception",false,{err:String(e&&(e.stack||e.message||e)).slice(0,200)})}
       },3200);
     }

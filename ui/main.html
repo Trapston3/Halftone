@@ -841,7 +841,7 @@ document.addEventListener("halftone:art",()=>{paintNP()});
 function paintLyrStatus(){
   const st=S.lyricsStatus;
   const m=S.meta;
-  if(S.lyrics.length){
+  if(S.lyrics.length||S.lyricsPlain){
     const label={sidecar:"SIDECAR .LRC",embedded:"EMBEDDED",cache:"CACHED",lrclib:"LRCLIB.NET"}[st]||st.toUpperCase();
     el.lyrStatus.innerHTML=`<span class="badge ${S._lyricsSynced===false?"":"lossless"}">${label}${S._lyricsSynced===false?" \u00b7 PLAIN":""}</span>`;
     el.npNoLrc.style.display="none";

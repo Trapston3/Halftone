@@ -447,8 +447,8 @@ select.field option{background:var(--bg-2);color:var(--fg)}
 .mini-bar .mb-seek .np-times,.np-seek .np-times{margin-top:2px}
 
 /* lyrics */
-.lyrics{flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--sp3)}
-.lyr-view{position:relative;flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 var(--sp2);
+.lyrics{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--sp3)}
+.lyr-view{position:relative;flex:1 1 0;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:0 var(--sp2);
   -webkit-mask-image:linear-gradient(transparent,#000 12%,#000 88%,transparent);
           mask-image:linear-gradient(transparent,#000 12%,#000 88%,transparent)}
 /* the pane itself must be height-constrained even when a page drops

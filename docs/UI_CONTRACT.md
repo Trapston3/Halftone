@@ -105,6 +105,11 @@ Now playing: `.np` > `.np-art` (`canvas.art-dither` or `img.art-real`),
 `.lyric-line(.active,.past,.future)`; `.past` = already sung, `.future` =
 upcoming (dimmed); `.lyrics.plain` for unsynced text;
 `.lyrics-status` (searching / none found / source label).
+Lyrics scrolling: `.lyr-view` is the scrollable pane (overflow-y auto,
+overflow-x hidden); when the user scrolls it manually foundation adds
+`.manual` (mask off) and shows the `button.lyr-live` ("● LIVE", appended
+to `.lyrics`) — clicking it, clicking a line, or any seek resumes
+auto-follow; auto-follow also self-resumes 3s after the last scroll.
 
 Overlays: `.sheet` (bottom sheet) > `.sheet-handle`, `.sheet-head`,
 `.sheet-row`; `.menu` > `.menu-item(.on)`, `.menu-sep`, nested `.menu.sub`;
