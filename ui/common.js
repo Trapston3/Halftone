@@ -1367,13 +1367,37 @@ window.buildVol=buildVol;
 let rafPending=false,artDirty=true,themeDirty=true;
 function requestRedraw(why){artDirty=true}
 window.requestRedraw=requestRedraw;
-let lastTickEmit=0;
+/* ============================================================
+   OWNER PUMP (T? bugfix): analyser sampling + the tick/bars
+   broadcast to viewers (the widget) used to live inside the rAF
+   loop() below, gated by `!hidden` — hidden being MAIN's own
+   document.hidden. Main being hidden/minimized is the NORMAL state
+   while using the widget standalone (main's close only hides it,
+   see widget.js wClose), so that gate silently froze sampling AND
+   the broadcast the instant main left the foreground (owner bug:
+   "the visualiser in the widget is broken").
+   Simply dropping the `!hidden` gate is not enough: requestAnimationFrame
+   is tied to the compositor's paint cycle and browsers/WebView2 may
+   throttle or fully pause rAF callbacks for an occluded/hidden window,
+   so the owner broadcast needs a clock that is independent of rAF.
+   setInterval keeps firing for background pages far more reliably than
+   rAF (desktop WebView2, not a backgrounded browser tab). Gated on
+   S.playing so it costs ~nothing (no analyser read, no IPC emit) when
+   nothing is actually playing. */
+let ownerPumpTimer=null;
+function ownerPump(){
+  if(!IS_OWNER||!S.playing)return;
+  sampleBars();
+  emitTick(posSec());
+  emitBars(true);
+}
+if(IS_OWNER){ownerPumpTimer=setInterval(ownerPump,1000/30);window.__htOwnerPumpTimer=ownerPumpTimer}
+
 function loop(now){
   rafPending=false;
   const hidden=document.hidden;
   tickAccent(now);
   if(!hidden){
-    if(IS_OWNER)sampleBars();
     /* paint any visible canvas meters */
     paintSeek();
     document.querySelectorAll(".vol-leds").forEach(c=>{if(c.parentElement&&c.parentElement._paintLeds)c.parentElement._paintLeds()});
@@ -1395,15 +1419,8 @@ function loop(now){
     }
   }
   lyricFollow();
-  /* owner broadcast: merged time+bars tick @30Hz (T7) */
-  if(IS_OWNER&&!hidden){
-    const t=now-lastTickEmit;
-    if(t>=1000/30){
-      lastTickEmit=now;
-      emitTick(posSec());
-      emitBars();
-    }
-  }
+  /* owner tick/bars broadcast now lives in ownerPump() (setInterval,
+     above) so it survives rAF throttling while main is hidden. */
   if(!rafPending){rafPending=true;requestAnimationFrame(loop)}
 }
 function g_clear(cv){const g=cv.getContext("2d");if(g)g.clearRect(0,0,cv.width,cv.height)}
