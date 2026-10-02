@@ -108,14 +108,18 @@ art-accent ambient blobs) — with the same layout and feature set underneath.
 - A generated, searchable settings page in the main window and a settings sheet in the widget
 - **Widget presets** — card / compact strip / square art / lyrics-focus — with
   fit-to-window or fixed-% scaling that never letterboxes or blurs
+- **Right-click anywhere** — song rows, album tiles, now-playing art, widget art or empty
+  space — opens the in-app menu (Esc or an outside click closes it; Shift+F10 works too)
 
 ### Lyrics
 - **Automatic**: sidecar `.lrc` → embedded tags → local cache → **LRCLIB** lookup, synced or
   plain, with a sync offset and a status line ("searching…" → source → retry)
-- App: large 28px lines, native scrolling, auto-follow centered on the active line; wheel
-  pauses follow; clicking a line seeks and resumes it
+- App: large 28px lines, native scrolling, auto-follow centered on the active line; wheel,
+  touchpad and scrollbar drags scroll freely — follow pauses and a **● LIVE** pill appears
+  (click it, click a line, or wait 3s to re-sync); clicking a line seeks exactly there
 - No lyrics for the track? The art auto-scales into a centered hero — no dead pane
-- Widget: collapsible pane with the same follow behavior
+- Widget: collapsible pane with the same follow behavior; lyric type scales with the
+  widget's own size and scale setting, and plain (unsynced) text renders too
 - Online lookup can be turned off in Settings; the lrclib.net search link opens the browser
   only when you click it
 

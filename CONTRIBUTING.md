@@ -38,6 +38,10 @@ cargo run --release            # or launch the exe directly with CDP env (see to
 
 ## Version notes
 
+- **v0.2.2** — bugfix release: synced lyrics follow playback and click-to-seek lands on the
+  exact line; lyrics scroll freely (auto-follow pauses, ● LIVE pill re-syncs); widget lyric
+  type scales with the widget via container queries; the right-click menu works in the real
+  app (Esc / outside click / Shift+F10, submenu edge flip).
 - **v0.2.1** — visual overhaul: Analogue light is a new risograph style, Digital dark is
   liquid glass, the nav rail collapses/hides (Ctrl+B), and the seek bar gains a spectrum
   visualiser; startup-freeze fix and hardened installers included.
