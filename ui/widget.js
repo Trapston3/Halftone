@@ -24,7 +24,14 @@ window.W=W;window.WID=WID;
 /* ============================================================
    T4: stage scaling
    ============================================================ */
-const BASE={card:[380,260],strip:[380,120],square:[300,400],lyrics:[380,300]};
+/* base logical sizes per preset — the design height for "strip" here
+   was 120, but the actual CSS (index.html wp-strip rule) is authored
+   for 132 (--w-base-h:132). The mismatch made the auto "fit" zoom
+   (s = min(w/baseW, h/baseH)) pick a slightly too-large scale for strip
+   windows sized to their natural content height, nudging rows past
+   their own padding and compounding the glow-clipping symptom (owner
+   bug: widget "scaling weird"). Keep this in sync with the CSS. */
+const BASE={card:[380,260],strip:[380,132],square:[300,400],lyrics:[380,300]};
 function baseSize(){return BASE[W.preset]||BASE.card}
 function applyStage(){
   const [bw,bh]=baseSize();

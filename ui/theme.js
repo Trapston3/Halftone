@@ -1,7 +1,7 @@
 /* ============================================================
    HALFTONE theme engine (foundation-owned)
    - Sets root attributes from the UI contract:
-       data-theme, data-mode, data-motion, data-density,
+       data-theme, data-mode, data-palette, data-motion, data-density,
        data-surface, data-nav (+ data-nav-labels)
    - "system" mode follows prefers-color-scheme LIVE.
    - Reads canvas tokens (--canvas-bg/off/ink) + switch tokens
@@ -18,7 +18,7 @@ const IS_OWNER=window.IS_OWNER!==false&&(!T||!T.window||!window.curWinLabel||win
 
 /* ---------- current resolved state (persisted through settings.js) ---------- */
 const Theme={
-  name:"analogue", mode:"system", resolved:"dark",
+  name:"analogue", mode:"system", resolved:"dark", palette:"classic",
   motion:"full", density:"cozy", nav:"left", navLabels:"icons", navState:"expanded",
   canvas:{bg:[18,23,26],off:[35,42,46],ink:[242,232,207]},
   seekStyle:"led", volStyle:"leds", artDefault:"dither", ambientDefault:"dither"
@@ -58,6 +58,7 @@ function applyAttrs(){
   const set=(k,v)=>{if(r.getAttribute(k)!==v)r.setAttribute(k,v)};
   set("data-theme",Theme.name);
   set("data-mode",Theme.resolved);
+  set("data-palette",Theme.palette);
   set("data-motion",Theme.motion);
   set("data-density",Theme.density);
   set("data-surface",document.body.dataset.surface||"main");
@@ -175,13 +176,21 @@ window.htSetNavState=function(st){
   if(!["expanded","collapsed","hidden"].includes(st))st="expanded";
   if(Theme.navState===st)return;
   Theme.navState=st;dispatchTheme();syncOther()};
+/* analogue palette presets — only meaningful when theme==="analogue",
+   but harmless (no selector matches) when theme is "digital" */
+const PALETTES=["classic","catppuccin","tokyonight","gruvbox","nord","rosepine","dracula"];
+window.htSetPalette=function(p){
+  if(!PALETTES.includes(p))p="classic";
+  if(Theme.palette===p)return;
+  Theme.palette=p;dispatchTheme();syncOther();
+};
 
 /* ---------- both windows switch together ---------- */
 function syncOther(){
   if(!(T&&T.event&&T.event.emit))return;
-  try{T.event.emit("halftone:settings",{keys:["theme","mode","motion","density","nav","navLabels","navState"],
+  try{T.event.emit("halftone:settings",{keys:["theme","mode","motion","density","nav","navLabels","navState","palette"],
     themeState:{theme:Theme.name,mode:Theme.resolved,motion:Theme.motion,density:Theme.density,
-      nav:Theme.nav,navLabels:Theme.navLabels,navState:Theme.navState}}).catch(()=>{})}catch(_){}
+      nav:Theme.nav,navLabels:Theme.navLabels,navState:Theme.navState,palette:Theme.palette}}).catch(()=>{})}catch(_){}
 }
 /* receive: the other window applied theme state first — mirror it exactly */
 if(T&&T.event&&T.event.listen){
@@ -196,6 +205,7 @@ if(T&&T.event&&T.event.listen){
     if(ts.nav&&ts.nav!==Theme.nav){Theme.nav=ts.nav;quiet=true}
     if(ts.navLabels&&ts.navLabels!==Theme.navLabels){Theme.navLabels=ts.navLabels;quiet=true}
     if(ts.navState&&ts.navState!==Theme.navState){Theme.navState=ts.navState;quiet=true}
+    if(ts.palette&&ts.palette!==Theme.palette){Theme.palette=ts.palette;quiet=true}
     if(quiet)dispatchTheme();
   }).catch(()=>{})}catch(_){}
 }

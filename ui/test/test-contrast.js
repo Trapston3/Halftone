@@ -185,12 +185,41 @@ function componentColors(theme, mode) {
 
 const WANT = ['--bg', '--fg', '--fg-2', '--fg-3', '--accent-fg', '--accent', '--accent-print', '--accent-deep', '--panel-bg', '--riso-blue'];
 
+/* analogue palette presets (ui/themes/palettes.css) — pure token overrides
+   scoped to :root[data-theme="analogue"][data-palette="<id>"][data-mode="…"].
+   "classic" is the base analogue.css values (no palette override at all). */
+const PALETTES = ['classic', 'catppuccin', 'tokyonight', 'gruvbox', 'nord', 'rosepine', 'dracula'];
+
+/* same scoped-:root collector as resolve(), but reads palettes.css and
+   returns {} for "classic" (nothing to overlay) */
+function resolvePalette(mode, palette, want) {
+  if (palette === 'classic') return {};
+  const found = {};
+  const wantSet = new Set(want);
+  const css = fs.readFileSync(path.join(THEME_DIR, 'palettes.css'), 'utf8');
+  const scope = `:root[data-theme="analogue"][data-palette="${palette}"][data-mode="${mode}"]`;
+  for (const r of rules(css)) {
+    for (const part of r.sel.split(',')) {
+      if (part.replace(/\s+/g, ' ').trim() === scope) {
+        for (const decl of r.body.split(';')) {
+          const i = decl.indexOf(':');
+          if (i === -1) continue;
+          const k = decl.slice(0, i).trim();
+          if (wantSet.has(k)) found[k] = decl.slice(i + 1).trim();
+        }
+      }
+    }
+  }
+  return found;
+}
+
 let failures = 0;
 console.log('CONTRAST AUDIT (WCAG 2.1) — sampled from shipped theme CSS');
 console.log('='.repeat(64));
 for (const theme of THEMES) {
   for (const mode of ['dark', 'light']) {
-    vars = resolve(theme, mode, WANT);
+    for (const palette of (theme === 'analogue' ? PALETTES : ['classic'])) {
+    vars = Object.assign(resolve(theme, mode, WANT), resolvePalette(mode, palette, WANT));
     // --accent is written by theme.js (album-art derived); emulate the gallery's
     // default value (reviewer-specified sample accent) so var() chains resolve
     if (!vars['--accent']) vars['--accent'] = 'rgb(102, 224, 194)';
@@ -235,7 +264,8 @@ for (const theme of THEMES) {
       rows.push(['accent-deep / panel (cur title, hover text)', color(deep), panelBg, 4.5]);
       rows.push(['accent-fg / accent (active pill, on-accent text)', c('--accent-fg'), accent, 4.5]);
     }
-    console.log(`\n${theme.toUpperCase()} — ${mode.toUpperCase()}`);
+    const label = theme.toUpperCase() + ' — ' + mode.toUpperCase() + (palette !== 'classic' ? ` — palette:${palette}` : '');
+    console.log(`\n${label}`);
     for (const [name, fg, bgc, aa] of rows) {
       if (!fg || !bgc) {
         failures++;
@@ -250,6 +280,7 @@ for (const theme of THEMES) {
         || name.includes('[n/a in riso');
       if (!pass && !info) failures++;
       console.log(`  ${pass ? 'PASS' : info ? 'INFO' : 'FAIL'}  ${r.toFixed(2).padStart(5)}:1  (need ${aa}:1)  ${name}${info ? '  [info: raw accent unused for text/marks in light]' : ''}`);
+    }
     }
   }
 }

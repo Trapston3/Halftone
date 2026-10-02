@@ -1,0 +1,310 @@
+/* ============================================================
+   ANALOGUE PALETTE PRESETS
+   Pure token overrides on top of ui/themes/analogue.css — no
+   structural CSS here. Scoped to
+     :root[data-theme="analogue"][data-palette="<id>"][data-mode="dark|light"]
+   which out-specifies the base analogue rule (one extra attribute
+   selector), so only the tokens listed below change; every rule in
+   analogue.css that isn't overridden here (buttons, panels, LED
+   strips, riso stamps, etc.) keeps working unmodified because it
+   reads the SAME custom properties.
+
+   "classic" (the current look) needs no block: it IS the default
+   analogue.css value with no [data-palette] qualifier at all.
+
+   Role map used for every preset (mirrors analogue.css's own tokens):
+     --bg/--bg-2/--bg-3   background, panel, raised/hover
+     --fg/--fg-2/--fg-3   text, secondary text, muted text
+     --line/--line-2      hairline borders, stronger borders
+     --ok/--warn/--danger status colors (success/caution/error)
+     --canvas-bg/--canvas-off/--canvas-ink   dither art + LED canvas
+     --accent-print       LED/active-row/marker accent (theme-owned;
+                           NOT the JS album-art --accent, which themes
+                           never set — see docs/UI_CONTRACT.md)
+     --glow-accent/--glow-text   phosphor bloom tuned to accent-print
+   Light mode additionally re-keys the riso "spot ink" pair:
+     --riso-blue   primary ink (headings, stamps, active states)
+     --riso-pink   secondary ink (misregistration shadow, decorative)
+   ============================================================ */
+
+/* ----------------------------------------------------
+   CATPPUCCIN — dark = Mocha, light = Latte
+   ---------------------------------------------------- */
+:root[data-theme="analogue"][data-palette="catppuccin"][data-mode="dark"] {
+  --bg: #1e1e2e;       /* base */
+  --bg-2: #181825;     /* mantle */
+  --bg-3: #313244;     /* surface0 */
+  --fg: #cdd6f4;        /* text */
+  --fg-rgb: 205,214,244;
+  --fg-2: #bac2de;      /* subtext1 */
+  --fg-3: #9399b2;      /* overlay2 — kept bright enough for AA */
+  --line: #313244;      /* surface0 */
+  --line-2: #45475a;    /* surface1 */
+  --accent-fg: #11111b; /* crust, text on accent-filled orb */
+  --ok: #a6e3a1;         /* green */
+  --warn: #f9e2af;       /* yellow */
+  --danger: #f38ba8;     /* red */
+  --canvas-bg: #181825;  /* mantle */
+  --canvas-off: #313244; /* surface0 */
+  --canvas-ink: #cdd6f4; /* text */
+  --accent-print: #cba6f7;  /* mauve */
+  --glow-accent: 0 0 12px rgba(203,166,247,.35), 0 0 2px rgba(203,166,247,.5);
+  --glow-text: 0 0 8px rgba(203,166,247,.35);
+}
+:root[data-theme="analogue"][data-palette="catppuccin"][data-mode="light"] {
+  --bg: #eff1f5;        /* base */
+  --bg-2: #e6e9ef;      /* mantle */
+  --bg-3: #dce0e8;      /* crust */
+  --fg: #4c4f69;         /* text */
+  --fg-rgb: 76,79,105;
+  --fg-2: #5c5f77;       /* subtext1 */
+  --fg-3: #66687d;       /* subtext0, darkened for AA on bg */
+  --line: #ccd0da;       /* surface0 */
+  --line-2: #acb0be;     /* surface2 */
+  --accent-fg: #eff1f5;  /* base, text on ink-filled stamp */
+  --ok: #40a02b;          /* green */
+  --warn: #df8e1d;        /* yellow */
+  --danger: #d20f39;      /* red */
+  --canvas-bg: #e6e9ef;   /* mantle */
+  --canvas-off: #dce0e8;  /* crust */
+  --canvas-ink: #4c4f69;  /* text */
+  --riso-blue: #8839ef;   /* mauve — primary ink */
+  --riso-pink: #ea76cb;   /* pink — secondary ink */
+  --riso-pink-rgb: 234,118,203;
+  --accent-print: #8839ef;
+}
+
+/* ----------------------------------------------------
+   TOKYO NIGHT — dark = Night, light = Day
+   ---------------------------------------------------- */
+:root[data-theme="analogue"][data-palette="tokyonight"][data-mode="dark"] {
+  --bg: #1a1b26;
+  --bg-2: #16161e;
+  --bg-3: #292e42;
+  --fg: #c0caf5;
+  --fg-rgb: 192,202,245;
+  --fg-2: #a9b1d6;
+  --fg-3: #8f96c9;      /* brightened comment (#565f89) for AA on bg */
+  --line: #292e42;
+  --line-2: #3b4261;
+  --accent-fg: #16161e;
+  --ok: #9ece6a;
+  --warn: #e0af68;
+  --danger: #f7768e;
+  --canvas-bg: #16161e;
+  --canvas-off: #292e42;
+  --canvas-ink: #c0caf5;
+  --accent-print: #7aa2f7;  /* blue */
+  --glow-accent: 0 0 12px rgba(122,162,247,.35), 0 0 2px rgba(122,162,247,.5);
+  --glow-text: 0 0 8px rgba(122,162,247,.35);
+}
+:root[data-theme="analogue"][data-palette="tokyonight"][data-mode="light"] {
+  --bg: #e1e2e7;
+  --bg-2: #d5d6db;
+  --bg-3: #c4c8da;
+  --fg: #343b58;        /* deepened fg (#3760bf reads too blue as body text) */
+  --fg-rgb: 52,59,88;
+  --fg-2: #4c5272;
+  --fg-3: #505d90;       /* comment, darkened for AA on bg */
+  --line: #c4c8da;
+  --line-2: #a1a6c5;
+  --accent-fg: #e1e2e7;
+  --ok: #587539;
+  --warn: #8c6c3e;
+  --danger: #c64343;
+  --canvas-bg: #d5d6db;
+  --canvas-off: #c4c8da;
+  --canvas-ink: #343b58;
+  --riso-blue: #235fb1;   /* blue, darkened for AA — primary ink */
+  --riso-pink: #9854f1;   /* magenta — secondary ink */
+  --riso-pink-rgb: 152,84,241;
+  --accent-print: #235fb1;
+}
+
+/* ----------------------------------------------------
+   GRUVBOX — dark = hard, light = hard
+   ---------------------------------------------------- */
+:root[data-theme="analogue"][data-palette="gruvbox"][data-mode="dark"] {
+  --bg: #1d2021;
+  --bg-2: #282828;
+  --bg-3: #3c3836;
+  --fg: #ebdbb2;
+  --fg-rgb: 235,219,178;
+  --fg-2: #d5c4a1;
+  --fg-3: #bdae93;
+  --line: #3c3836;
+  --line-2: #504945;
+  --accent-fg: #1d2021;
+  --ok: #b8bb26;
+  --warn: #fabd2f;
+  --danger: #fb4934;
+  --canvas-bg: #282828;
+  --canvas-off: #3c3836;
+  --canvas-ink: #ebdbb2;
+  --accent-print: #fe8019;  /* bright orange */
+  --glow-accent: 0 0 12px rgba(254,128,25,.35), 0 0 2px rgba(254,128,25,.5);
+  --glow-text: 0 0 8px rgba(254,128,25,.35);
+}
+:root[data-theme="analogue"][data-palette="gruvbox"][data-mode="light"] {
+  --bg: #f9f5d7;
+  --bg-2: #fbf1c7;
+  --bg-3: #ebdbb2;
+  --fg: #3c3836;
+  --fg-rgb: 60,56,54;
+  --fg-2: #504945;
+  --fg-3: #665c54;
+  --line: #ebdbb2;
+  --line-2: #d5c4a1;
+  --accent-fg: #f9f5d7;
+  --ok: #79740e;
+  --warn: #b57614;
+  --danger: #9d0006;
+  --canvas-bg: #fbf1c7;
+  --canvas-off: #ebdbb2;
+  --canvas-ink: #3c3836;
+  --riso-blue: #af3a03;   /* burnt orange — primary ink */
+  --riso-pink: #8f3f71;   /* purple — secondary ink */
+  --riso-pink-rgb: 143,63,113;
+  --accent-print: #af3a03;
+}
+
+/* ----------------------------------------------------
+   NORD — dark = Polar Night + Frost, light = Snow Storm
+   ---------------------------------------------------- */
+:root[data-theme="analogue"][data-palette="nord"][data-mode="dark"] {
+  --bg: #2e3440;
+  --bg-2: #3b4252;
+  --bg-3: #434c5e;
+  --fg: #eceff4;
+  --fg-rgb: 236,239,244;
+  --fg-2: #d8dee9;
+  --fg-3: #9fabc4;      /* brightened nord3 for AA */
+  --line: #434c5e;
+  --line-2: #4c566a;
+  --accent-fg: #2e3440;
+  --ok: #a3be8c;
+  --warn: #ebcb8b;
+  --danger: #bf616a;
+  --canvas-bg: #3b4252;
+  --canvas-off: #434c5e;
+  --canvas-ink: #eceff4;
+  --accent-print: #88c0d0;  /* frost cyan */
+  --glow-accent: 0 0 12px rgba(136,192,208,.35), 0 0 2px rgba(136,192,208,.5);
+  --glow-text: 0 0 8px rgba(136,192,208,.35);
+}
+:root[data-theme="analogue"][data-palette="nord"][data-mode="light"] {
+  --bg: #eceff4;
+  --bg-2: #e5e9f0;
+  --bg-3: #d8dee9;
+  --fg: #2e3440;
+  --fg-rgb: 46,52,64;
+  --fg-2: #3b4252;
+  --fg-3: #4c566a;
+  --line: #d8dee9;
+  --line-2: #c4cbdb;
+  --accent-fg: #eceff4;
+  --ok: #4f7a3d;
+  --warn: #9a7a24;
+  --danger: #a23b45;
+  --canvas-bg: #e5e9f0;
+  --canvas-off: #d8dee9;
+  --canvas-ink: #2e3440;
+  --riso-blue: #4d6a8d;   /* frost dark blue, darkened for AA — primary ink */
+  --riso-pink: #8f6a94;   /* muted purple — secondary ink */
+  --riso-pink-rgb: 143,106,148;
+  --accent-print: #4d6a8d;
+}
+
+/* ----------------------------------------------------
+   ROSÉ PINE — dark = main, light = Dawn
+   ---------------------------------------------------- */
+:root[data-theme="analogue"][data-palette="rosepine"][data-mode="dark"] {
+  --bg: #191724;
+  --bg-2: #1f1d2e;
+  --bg-3: #26233a;
+  --fg: #e0def4;
+  --fg-rgb: 224,222,244;
+  --fg-2: #c0bcdd;      /* brightened subtle (#908caa) for AA */
+  --fg-3: #938fb3;
+  --line: #26233a;
+  --line-2: #403d52;
+  --accent-fg: #191724;
+  --ok: #9ccfd8;         /* foam stands in for a cool "ok" */
+  --warn: #f6c177;       /* gold */
+  --danger: #eb6f92;     /* love */
+  --canvas-bg: #1f1d2e;
+  --canvas-off: #26233a;
+  --canvas-ink: #e0def4;
+  --accent-print: #c4a7e7;  /* iris */
+  --glow-accent: 0 0 12px rgba(196,167,231,.35), 0 0 2px rgba(196,167,231,.5);
+  --glow-text: 0 0 8px rgba(196,167,231,.35);
+}
+:root[data-theme="analogue"][data-palette="rosepine"][data-mode="light"] {
+  --bg: #faf4ed;
+  --bg-2: #fffaf3;
+  --bg-3: #f2e9e1;
+  --fg: #575279;
+  --fg-rgb: 87,82,121;
+  --fg-2: #6a6590;
+  --fg-3: #6d6984;      /* darkened for AA on bg */
+  --line: #f2e9e1;
+  --line-2: #dfdad9;
+  --accent-fg: #faf4ed;
+  --ok: #4c7f85;
+  --warn: #946715;
+  --danger: #b4637a;
+  --canvas-bg: #fffaf3;
+  --canvas-off: #f2e9e1;
+  --canvas-ink: #575279;
+  --riso-blue: #76648b;   /* iris, darkened for AA — primary ink */
+  --riso-pink: #d7827e;   /* rose — secondary ink */
+  --riso-pink-rgb: 215,130,126;
+  --accent-print: #76648b;
+}
+
+/* ----------------------------------------------------
+   DRACULA — dark = official, light = Alucard-style derivative
+   ---------------------------------------------------- */
+:root[data-theme="analogue"][data-palette="dracula"][data-mode="dark"] {
+  --bg: #282a36;
+  --bg-2: #21222c;
+  --bg-3: #343746;
+  --fg: #f8f8f2;
+  --fg-rgb: 248,248,242;
+  --fg-2: #cbccc6;
+  --fg-3: #9ea3c4;      /* brightened comment (#6272a4) for AA */
+  --line: #343746;
+  --line-2: #44475a;
+  --accent-fg: #1e1f29;
+  --ok: #50fa7b;
+  --warn: #f1fa8c;
+  --danger: #ff5555;
+  --canvas-bg: #21222c;
+  --canvas-off: #343746;
+  --canvas-ink: #f8f8f2;
+  --accent-print: #bd93f9;  /* purple */
+  --glow-accent: 0 0 12px rgba(189,147,249,.35), 0 0 2px rgba(189,147,249,.5);
+  --glow-text: 0 0 8px rgba(189,147,249,.35);
+}
+:root[data-theme="analogue"][data-palette="dracula"][data-mode="light"] {
+  --bg: #f8f8f2;
+  --bg-2: #efeff0;
+  --bg-3: #e6e6e6;
+  --fg: #282a36;
+  --fg-rgb: 40,42,54;
+  --fg-2: #424450;
+  --fg-3: #5a5d75;
+  --line: #e6e6e6;
+  --line-2: #cfcfd6;
+  --accent-fg: #f8f8f2;
+  --ok: #157a3c;
+  --warn: #7a6c00;
+  --danger: #c7283f;
+  --canvas-bg: #efeff0;
+  --canvas-off: #e6e6e6;
+  --canvas-ink: #282a36;
+  --riso-blue: #6a4fb3;   /* purple, darkened for AA — primary ink */
+  --riso-pink: #c42d75;   /* pink, darkened for AA — secondary ink */
+  --riso-pink-rgb: 196,45,117;
+  --accent-print: #6a4fb3;
+}

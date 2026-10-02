@@ -39,6 +39,11 @@ const SCHEMA=[
 {key:"mode",group:"Appearance",label:"Color mode",type:"seg",surface:"both",default:"dark",
   options:[["system","SYS"],["light","LIGHT"],["dark","DARK"]],
   apply:v=>window.htSetMode&&window.htSetMode(v)},
+{key:"palette",group:"Appearance",label:"Analogue palette",type:"select",surface:"both",default:"classic",
+  hint:"Only applies when Theme = Analogue.",
+  options:[["classic","Classic (default)"],["catppuccin","Catppuccin"],["tokyonight","Tokyo Night"],
+           ["gruvbox","Gruvbox"],["nord","Nord"],["rosepine","Rosé Pine"],["dracula","Dracula"]],
+  apply:v=>window.htSetPalette&&window.htSetPalette(v)},
 {key:"accent",group:"Appearance",label:"Accent",type:"select",surface:"both",default:"album",
   options:[["album","From album art"],["mint","#66E0C2"],["sky","#6EC5E8"],["violet","#A78BFA"],
            ["rose","#F27DA0"],["amber","#E0B966"],["red","#E06666"],["custom","Custom"]],
@@ -364,7 +369,7 @@ function render(root,filter){
     const sec=document.createElement("div");sec.className="set-group";
     sec.innerHTML=`<div class="h-caps">${g.name.toUpperCase()}</div>`;
     for(const s of g.rows){
-      const cur=s.key==="theme"?ThemeCur():getIn(s.key);
+      const cur=s.key==="theme"?ThemeCur():s.key==="palette"?PaletteCur():getIn(s.key);
       const row=document.createElement("div");row.className="set-row";row.dataset.key=s.key;
       row.innerHTML=`<div class="set-info"><span class="set-label">${s.label}</span>${s.hint?`<span class="set-hint">${s.hint}</span>`:""}</div>
         <div class="set-ctl">${ctlFor(s,cur)}<button class="set-reset" title="Reset to default" aria-label="Reset ${s.label}">${icoReset()}</button></div>`;
@@ -378,17 +383,18 @@ function render(root,filter){
 
 /* theme value lives in theme.js state, not the store copy */
 function ThemeCur(){return (window.Theme&&window.Theme.name)||"analogue"}
+function PaletteCur(){return (window.Theme&&window.Theme.palette)||"classic"}
 
 function refreshRow(key){
   const s=SCHEMA.find(x=>x.key===key);if(!s)return;
   const row=document.querySelector(`.set-row[data-key="${key}"]`);if(!row)return;
-  const cur=s.key==="theme"?ThemeCur():getIn(key);
+  const cur=s.key==="theme"?ThemeCur():s.key==="palette"?PaletteCur():getIn(key);
   row.querySelector(".set-ctl").innerHTML=ctlFor(s,cur)+"<button class=\"set-reset\" title=\"Reset to default\">"+icoReset()+"</button>";
   wireRow(row,s);
 }
 
 function wireRow(row,s){
-  const cur=s.key==="theme"?ThemeCur():getIn(s.key);
+  const cur=s.key==="theme"?ThemeCur():s.key==="palette"?PaletteCur():getIn(s.key);
   if(s.type==="toggle"){
     const inp=row.querySelector("input");
     inp.checked=!!cur;

@@ -20,6 +20,7 @@ window.addEventListener("unhandledrejection",function(ev){
 </script>
 <link rel="stylesheet" href="themes/base.css">
 <link rel="stylesheet" href="themes/analogue.css">
+<link rel="stylesheet" href="themes/palettes.css">
 <link rel="stylesheet" href="themes/digital.css">
 <style>
 /* ============ widget page styles ============ */
@@ -33,7 +34,17 @@ body{background:transparent;overflow:hidden}
   position:fixed;left:0;top:0;transform-origin:0 0;z-index:1;
   display:flex;flex-direction:column;
   background:var(--panel-bg);border:1px solid var(--panel-border);
-  border-radius:calc(var(--R-w));overflow:hidden;
+  border-radius:calc(var(--R-w));
+  /* NOTE was overflow:hidden — clipped the liquid-glass button glow
+     (digital dark mode .btn-orb.lg has an 18-26px external box-shadow
+     bloom) against the stage's own tight edges, producing a visible
+     flat cut on the glow (owner bug: "buttons clipping on the widget").
+     border-radius still clips the stage's OWN background/border (that
+     is independent of overflow), so the rounded-card look is unchanged;
+     only child overflow (glow/hover-scale) is no longer clamped here.
+     Art (.w-art) and the lyrics scroll view keep their own
+     overflow:hidden/auto, so nothing that needs clipping loses it. */
+  overflow:visible;
 }
 .w-head{display:flex;align-items:flex-start;gap:var(--sp3);padding:var(--sp3);min-height:0}
 .w-artwrap{position:relative;flex:none}
@@ -141,9 +152,15 @@ body{background:transparent;overflow:hidden}
    keeps its identity, pane yielding rather than overlapping. Tall
    windows give the big square art back. */
 .widget-stage.wp-square .w-artwrap{flex:1 1 0;min-height:72px;width:100%;
-  display:flex;justify-content:center;align-items:stretch}
+  display:flex;justify-content:center;align-items:stretch;
+  /* clip the art box itself here (its aspect-ratio can overflow the
+     column during flex sizing) instead of on .w-head below — w-head's
+     own overflow:hidden also clipped .w-actions' button glow (same
+     class of bug as the stage-level fix above), and the art needs
+     containment but the actions row does not. */
+  overflow:hidden}
 .widget-stage.wp-square .w-art{width:auto;height:100%;aspect-ratio:1;max-width:100%}
-.widget-stage.wp-square .w-head{flex-direction:column;flex:1;min-height:0;overflow:hidden}
+.widget-stage.wp-square .w-head{flex-direction:column;flex:1;min-height:0}
 .widget-stage.wp-square .w-meta{padding-top:0;flex:none}
 .widget-stage.wp-square .w-actions{flex:none;margin-left:0;align-self:flex-end}
 .widget-stage.wp-square .widget-lyrics .lyr-view{min-height:0}

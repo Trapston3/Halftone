@@ -20,6 +20,7 @@ window.addEventListener("unhandledrejection",function(ev){
 </script>
 <link rel="stylesheet" href="themes/base.css">
 <link rel="stylesheet" href="themes/analogue.css">
+<link rel="stylesheet" href="themes/palettes.css">
 <link rel="stylesheet" href="themes/digital.css">
 <style>
 /* ============ main-window page styles (token-driven) ============ */
@@ -837,6 +838,27 @@ function paintNP(){
 document.addEventListener("halftone:track",()=>{paintNP();updTransport()});
 document.addEventListener("halftone:art",()=>{paintNP()});
 
+/* ============ elapsed time readout (np-seek / mb-seek) ============
+   root cause of the "timer is messed up" report: this window never had
+   a window.htPagePaint hook, so the shared rAF loop (common.js `loop()`)
+   never ran any code to refresh #tCur/#nbCur — they stayed frozen at the
+   "00:00" baked into the HTML forever while the seek knob (driven by
+   paintGel/paintSeek, also in common.js) kept moving correctly off the
+   same posSec()/durSec() clock. The clock itself is fine; only the text
+   readout was never wired up. This also drives the scrub tooltip (#tip),
+   which was static for the same reason — read-only off S.drag (owned by
+   L2's wireSeek), never written here. */
+function paintTimes(){
+  const dragging=S.drag&&S.drag.el;
+  const cur=dragging?S.drag.t:posSec();
+  const dur=durSec();
+  const curTxt=fmt(cur),durTxt=fmt(dur);
+  if(el.tCur.textContent!==curTxt)el.tCur.textContent=curTxt;
+  if(el.nbCur.textContent!==curTxt)el.nbCur.textContent=curTxt;
+  if(el.tip&&el.tip.textContent!==curTxt+" / "+durTxt)el.tip.textContent=curTxt+" / "+durTxt;
+}
+window.htPagePaint=function(){paintTimes()};
+
 /* ============ lyrics pane (follow / status / offset) ============ */
 function paintLyrStatus(){
   const st=S.lyricsStatus;
@@ -926,6 +948,12 @@ addEventListener("keydown",e=>{
 function cmdkItems(){
   const items=VIEWS.map(([id,label])=>({label:"Go to "+label,icon:navSVG(""),fn:()=>{S.view=id;render()}}));
   items.push({label:"Toggle theme",icon:navSVG(""),fn:()=>{const t=window.Theme;htSetTheme(t.name==="analogue"?"digital":"analogue")}});
+  if(window.Theme&&window.Theme.name==="analogue"){
+    const PAL=[["classic","Classic"],["catppuccin","Catppuccin"],["tokyonight","Tokyo Night"],
+      ["gruvbox","Gruvbox"],["nord","Nord"],["rosepine","Rosé Pine"],["dracula","Dracula"]];
+    PAL.forEach(([id,label])=>items.push({label:"Analogue palette: "+label,icon:navSVG(""),
+      fn:()=>{if(window.setCfg)setCfg("palette",id);else htSetPalette(id)}}));
+  }
   items.push({label:"Toggle light/dark",icon:navSVG(""),fn:()=>{const t=window.Theme;htSetMode(t.resolved==="dark"?"light":"dark")}});
   items.push({label:"Scan library",icon:navSVG(""),fn:()=>{if(S.root)scanLibrary(S.root).then(render)}});
   items.push({label:"Rescan (force)",icon:navSVG(""),fn:()=>rescanLibrary()});

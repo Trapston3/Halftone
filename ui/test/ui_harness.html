@@ -276,6 +276,7 @@ if(Q.get("page")){
           if(Q.get("navstate"))iw.htSetNavState&&iw.htSetNavState(Q.get("navstate"));
           if(Q.get("theme"))iw.htSetTheme(Q.get("theme"));
           if(Q.get("mode"))iw.htSetMode(Q.get("mode"));
+          if(Q.get("palette"))iw.htSetPalette&&iw.htSetPalette(Q.get("palette"));
           /* QA determinism: something can flip theme/mode after apply
              (late async in the app). Trap every setter call and re-assert
              the requested values for 12s so shots can't drift. */
@@ -388,6 +389,7 @@ if(Q.get("page")){
           if(Q.get("preset")&&iw.applyWidgetPreset)iw.applyWidgetPreset(Q.get("preset"));
           if(Q.get("theme"))iw.htSetTheme(Q.get("theme"));
           if(Q.get("mode"))iw.htSetMode(Q.get("mode"));
+          if(Q.get("palette"))iw.htSetPalette&&iw.htSetPalette(Q.get("palette"));
           /* no owner frame exists in shot mode: synthesize the sync the
              main window would broadcast, so widget shots show a real
              playing state (art + dither + title) — brief defect 6 */

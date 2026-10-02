@@ -34,6 +34,58 @@ pub(crate) fn app_handle() -> Option<tauri::AppHandle> {
     APP.get().cloned()
 }
 
+// ---------------------------------------------------------------------------
+// Windows 11 native rounded corners (DWM). The app's windows are undecorated
+// + transparent:true; WebView2's "transparent" background does not clip the
+// OS window's own rectangular surface, so without this the real exe shows a
+// SQUARE window (the CSS border-radius only rounds the painted content —
+// the corner triangles outside that curve show through as a plain square
+// edge with the CSS border visible along the curve). DWMWA_WINDOW_CORNER_
+// PREFERENCE clips the actual HWND region at the OS/compositor level, which
+// is robust regardless of WebView2 transparency fidelity. No-op pre-Win11
+// (DwmSetWindowAttribute returns an error, which we ignore).
+#[cfg(windows)]
+mod win_corners {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DWMWCP_ROUND,
+    };
+
+    fn set_preference(hwnd: HWND, round: bool) {
+        let pref = if round { DWMWCP_ROUND } else { DWMWCP_DONOTROUND };
+        unsafe {
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &pref as *const _ as *const core::ffi::c_void,
+                std::mem::size_of_val(&pref) as u32,
+            );
+        }
+    }
+
+    /// Apply native rounding to a newly-registered WebviewWindow.
+    /// `round=false` forces square corners (used when the window is
+    /// maximized/fullscreen, matching the CSS `[data-max="1"]` rule).
+    pub fn apply(window: &tauri::WebviewWindow, round: bool) {
+        if let Ok(hwnd) = window.hwnd() {
+            set_preference(HWND(hwnd.0), round);
+        }
+    }
+
+    /// Same, but for the plain `Window` reference `on_window_event` hands us.
+    pub fn apply_window<R: tauri::Runtime>(window: &tauri::Window<R>, round: bool) {
+        if let Ok(hwnd) = window.hwnd() {
+            set_preference(HWND(hwnd.0), round);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+mod win_corners {
+    pub fn apply(_window: &tauri::WebviewWindow, _round: bool) {}
+    pub fn apply_window<R: tauri::Runtime>(_window: &tauri::Window<R>, _round: bool) {}
+}
+
 // OTA update channel: latest.json published as a release asset. Override the
 // source for QA with HALFTONE_OTA_URL; disable the check with HALFTONE_NO_OTA.
 const OTA_LATEST_URL: &str =
@@ -1643,6 +1695,17 @@ pub fn run() {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
             });
+            // Native rounded corners (Windows 11 DWM) for both undecorated
+            // windows — see win_corners module doc comment for why this is
+            // needed in addition to the CSS radius. Applied for every
+            // window already registered from tauri.conf.json (main, widget);
+            // the main window starts hidden (visible:false) but hwnd() still
+            // resolves once the native HWND exists.
+            for label in ["main", "widget"] {
+                if let Some(w) = app.get_webview_window(label) {
+                    win_corners::apply(&w, true);
+                }
+            }
             let _ = APP.set(app.handle().clone());
             Ok(())
         })
@@ -1655,6 +1718,14 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                 }
+            }
+            // Maximized/restored: native corner rounding must match the CSS
+            // [data-max="1"] square-corner rule, otherwise DWM keeps rounding
+            // a window that's flush with the screen edges (visible notch at
+            // the corners against the desktop).
+            if let tauri::WindowEvent::Resized(_) = event {
+                let round = !window.is_maximized().unwrap_or(false);
+                win_corners::apply_window(window, round);
             }
         })
         .register_uri_scheme_protocol("media", |_ctx, request| serve_media(request))

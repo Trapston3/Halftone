@@ -78,7 +78,7 @@ window.EMA=EMA;
    ============================================================ */
 function $(id){return document.getElementById(id)}
 function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
-function fmt(sec){sec=Math.max(0,sec|0);const m=(sec/60)|0,s=sec%60;return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")}
+function fmt(sec){sec=Math.max(0,sec|0);const h=(sec/3600)|0,m=((sec%3600)/60)|0,s=sec%60;return (h>0?h+":"+String(m).padStart(2,"0"):String(m).padStart(2,"0"))+":"+String(s).padStart(2,"0")}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function lum(r,g,b){return (0.2126*(r/255)+0.7152*(g/255)+0.0722*(b/255))}
 function contrast(a,b){const l1=lum(...a),l2=lum(...b);const [hi,lo]=l1>l2?[l1,l2]:[l2,l1];return (hi+.05)/(lo+.05)}
@@ -286,7 +286,22 @@ function observeCanvas(cv,onsize){
 }
 window.observeCanvas=observeCanvas;
 const BAYER4=[[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]].map(r=>r.map(v=>(v+.5)/16));
-const ditherCache=new Map();   /* key → {cv-key parts} to skip repaints */
+/* per-canvas dither cache: the old implementation kept a SINGLE shared
+   {_k,_cv} slot, so calling drawDither on a second canvas (the widget art,
+   an album card, np) evicted the only slot and made every other canvas
+   redraw on its next paint even when nothing about it had changed — a
+   latent "last canvas wins" bug. Keyed per-canvas (WeakMap) so N canvases
+   cache independently and correctly. */
+const ditherCache=new WeakMap();
+/* canvases we've already attached a resize watcher to (brief: a canvas
+   whose box is resized — window resize, widget stage rescale (T4), album
+   grid reflow — must redraw at the NEW backing size. Previously nothing
+   called drawDither again after a resize, so the old bitmap just got
+   stretched/squashed by the browser -> blurry, warped "messed up" dither
+   until some unrelated event (track/theme change) happened to repaint
+   it. observeCanvas() existed but was never wired to anything -- wire it
+   here so every dithered canvas self-heals on resize. */
+const _ditherObserved=new WeakSet();
 function ditherKey(img,N,cell,W,H){
   /* ink state included: riso light prints art in the spot ink, others in
      the accent — a theme/mode switch must invalidate the cache */
@@ -299,11 +314,20 @@ function themeMode(){return (window.Theme&&window.Theme.resolved)||"dark"}
 function drawDither(cv,img,opts){
   opts=opts||{};
   if(!cv)return;
+  /* self-heal on resize: attach once per canvas, redraw at the new size
+     using whatever image was last drawn into it (a resize never changes
+     which track's art is showing, only how big the backing store must
+     be) */
+  if(!_ditherObserved.has(cv)){
+    _ditherObserved.add(cv);
+    observeCanvas(cv,()=>{if(cv._img)drawDither(cv,cv._img,{force:true})});
+  }
   fitCanvas(cv);
   const g=cv.getContext("2d");
   if(!g)return;
   const W=cv.width,H=cv.height;
-  if(!img||(!img.naturalWidth&&!img.naturalHeight)){g.clearRect(0,0,W,H);return}
+  if(!img||(!img.naturalWidth&&!img.naturalHeight)){g.clearRect(0,0,W,H);cv._img=null;return}
+  cv._img=img;
   const density=(S.cfg&&S.cfg.grid)||32;
   const cell=Math.max(2,Math.round(W/density));
   const N=Math.max(2,Math.floor(W/cell));
@@ -318,8 +342,8 @@ function drawDither(cv,img,opts){
      backing so the two stops fighting. */
   _fitCache.set(cv,{w:BW,h:BH});
   const key=ditherKey(img,N,cell,BW,BH);
-  if(!opts.force&&ditherCache.get("_k")===key&&ditherCache.get("_cv")===cv)return;
-  ditherCache.set("_k",key);ditherCache.set("_cv",cv);
+  if(!opts.force&&ditherCache.get(cv)===key)return;
+  ditherCache.set(cv,key);
   console.log("[dither] backing="+BW+"x"+BH+" N="+N+" cell="+cell+" N*cell="+(N*cell)+" (exact="+((BW===N*cell&&BH===M*cell)?"YES":"NO")+")");
   g.imageSmoothingEnabled=false;
   /* ink color: risograph light prints dither art in the spot ink,
@@ -843,6 +867,7 @@ async function setPlaying(v){
   updTransport&&updTransport();
   emitSync();
   document.dispatchEvent(new CustomEvent("halftone:state"));
+  wakeLoop();
 }
 window.setPlaying=setPlaying;
 function setVol(v){
@@ -1247,13 +1272,15 @@ function wireSeek(seekEl){
     try{seekEl.setPointerCapture(e.pointerId)}catch(_){}
     S.drag={p:apply(e),el:seekEl,t:apply(e)*durSec()};
     seekEl.classList.add("dragging");
+    wakeLoop();
   });
-  seekEl.addEventListener("pointermove",e=>{if(S.drag&&S.drag.el===seekEl){S.drag.p=apply(e);S.drag.t=S.drag.p*durSec()}});
+  seekEl.addEventListener("pointermove",e=>{if(S.drag&&S.drag.el===seekEl){S.drag.p=apply(e);S.drag.t=S.drag.p*durSec();wakeLoop()}});
   const end=()=>{
     if(!S.drag||S.drag.el!==seekEl)return;
     seekTo(S.drag.p*durSec());
     S.drag=null;S.lidx=-1;
     seekEl.classList.remove("dragging");
+    wakeLoop();
   };
   seekEl.addEventListener("pointerup",end);
   seekEl.addEventListener("pointercancel",end);
@@ -1264,6 +1291,7 @@ function wireSeek(seekEl){
     if(!(e.target===seekEl||seekEl.contains(e.target)))return;
     e.preventDefault();
     seekTo(posSec()+(e.deltaY<0?5:-5));
+    wakeLoop();
   },{passive:false});
 }
 window.wireSeek=wireSeek;
@@ -1364,16 +1392,44 @@ window.buildVol=buildVol;
 /* ============================================================
    RENDER LOOP (one per window; skips hidden work)
    ============================================================ */
-let rafPending=false,artDirty=true,themeDirty=true;
-function requestRedraw(why){artDirty=true}
+let rafPending=false,artDirty=true,themeDirty=true,idleLoopTimer=null;
+function requestRedraw(why){artDirty=true;wakeLoop()}
 window.requestRedraw=requestRedraw;
-let lastTickEmit=0;
+/* wake the paint loop while paused (rAF is intentionally stopped for CPU
+   idle) — external callers get exactly one fresh frame */
+function wakeLoop(){if(!rafPending){rafPending=true;requestAnimationFrame(loop)}}
+window.wakeLoop=wakeLoop;
+/* ============================================================
+   OWNER PUMP (T? bugfix): analyser sampling + the tick/bars
+   broadcast to viewers (the widget) used to live inside the rAF
+   loop() below, gated by `!hidden` — hidden being MAIN's own
+   document.hidden. Main being hidden/minimized is the NORMAL state
+   while using the widget standalone (main's close only hides it,
+   see widget.js wClose), so that gate silently froze sampling AND
+   the broadcast the instant main left the foreground (owner bug:
+   "the visualiser in the widget is broken").
+   Simply dropping the `!hidden` gate is not enough: requestAnimationFrame
+   is tied to the compositor's paint cycle and browsers/WebView2 may
+   throttle or fully pause rAF callbacks for an occluded/hidden window,
+   so the owner broadcast needs a clock that is independent of rAF.
+   setInterval keeps firing for background pages far more reliably than
+   rAF (desktop WebView2, not a backgrounded browser tab). Gated on
+   S.playing so it costs ~nothing (no analyser read, no IPC emit) when
+   nothing is actually playing. */
+let ownerPumpTimer=null;
+function ownerPump(){
+  if(!IS_OWNER||!S.playing)return;
+  sampleBars();
+  emitTick(posSec());
+  emitBars(true);
+}
+if(IS_OWNER){ownerPumpTimer=setInterval(ownerPump,1000/30);window.__htOwnerPumpTimer=ownerPumpTimer}
+
 function loop(now){
   rafPending=false;
   const hidden=document.hidden;
   tickAccent(now);
   if(!hidden){
-    if(IS_OWNER)sampleBars();
     /* paint any visible canvas meters */
     paintSeek();
     document.querySelectorAll(".vol-leds").forEach(c=>{if(c.parentElement&&c.parentElement._paintLeds)c.parentElement._paintLeds()});
@@ -1390,22 +1446,39 @@ function loop(now){
     }
     /* dither repaint when accent tweens */
     if(artDirty||ACC.anim){
-      document.querySelectorAll("canvas.art-dither").forEach(cv=>drawDither(cv,S._img));
+      /* each canvas repaints ITS OWN image (cv._img) — pushing the
+         now-playing S._img into every dither canvas made album tiles show
+         the playing track's cover after any theme/accent redraw (the
+         "albums view shows the playing song's cover" bug). np/widget pass
+         the playing image explicitly in their own painters (correct). */
+      document.querySelectorAll("canvas.art-dither").forEach(cv=>{if(cv._img)drawDither(cv,cv._img)});
       artDirty=false;
     }
   }
   lyricFollow();
-  /* owner broadcast: merged time+bars tick @30Hz (T7) */
-  if(IS_OWNER&&!hidden){
-    const t=now-lastTickEmit;
-    if(t>=1000/30){
-      lastTickEmit=now;
-      emitTick(posSec());
-      emitBars();
-    }
+  /* owner tick/bars broadcast now lives in ownerPump() (setInterval,
+     above) so it survives rAF throttling while main is hidden. */
+  /* ---- hibernation gate: rAF self-re-arms ONLY while there is motion.
+     Idle+paused previously re-armed at ~60 Hz forever, repainting
+     identical frames. While playing or accent-animating, rAF keeps its
+     vsync cadence as before. */
+  if(S.playing||ACC.anim){
+    if(!rafPending){rafPending=true;requestAnimationFrame(loop)}
+    return;
   }
-  if(!rafPending){rafPending=true;requestAnimationFrame(loop)}
+  /* ---- hidden-window rAF insurance: the compositor throttles/pauses
+     rAF for occluded windows, so while hidden AND busy (playing,
+     mid-transition) a plain 250 ms setInterval keeps frames flowing —
+     intervals keep firing in hidden WebView2 windows where rAF does
+     not. Self-cancels when hidden ends or motion stops. */
+  if(document.hidden&&!idleLoopTimer){
+    idleLoopTimer=setInterval(function(){
+      if(document.hidden&&(S.playing||ACC.anim||artDirty)){rafPending=false;loop(performance.now())}
+      else{clearInterval(idleLoopTimer);idleLoopTimer=null}
+    },250);
+  }
 }
+window.__htIdleLoopActive=function(){return !!idleLoopTimer};
 function g_clear(cv){const g=cv.getContext("2d");if(g)g.clearRect(0,0,cv.width,cv.height)}
 window.requestAnimationFrame(loop);
 
