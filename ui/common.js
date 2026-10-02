@@ -1360,6 +1360,12 @@ function openCtx(x,y,items){
   m.style.left=clamp(x,4,Math.max(4,innerWidth-r.width-4))+"px";
   m.style.top=clamp(y,4,Math.max(4,innerHeight-r.height-4))+"px";
   if(r.height>innerHeight-8)m.classList.add("ctx-scroll");
+  /* submenus open to the right; flip to the left side when they would
+     cross the window edge (frameless windows clip, no OS menu manager) */
+  m.querySelectorAll(".menu.sub").forEach(s=>{
+    const sr=s.getBoundingClientRect();
+    if(sr.width&&sr.right>innerWidth-4)s.classList.add("sub-flip");
+  });
   /* outside-close. WebView2 delivers a real right click as
      pointerdown -> mousedown -> contextmenu, so a plain pointerdown
      listener fired the instant our own right click landed; ignore every
