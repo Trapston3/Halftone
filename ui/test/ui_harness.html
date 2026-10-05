@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Halftone UI harness r2</title>
+<style>
+body{background:#0B0D0E;color:#9AA4AA;font:12px/1.4 Consolas,monospace;margin:0;padding:8px}
+button{font:inherit;background:#1B1E21;color:#F2E8CF;border:1px solid #3A4147;border-radius:4px;padding:3px 10px;cursor:pointer;margin:2px}
+button:hover{border-color:#66E0C2;color:#66E0C2}
+.framebox{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start}
+.framewrap{border:1px dashed #3A4147;padding:4px;background:#101214}
+.framewrap h3{margin:2px 0;font-size:10px;letter-spacing:.2em;color:#66E0C2;font-weight:400}
+iframe{border:0;background:#16181A;display:block}
+#log{white-space:pre-wrap;color:#7DD4A0;max-height:180px;overflow-y:auto;border-top:1px solid #262B30;padding-top:6px;margin-top:6px}
+</style>
+</head>
+<body>
+<h3 style="margin:4px 0;color:#66E0C2;letter-spacing:.3em">HALFTONE UI HARNESS</h3>
+<div>
+  <button id="bTheme">SWITCH THEME (circular reveal)</button>
+  <button id="bMode">TOGGLE LIGHT/DARK</button>
+  <button id="bLyrics">CYCLE LYRICS STATE (synced/plain/none)</button>
+  <button id="bDither">LOG DITHER MATH</button>
+  <button id="bNavPos">CYCLE NAV POSITION</button>
+  <button id="bPreset">CYCLE WIDGET PRESET</button>
+  <button id="bCoverMenu">OPEN COVER CONTEXT MENU</button>
+  <button id="bCoverSearch">OPEN COVER SEARCH SHEET</button>
+  <button id="bSheet">TRACK SHEET → PLAYLIST SUB-SHEET</button>
+  <span id="shotPath" style="color:#E0B966"></span>
+</div>
+<div class="framebox">
+  <div class="framewrap"><h3>MAIN WINDOW</h3><iframe id="fMain" width="1200" height="740"></iframe></div>
+  <div class="framewrap"><h3>WIDGET</h3><iframe id="fWidget" width="380" height="260"></iframe></div>
+</div>
+<div id="log"></div>
+<script>
+/* ============================================================
+   HALFTONE TEST HARNESS (parent page)
+
+   The mocks live HERE (this page never navigates). The app pages
+   (main.html / index.html) opt in with ?harness=1 in their frame
+   URL; ui/test/loader.js — which loads FIRST in those pages —
+   synchronously pulls the right mock from
+   window.parent.__HT_MOCKS__[label] before the engine scripts
+   parse. This replaces the old broken scheme (defining properties
+   on a frame window before/during navigation, which the navigation
+   discards — pages booted with no mock and the library stayed
+   empty).
+   ============================================================ */
+window.__HT_HARNESS__=true;
+
+/* ---------- in-memory event bus, bridged across frames ---------- */
+function makeBus(){
+  const listeners=new Map();
+  return {
+    listen(name,fn){(listeners.get(name)||listeners.set(name,new Set()).get(name)).add(fn);return Promise.resolve(()=>listeners.get(name)?.delete(fn))},
+    emit(name,payload){(listeners.get(name)||new Set()).forEach(fn=>{try{fn({payload,event:name})}catch(e){console.error("listener",name,e)}});return Promise.resolve()},
+    _n:()=>listeners.size
+  };
+}
+const busMain=makeBus(),busWidget=makeBus();
+/* bridge main<->widget so halftone:cmd / halftone:sync cross frames */
+(function bridge(a,b){
+  const origA=a.emit,origB=b.emit;
+  a.emit=(n,p)=>{origA(n,p);origB(n,p);return Promise.resolve()};
+  b.emit=(n,p)=>{origB(n,p);origA(n,p);return Promise.resolve()};
+})(busMain,busWidget);
+
+/* ---------- fake library (BACKEND_API.md TrackMeta shape) ---------- */
+/* Track 0: synced lyrics + embedded art. Track 1: plain lyrics, no art
+   (cover_auto demo). Track 2: no lyrics, no art. 3+ filler. */
+function fakeTrack(k,over){
+  const albs=["Magnetic South","Glass Gardens","Night Compiler","Signal Bloom"];
+  const arts=["Vela Nine","Codechic","The Modems","Aurora Index"];
+  const fmts=[["FLAC",true,44100,16,2],["WAV",true,48000,24,2],["MP3",false,44100,16,2],["ALAC",true,44100,16,2],["AAC",false,44100,16,2],["OPUS",false,48000,16,2]];
+  const f=fmts[k%fmts.length];
+  const base={path:"C:\\Music\\"+albs[k%4]+"\\"+String(k).padStart(2,"0")+" Track "+k+".flac",
+    title:"Track "+k,artist:arts[k%4],album:albs[k%4],
+    duration_s:180+k*7,streaminfo:{sample_rate:f[2],bits:f[3],channels:f[4],total_samples:f[2]*(180+k*7)},
+    format:f[0],lossless:f[1],bitrate_kbps:f[1]?0:230,has_cover:true,replaygain:{track_gain:"-3.2 dB",album_gain:"-4.0 dB"},cover:null,coverUrl:null};
+  return over?Object.assign(base,over):base;
+}
+const FAKE_TRACKS=[
+  fakeTrack(0),
+  fakeTrack(1,{has_cover:false}),
+  fakeTrack(2,{has_cover:false})
+];
+for(let k=3;k<24;k++)FAKE_TRACKS.push(fakeTrack(k));
+
+/* 12 lines over 0-60s, SECONDS (lib.rs parse_lrc: LyricLine.t is f64
+   seconds — a10b2ae). Realistic uneven gaps so follow asserts are
+   meaningful. */
+const FAKE_LRC=(function(){
+  const texts=[
+    "Counting halftone dots in the dark","Every cell a promise of the light",
+    "The grid remembers what the eye forgets","Sweep the needle cross the amber night",
+    "Pixels falling like a summer rain","Hold the beat, the buffer's burning slow",
+    "Amber glass and afterglow","We were raster, line by line",
+    "Trace the signal through the noise","A dithered heart still keeps its time",
+    "Every dot a point of view","Fade to pattern, fade to you"
+  ];
+  const times=[0,4.5,9,14,19.5,24,30,35.5,41,46.5,52,57.5];
+  return times.map((t,k)=>({t,text:texts[k]}));
+})();
+const PLAIN_TEXT="There is no time signature here\nJust a wall of words, line after line\nNo highlight sweeps across\nThe screen to tell you when to breathe\nThis is the plain lyrics state";
+
+/* fixture art: real files under ui/test/fixtures/, served by
+   http_serve.py (web root is ui/). ?v= cache buster per BACKEND_API. */
+const FIXTURE_COVERS=["test/fixtures/cover1.png","test/fixtures/cover2.png","test/fixtures/cover3.png"];
+const trackFix=t=>FIXTURE_COVERS[FAKE_TRACKS.indexOf(t)%3];
+
+function makeInvoke(label){
+  const log=msg=>{try{window.hlog&&window.hlog("["+label+"] "+msg)}catch(_){}};
+  const coverByKey={};               /* albumKey -> {url, source} */
+  const albumKey=t=>(t.album||"Unknown album").toLowerCase()+"|"+(t.artist||"");
+  const bust=u=>u+"?v="+Date.now();
+  return async(cmd,args)=>{
+    args=args||{};
+    if(cmd==="library_snapshot")return FAKE_TRACKS.slice();       /* PLAIN ARRAY per BACKEND_API.md */
+    if(cmd==="scan_library")return {tracks:FAKE_TRACKS.slice(),skipped:args.dir?["corrupt.flac"]:[],unsupported:2};
+    if(cmd==="open_track"){
+      const t=FAKE_TRACKS.find(t=>t.path===args.path)||FAKE_TRACKS[0];
+      return Object.assign({},t,{cover:t.has_cover?{mime:"image/png",data_b64:""}:null,embedded_lyrics:null});
+    }
+    if(cmd==="media_url")return "media://localhost/"+encodeURIComponent(args.path);
+    if(cmd==="cover_url"){
+      const t=FAKE_TRACKS.find(t=>t.path===args.path);
+      if(!t)return null;
+      const k=albumKey(t);
+      if(coverByKey[k])return coverByKey[k].url?bust(coverByKey[k].url):null;
+      return t.has_cover?bust(trackFix(t)):null;
+    }
+    if(cmd==="cover_auto"){
+      const t=FAKE_TRACKS.find(t=>t.path===args.path);
+      if(!t)return {status:"none",url:null,error:"no track"};
+      const k=albumKey(t);
+      if(t.has_cover)return {status:"have",url:bust(trackFix(t)),error:null};
+      if(coverByKey[k])return {status:"have",url:coverByKey[k].url?bust(coverByKey[k].url):null,error:null};
+      if(!args.allowNet)return {status:"none",url:null,error:null};
+      coverByKey[k]={url:trackFix(t),source:"web"};
+      return {status:"fetched",url:bust(trackFix(t)),error:null};
+    }
+    if(cmd==="cover_search"){
+      return [1,2,3].map(n=>({
+        url:FIXTURE_COVERS[n-1]+"?v=search",thumb:FIXTURE_COVERS[n-1],
+        source:n===2?"musicbrainz":"itunes",
+        title:args.album||"Album",artist:args.artist||"Artist",
+        width:n===2?null:600,height:n===2?null:600}));
+    }
+    if(cmd==="cover_apply_url"){
+      const t=FAKE_TRACKS.find(t=>t.path===args.path);if(!t)throw "no track";
+      if(!args.url){coverByKey[albumKey(t)]={url:null,source:"none"};return null}
+      coverByKey[albumKey(t)]={url:args.url.replace("?v=search",""),source:"user"};
+      return bust(coverByKey[albumKey(t)].url);
+    }
+    if(cmd==="cover_import"){
+      if(args.file===undefined)return null;   /* native picker cancelled */
+      const t=FAKE_TRACKS.find(t=>t.path===args.path);if(!t)throw "no track";
+      coverByKey[albumKey(t)]={url:FIXTURE_COVERS[0],source:"user"};
+      return bust(FIXTURE_COVERS[0]);
+    }
+    if(cmd==="cover_reset"){
+      const t=FAKE_TRACKS.find(t=>t.path===args.path);if(!t)throw "no track";
+      delete coverByKey[albumKey(t)];
+      return t.has_cover?bust(trackFix(t)):null;
+    }
+    if(cmd==="cover_info"){
+      const t=FAKE_TRACKS.find(t=>t.path===args.path);if(!t)return {source:"none",url:null};
+      const e=coverByKey[albumKey(t)];
+      if(e)return {source:e.source,url:e.url?bust(e.url):null};
+      return t.has_cover?{source:"embedded",url:bust(trackFix(t))}:{source:"none",url:null};
+    }
+    if(cmd==="settings_load")return null;   /* defaults */
+    if(cmd==="settings_save")return "ok";
+    if(cmd==="lyrics_get"){
+      const p=(args.path||"");
+      if(p.includes("00"))return {source:"sidecar",synced:true,lines:FAKE_LRC,plain:null};
+      if(p.includes("01"))return {source:"cache",synced:false,lines:[],plain:PLAIN_TEXT};
+      return {source:"none",synced:false,lines:[],plain:null};
+    }
+    if(cmd==="pick_folder")return "C:\\Users\\you\\Music";
+    if(cmd==="ota_check")return {disabled:false,available:null,current:"0.2.0"};
+    if(cmd==="list_sinks")return {devices:[{id:"out0",label:"Speakers (Mock)"},{id:"out1",label:"HDMI (Mock)"}]};
+    if(cmd==="lrc_fetch")return "ok";
+    if(cmd==="smtc_update"){log("smtc_update "+JSON.stringify(args));return null}
+    if(cmd==="smtc_clear"){log("smtc_clear");return null}
+    return null;
+  };
+}
+
+function mockTauri(label,bus){
+  return {
+    core:{invoke:makeInvoke(label),transformCallback:cb=>cb},
+    event:bus,
+    window:{
+      getCurrentWindow(){return mockWin(label)},
+      getAllWindows:async()=>[mockWin("main"),mockWin("widget")],
+    },
+    opener:{openUrl:async u=>log(label+" openUrl: "+u)},
+    shell:{open:async u=>log(label+" open: "+u)},
+  };
+}
+const winState={main:{visible:true},widget:{visible:true}};
+function mockWin(label){
+  return {
+    label,
+    async hide(){winState[label].visible=false;log(label+".hide()")},
+    async show(){winState[label].visible=true;log(label+".show()")},
+    async minimize(){log(label+".minimize()")},
+    async destroy(){log(label+".destroy()  [app would exit]")},
+    async setFocus(){},
+    async isVisible(){return winState[label].visible},
+    async setAlwaysOnTop(v){log(label+".setAlwaysOnTop("+v+")")},
+    async scaleFactor(){return 1},
+    async innerSize(){return {width:800,height:600}},
+    onCloseRequested(cb){mockWin._closeCb=cb},
+    startDragging(){log(label+".startDragging()")},
+  };
+}
+/* parent registry — loader.js in the frame pulls its mock from here */
+window.__HT_MOCKS__={
+  main:(()=>{const m=mockTauri("main",busMain);m.__invoke=makeInvoke("main");m.__invoke._ht=true;return m})(),
+  widget:(()=>{const m=mockTauri("widget",busWidget);m.__invoke=makeInvoke("widget");m.__invoke._ht=true;return m})()
+};
+
+/* ---------- log ---------- */
+const logBox=document.getElementById("log");
+function log(msg){
+  const line="["+new Date().toLocaleTimeString()+"] "+msg;
+  logBox.textContent+=line+"\n";
+  logBox.scrollTop=1e6;
+  console.log(line);
+}
+window.hlog=log;
+
+/* ============================================================
+   SHOT MODE — headless one-shot scenarios via URL params:
+   ?page=main&nav=left&mode=dark&theme=analogue&track=2&view=tracks
+   ?page=widget&w=600&h=380&preset=square
+   The iframe fills the window; the harness adds ?harness=1 so the
+   page's loader.js picks up the mock before its scripts parse.
+   ============================================================ */
+const Q=new URLSearchParams(location.search);
+if(!Q.get("page")){
+  /* interactive mode: boot both frames with mocks pre-installed */
+  const bootFrame=(frame,page,label)=>{
+    const fq=new URLSearchParams();
+    fq.set("harness","1");
+    frame.src=(page==="widget"?"../index.html":"../"+page+".html")+"?"+fq.toString();
+  };
+  bootFrame(document.getElementById("fMain"),"main","main");
+  bootFrame(document.getElementById("fWidget"),"widget","widget");
+}
+if(Q.get("page")){
+  const page=Q.get("page");
+  const w=+Q.get("w")||1200,h=+Q.get("h")||740;
+  document.querySelector(".framebox").style.display="none";
+  document.querySelector("div").style.display="none";   /* button row */
+  document.querySelector("h3").style.display="none";    /* title */
+  document.getElementById("log").style.display="none";
+  document.body.style.padding="0";
+  document.body.style.background=page==="main"?"#0B0D0E":"#101214";
+  const f=document.createElement("iframe");
+  f.id="fShot";f.style.cssText="border:0;position:fixed;top:0;left:0";f.width=w;f.height=h;
+  document.body.appendChild(f);
+  const frameQ=new URLSearchParams(Q);
+  frameQ.set("harness","1");
+  frameQ.set("qa","1");   /* silent theme application (no reveal) for shots */
+  f.src=(page==="widget"?"../index.html":"../"+page+".html")+"?"+frameQ.toString();
+  f.addEventListener("load",()=>{
+    const iw=f.contentWindow;
+    const apply=()=>{
+      try{
+        if(page==="main"){
+          if(Q.get("nav"))iw.htSetNav(Q.get("nav"));
+          if(Q.get("navstate"))iw.htSetNavState&&iw.htSetNavState(Q.get("navstate"));
+          if(Q.get("theme"))iw.htSetTheme(Q.get("theme"));
+          if(Q.get("mode"))iw.htSetMode(Q.get("mode"));
+          if(Q.get("palette"))iw.htSetPalette&&iw.htSetPalette(Q.get("palette"));
+          /* QA determinism: something can flip theme/mode after apply
+             (late async in the app). Trap every setter call and re-assert
+             the requested values for 12s so shots can't drift. */
+          try{
+            const wantT=Q.get("theme"),wantM=Q.get("mode");
+            iw.__themeLog=[];
+            const trap=(name,orig)=>function(v){iw.__themeLog.push(name+"="+v);return orig.call(iw,v)};
+            if(wantT)iw.htSetTheme=trap("theme",iw.htSetTheme);
+            if(wantM)iw.htSetMode=trap("mode",iw.htSetMode);
+            let ticks=0;
+            const guard=setInterval(()=>{
+              ticks++;
+              try{
+                if(wantT&&iw.Theme.name!==wantT)iw.htSetTheme(wantT);
+                if(wantM&&iw.Theme.resolved!==wantM)iw.htSetMode(wantM);
+              }catch(e){}
+              if(ticks>24)clearInterval(guard);
+            },500);
+          }catch(e){}
+          if(Q.get("view")){iw.S.view=Q.get("view");iw.render()}
+          if(Q.get("max")==="1"){iw.__HT_MAX=true;iw.htThemeApply&&iw.htThemeApply()}
+          if(Q.get("track"))iw.__qa.load(+Q.get("track"));
+          if(Q.get("play")&&iw.S.meta&&!iw.S.playing)iw.__qa.play();
+          /* ?play=1 also feeds mock spectrum bars so the seek visualiser
+             animates in shots (analyser is silent headless) */
+          if(Q.get("play")){
+            const NB=(iw.NBARS||32);
+            if(!iw.__mockBars){
+              iw.__mockBars=true;
+              iw.S._barsRcv=new Float32Array(NB);
+              const t0=performance.now();
+              const pump=()=>{ if(!iw.__mockBars)return;
+                const t=performance.now()/1000;
+                const B=iw.S._barsRcv;
+                for(let i=0;i<NB;i++){
+                  const f=i/NB;
+                  B[i]=Math.max(.06,Math.min(1,
+                    (.55+.4*Math.sin(t*2.1+i*.55))*(1-f*.45)*
+                    (.75+.25*Math.sin(t*7+i*2.3))));
+                }
+                requestAnimationFrame(pump);
+              };
+              pump();
+            }
+          }
+          /* ?queue=N preloads N queued tracks (queue view shot) */
+          const qn=+(Q.get("queue")||0);
+          if(qn>0&&iw.S.lib.length){
+            for(let k=0;k<qn&&k<iw.S.lib.length;k++)
+              iw.queueAdd([iw.S.lib[(k+3)%iw.S.lib.length].path],"add");
+            if(Q.get("view")==="queue")iw.render();
+          }
+          /* staged scenarios for the shot matrix */
+          const sheet=Q.get("sheet");
+          if(sheet){
+            /* deterministic: wait for S.meta, then open and VERIFY the
+               sheet title (late apply passes can clobber the first open);
+               retry until the expected sheet is actually up. */
+            const wantTitle={cover:"CHANGE COVER ART",search:"SEARCH COVER ART",pl:"ADD TO PLAYLIST"};
+            const openIt=()=>{
+              if(!iw.S.meta)return;
+              if(sheet==="cover")iw.openCoverSheet&&iw.openCoverSheet(iw.S.meta);
+              else if(sheet==="search")iw.openCoverSearch&&iw.openCoverSearch(iw.S.meta);
+              else if(sheet==="pl")iw.openPlaylistPicker&&iw.openPlaylistPicker(iw.S.meta);
+              else iw.openTrackSheet&&iw.openTrackSheet(iw.S.meta,iw.S.i);
+            };
+            const title=wantTitle[sheet]||"TRACK";
+            let tries=0;
+            const tick=setInterval(()=>{
+              tries++;
+              let cur="";
+              try{cur=iw.document.getElementById("sheetTitle").textContent}catch(e){}
+              if(cur===title&&iw.document.querySelector(".sheet.open")){clearInterval(tick);return}
+              if(tries>40){clearInterval(tick);return}
+              openIt();
+            },300);
+          }
+          if(Q.get("ctx")&&iw.S.meta){
+            setTimeout(()=>{
+              iw.openCtx(140,150,[
+                {label:"CHANGE COVER ART",children:[
+                  {label:"IMPORT IMAGE\u2026",onClick:()=>{}},
+                  {label:"SEARCH THE WEB\u2026",onClick:()=>iw.openCoverSearch&&iw.openCoverSearch(iw.S.meta)},
+                  {label:"RESET TO DEFAULT",onClick:()=>{}},
+                ]},
+              ]);
+            },2600);
+          }
+          if(Q.get("cmdk")){
+            setTimeout(()=>{iw.openCmdk&&iw.openCmdk()},2600);
+          }
+          /* ?seekzoom=1 — now-playing with the seek strip zoomed for
+             visualiser close-ups (wider strip, taller via .seek-zoom);
+             park the playhead at ~35% so the played side of the strip
+             is lit (accent bars / LED columns) in the shot */
+          if(Q.get("seekzoom")){
+            setTimeout(()=>{
+              try{
+                iw.S.view="nowplaying";iw.render();
+                const d=iw.document;
+                d.documentElement.classList.add("seek-zoom");
+                /* headless audio never loads: park the playhead at ~35%
+                   for the shot (painters read posSec/durSec) */
+                iw.window.posSec=()=>63;
+                if(iw.seekTo)iw.seekTo(63);
+              }catch(e){console.error("seekzoom",e)}
+            },2600);
+          }
+        }else{
+          if(Q.get("preset")&&iw.applyWidgetPreset)iw.applyWidgetPreset(Q.get("preset"));
+          if(Q.get("theme"))iw.htSetTheme(Q.get("theme"));
+          if(Q.get("mode"))iw.htSetMode(Q.get("mode"));
+          if(Q.get("palette"))iw.htSetPalette&&iw.htSetPalette(Q.get("palette"));
+          /* no owner frame exists in shot mode: synthesize the sync the
+             main window would broadcast, so widget shots show a real
+             playing state (art + dither + title) — brief defect 6 */
+          if(!iw.S.meta&&!iw.__shotSynced){
+            iw.__shotSynced=true;
+            const tk=Q.get("track")!=null?+Q.get("track"):0;
+            const t=iw.S.lib[tk];
+            if(t){
+              const inv=iw.__HT_TAURI_MOCK__.__invoke;
+              Promise.all([
+                inv("cover_url",{path:t.path}),
+                inv("lyrics_get",{path:t.path})
+              ]).then(([url,lyr])=>{
+                iw.applySync({i:tk,playing:true,vol:.7,pos:42,
+                  meta:Object.assign({},t,{coverUrl:url||null}),
+                  lyrics:{lines:lyr.lines||[],plain:lyr.plain||null,
+                          status:lyr.synced?"synced":(lyr.plain?"plain":"none")}});
+              }).catch(e=>console.error("shot sync",e));
+            }
+          }
+        }
+      }catch(e){console.error("shot apply",e&&(e.stack||e.message||e))}
+    };
+    setTimeout(apply,350);
+    setTimeout(apply,1000);   /* second pass after boot settles */
+    setTimeout(apply,2400);   /* final pass after settings/art settle */
+    iw.addEventListener("halftone:booted",apply);
+    /* ---------- ?lyrtest=1: scripted lyric asserts ----------
+       Mirrors the owner bug reports: active line = last line with
+       t <= pos-offset; click-to-seek jumps exactly there (main:
+       audio.currentTime; widget: cmd:seek -> owner applies). Results
+       land in window.__LYR_RESULTS (read via CDP) + console LYRASSERT. */
+    if(Q.get("lyrtest")){
+      setTimeout(async()=>{
+        const d=iw.document,W=page==="widget";
+        iw.__LYR_RESULTS=[];
+        const ok=(name,cond,got)=>{iw.__LYR_RESULTS.push({name,pass:!!cond,got});
+          console.log("LYRASSERT "+(cond?"PASS":"FAIL")+" "+name+" got="+JSON.stringify(got))};
+        try{
+          /* wait for lyrics to build (main: __qa.load path; widget: applySync) */
+          for(let i=0;i<40&&!iw.S.lyrics.length;i++){
+            if(!W&&!iw.S.lib.length)await iw.__qa.load(0);
+            await new Promise(r=>setTimeout(r,100));
+          }
+          if(!W&&iw.S.lyrics.length!==12)await iw.__qa.load(0);
+          const wrap=d.getElementById("lyrWrap");
+          const view=W?d.getElementById("wLyrView"):d.getElementById("npLyrView");
+          const aud=W?null:d.getElementById("aud");
+          /* headless harness has no real media — shim duration/currentTime
+             so seekTo takes the REAL owner path (a.currentTime=...) */
+          if(aud){
+            Object.defineProperty(aud,"duration",{value:180,configurable:true});
+            let cur=0;
+            Object.defineProperty(aud,"currentTime",{get:()=>cur,set:v=>{cur=v},configurable:true});
+          }
+          const lines=[...wrap.children].filter(x=>x.classList&&x.classList.contains("lyric-line"));
+          const activeIdx=()=>lines.findIndex(x=>x.classList.contains("active"));
+          const aIdx=t=>{let k=-1;for(let j=0;j<lines.length;j++)if(t>=+lines[j].dataset.t)k=j;return k};
+          ok("lyrics-loaded",iw.S.lyrics.length===12,{n:iw.S.lyrics.length});
+          const tests=[0,10.2,31,58.9,70];
+          for(const t of tests){
+            if(W)iw.applySync({pos:t});
+            else aud.currentTime=t;
+            iw.lyricFollow();
+            await new Promise(r=>setTimeout(r,30));
+            ok("follow@"+t+"s",activeIdx()===aIdx(t),{active:activeIdx(),want:aIdx(t),pos:+iw.posSec().toFixed(2)});
+          }
+          /* click-to-seek: click line 5 (t=24s) */
+          const want=+lines[5].dataset.t;
+          lines[5].click();
+          await new Promise(r=>setTimeout(r,60));
+          if(W){
+            /* viewer path: S._pos set + cmd:seek emitted (owner applies) */
+            ok("widget-click-emits-seek",Math.abs((iw.S._pos||0)-want)<0.001,{S_pos:+(iw.S._pos||0).toFixed(3),want});
+          }else{
+            ok("main-click-seeks-audio",Math.abs(aud.currentTime-want)<0.75,{aud:+aud.currentTime.toFixed(3),want});
+          }
+          /* manual scroll pause + LIVE pill + resume */
+          iw.lyrPause();
+          iw.lyricFollow();
+          await new Promise(r=>setTimeout(r,30));
+          ok("manual-pauses-follow",iw.S._lyrManual===true&&view.classList.contains("manual"),{manual:iw.S._lyrManual});
+          ok("live-pill-shown",!!(wrap._lrcPill&&wrap._lrcPill.classList.contains("show")),{pill:!!wrap._lrcPill});
+          iw.lyrResume();
+          await new Promise(r=>setTimeout(r,30));
+          ok("resume-clears-manual",iw.S._lyrManual===false&&!view.classList.contains("manual"),{manual:iw.S._lyrManual});
+          ok("scrollable",view.scrollHeight>view.clientHeight+4,{sh:view.scrollHeight,ch:view.clientHeight});
+          /* &lyrfreeze=1: leave the pane in manual state (scrolled away,
+             LIVE pill visible) so screenshots can capture it */
+          if(Q.get("lyrfreeze")){
+            iw.__HT_FREEZE="ran";
+            view.scrollTop=Math.max(0,lines[11].offsetTop||800);
+            iw.lyrPause();
+            /* frame timers need the FRAME window: bare clearTimeout here
+               is the parent's and cannot cancel lyrPause's 3s resume */
+            iw.clearTimeout(iw.S._lyrManualT);
+            view.classList.add("manual");
+            iw.lyrPill();
+            iw.S.lidx=-1;
+            iw.lyricFollow();
+          }
+        }catch(e){ok("exception",false,{err:String(e&&(e.stack||e.message||e)).slice(0,200)})}
+      },3200);
+    }
+
+    /* ?probe=1 — dump layout rects to the console (headless layout QA) */
+    if(Q.get("probe")){
+      setTimeout(()=>{
+        try{
+          const d=iw.document,q=s=>d.querySelector(s);
+          const r=e=>{if(!e)return null;const b=e.getBoundingClientRect();
+            return {h:Math.round(b.height),w:Math.round(b.width),bottom:Math.round(b.bottom),
+                    display:e.style.display||getComputedStyle(e).display}};
+          console.log("PROBE " + JSON.stringify({
+            inner:[iw.innerWidth,iw.innerHeight],
+            shellBody:r(q(".shell-body")),
+            appShell:r(q(".app-shell")),
+            miniBar:r(q(".mini-bar")),
+            miniBarId:r(d.getElementById("npbar")),
+            view:r(q(".view")),
+            bodyScrollH:d.body.scrollHeight,iwInnerH:iw.innerHeight,
+            miniBarCfg:iw.S&&iw.S.cfg?iw.S.cfg.miniBar:null,
+            viewName:iw.S?iw.S.view:null,
+            npbarHTML:(d.getElementById("npbar")||{}).outerHTML||null
+          }));
+        }catch(e){console.error("probe failed",e&&(e.stack||e))}
+      },3000);
+    }
+  });
+}
+
+/* ---------- harness actions (interactive mode) ---------- */
+function fmain(){return fMain.contentWindow}
+function fwid(){return fWidget.contentWindow}
+
+document.getElementById("bTheme").onclick=()=>{
+  const w=fmain();w.htSetTheme(w.Theme.name==="analogue"?"digital":"analogue",300,300);
+  log("main theme="+w.Theme.name);
+};
+document.getElementById("bMode").onclick=()=>{
+  const w=fmain();w.htSetMode(w.Theme.resolved==="dark"?"light":"dark");
+  log("main mode="+w.Theme.resolved);
+};
+document.getElementById("bLyrics").onclick=async()=>{
+  const w=fmain();
+  const order=[0,1,2];
+  const cur=(w.__lyrDemo||0);
+  const nxt=order[(order.indexOf(cur)+1)%order.length];
+  w.__lyrDemo=nxt;
+  await w.__qa.load(nxt);
+  w.S.view="nowplaying";w.render();
+  log("loaded track "+nxt+" — lyrics status="+w.S.lyricsStatus);
+};
+document.getElementById("bDither").onclick=()=>{
+  const w=fmain(),v=fwid();
+  log("main [dither] — backing should equal N*cell (see console)");
+  w.drawDither(w.el.npDither,w.S._img,{force:true});
+  v.drawDither(v.WID.wDither,v.S._img,{force:true});
+};
+document.getElementById("bNavPos").onclick=()=>{
+  const w=fmain();
+  const order=["left","right","top","bottom","hidden"];
+  const next=order[(order.indexOf(w.Theme.nav)+1)%order.length];
+  w.htSet("nav",next);
+  log("nav="+next);
+};
+document.getElementById("bPreset").onclick=()=>{
+  const w=fwid();
+  const order=["card","strip","square","lyrics"];
+  const next=order[(order.indexOf(w.W.preset)+1)%order.length];
+  w.setCfg("widgetPreset",next);
+  log("widget preset="+next);
+};
+document.getElementById("bCoverMenu").onclick=()=>{
+  const w=fmain();
+  w.openCtx(120,120,[
+    {label:"CHANGE COVER ART",children:[
+      {label:"IMPORT IMAGE\u2026",onClick:()=>log("cover_import — backend picker (mock)")},
+      {label:"SEARCH THE WEB\u2026",onClick:()=>w.openCoverSearch&&w.openCoverSearch(w.S.meta)},
+      {label:"RESET TO DEFAULT",onClick:()=>log("cover_reset — mock")},
+    ]},
+  ]);
+  log("cover context menu open");
+};
+document.getElementById("bCoverSearch").onclick=()=>{
+  const w=fmain();
+  w.openCoverSearch&&w.openCoverSearch(w.S.meta);
+  log("cover search sheet open");
+};
+document.getElementById("bSheet").onclick=async()=>{
+  const w=fmain();
+  if(!w.S.lib.length)await w.__qa.load(0);
+  w.S.view="tracks";w.render();
+  setTimeout(()=>{
+    const row=w.document.querySelector(".row");
+    if(!row)return log("no rows");
+    const more=row.querySelector(".row-more");
+    (more||row).dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}));
+    const btn=more||row;
+    if(more)more.onclick(new Event("click"));
+    else w.openTrackSheet&&w.openTrackSheet(w.S.lib[0],0);
+    log("track sheet open");
+  },150);
+};
+</script>
+</body>
+</html>
