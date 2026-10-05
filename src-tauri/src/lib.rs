@@ -773,7 +773,7 @@ fn ota_apply() -> Result<String, String> {
         st = stage_s,
         ex = exe
     );
-    fs::write(&bat, script).map_err(|e| format!("cannot write update helper: {e}"))?;
+    fs::write(&bat, &script).map_err(|e| format!("cannot write update helper: {e}"))?;
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
