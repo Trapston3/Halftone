@@ -1575,7 +1575,7 @@ dependencies = [
 
 [[package]]
 name = "halftone"
-version = "0.1.2"
+version = "0.2.4"
 dependencies = [
  "notify",
  "reqwest 0.12.28",
