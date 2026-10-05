@@ -687,7 +687,7 @@ function paintNP(){
   const m=S.meta;
   el.npTitle.textContent=m?m.title:"\u2014";
   el.npArtist.textContent=m?m.artist+"\u2002/\u2002"+m.album:"\u2014";
-  el.npTech.textContent=m?`${m.streaminfo.sample_rate/1000} kHz / ${m.streaminfo.bits}-BIT / ${m.streaminfo.channels===2?"STEREO":m.streaminfo.channels+"CH"} / DIRECT FLAC`:"\u2014";
+  el.npTech.textContent=m?`${m.streaminfo.sample_rate/1000} kHz / ${m.streaminfo.bits}-BIT / ${m.streaminfo.channels===2?"STEREO":m.streaminfo.channels+"CH"} / ${m.format||"FLAC"} \u00b7 ${(m.lossless===false)?"LOSSY":"LOSSLESS"}`:"\u2014";
   el.npKick.textContent="HALFTONE / "+String(S.i+1).padStart(2,"0")+" / "+String(S.lib.length).padStart(2,"0");
   el.tTot.textContent=fmt(m?m.duration_s:0);
   el.nbTot.textContent=fmt(m?m.duration_s:0);
@@ -912,10 +912,11 @@ document.body.addEventListener("contextmenu",e=>{
 function setCfgM(k,v){
   S.cfg[k]=v;saveStore();
   if(k==="ambient")el.np.classList.toggle("noambient",v==="off");
-  if(k==="lyrics")el.np.classList.toggle("nolyr",v===false);
-  if(k==="side")document.querySelector(".app").classList.toggle("noside",v===false);
+  if(k=="lyrics")el.np.classList.toggle("nolyr",v===false);
+  if(k=="side")document.querySelector(".app").classList.toggle("noside",v===false);
   paintNP();
-  if(!["nowplaying"].includes(S.view)&&["art"].includes(k))render();
+  if(["nowplaying"].includes(S.view)&&["art"].includes(k))render();
+  if(k=="grid"){paintNP();render();}
 }
 
 /* ============ EQ / OUTPUT / SLEEP panel wiring ============ */

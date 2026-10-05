@@ -128,7 +128,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--sp3);overflow-y:auto;padding:var(--sp1)}
 .acard{display:flex;flex-direction:column;gap:var(--sp2);padding:var(--sp2);border:1px solid transparent;border-radius:var(--r-b);text-align:left}
 .acard:hover{border-color:var(--line2);background:var(--bg2)}
-.acard canvas{width:100%;aspect-ratio:1;border-radius:var(--r-m);border:1px solid var(--line);background:#12171A;display:block}
+.acard canvas{width:100%;aspect-ratio:1;border-radius:var(--r-m);border:1px solid var(--line);background:#12171A;display:block;object-fit:cover}
 .acard .a-name{font-size:12px;font-weight:600;color:var(--cream);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acard .a-sub{font-size:10px;color:var(--dim2);letter-spacing:.08em;font-family:var(--mono)}
 
@@ -145,7 +145,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .h1{font-size:20px;font-weight:600;letter-spacing:.01em;color:var(--cream)}
 
 /* ---- context menu (right-click configurator) ---- */
-.ctxmenu{min-width:200px;max-width:none;padding:6px}
+.ctxmenu{min-width:200px;max-width:none;max-height:80vh;overflow-y:auto;padding:6px}
 .ctxsep{height:1px;background:var(--line);margin:5px 4px}
 .ctxitem{display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;border-radius:var(--r-l);
   font-size:10px;letter-spacing:.12em;color:var(--dim);text-align:left;font-family:var(--mono)}
@@ -161,6 +161,6 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 /* ctx submenus (hover-open) */
 .ctxwrap{position:relative}
 .ctxarrow{margin-left:auto;color:var(--dim2);font-size:9px}
-.ctxsub{position:absolute;left:calc(100% - 6px);top:-7px;display:none;min-width:190px}
+.ctxsub{position:absolute;left:calc(100%);top:-7px;display:none;min-width:190px}
 .ctxwrap:hover>.ctxsub{display:block}
 .ctxwrap:hover>.ctxitem{background:var(--accent-12);color:var(--cream)}

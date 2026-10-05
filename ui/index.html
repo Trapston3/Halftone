@@ -201,6 +201,7 @@ canvas.art,.art{width:96px;height:96px;border-radius:var(--r-b);border:1px solid
 </div>
 
 <script src="common.js"></script>
+<script src="smoothing.js"></script>
 <script>
 /* ============ widget page wiring ============ */
 ["widget","wbody","head","edgeCv","artCv","artImg","trkNo","tTitle","tTech","seek","seekCv","tip","tCur","tTot",
@@ -582,7 +583,7 @@ requestAnimationFrame(loop);
 document.addEventListener("halftone:track",()=>{
   const m=S.meta;
   el.tTitle.textContent=m?m.title:"\u2014";
-  el.tTech.textContent=m?`${m.streaminfo.sample_rate/1000} kHz / ${m.streaminfo.bits}-BIT / ${m.streaminfo.channels===2?"STEREO":m.streaminfo.channels+"CH"}`:"\u2014";
+  el.tTech.textContent=m?`${m.streaminfo.sample_rate/1000} kHz / ${m.streaminfo.bits}-BIT / ${m.streaminfo.channels===2?"STEREO":m.streaminfo.channels+"CH"} / ${m.format_tag||"FLAC"} \u00b7 ${(m.lossless===false)?"LOSSY":"LOSSLESS}`:"\u2014";
   el.trkNo.textContent="HALFTONE / "+String(S.i+1).padStart(2,"0")+" / "+String(S.lib.length).padStart(2,"0");
   el.tTot.textContent=fmt(durSec());
   el.btnLyrics.classList.toggle("lrc-available",S.lyrics.length>0);
