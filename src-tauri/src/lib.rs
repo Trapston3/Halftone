@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 mod formats;
 mod probe;
 mod lyrics;
-mod covers;
+pub(crate) mod covers;
 mod media_source;
 #[path = "alac.rs"]
 mod alac;
@@ -30,6 +30,7 @@ mod mpris;
 pub mod art_thumb;
 pub mod analyze_track;
 pub mod db;
+pub mod discord_rpc;
 
 /// App handle for modules that emit backend->UI events (MPRIS bridge).
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -863,8 +864,54 @@ static ALLOWED_ROOTS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec
 static ALLOWED_FILES: std::sync::Mutex<Option<std::collections::HashSet<PathBuf>>> =
     std::sync::Mutex::new(None);
 
+pub(crate) fn normalize_path_str(raw: &str) -> PathBuf {
+    let mut s = raw.trim();
+    if s.is_empty() {
+        return PathBuf::new();
+    }
+    while s.starts_with('/') || s.starts_with('\\') {
+        let bytes = s.as_bytes();
+        if bytes.len() >= 3 && (bytes[0] == b'/' || bytes[0] == b'\\') {
+            let rest = &s[1..];
+            let rbytes = rest.as_bytes();
+            if rbytes.len() >= 2 && rbytes[0].is_ascii_alphabetic() && rbytes[1] == b':' {
+                s = rest;
+                break;
+            }
+        }
+        if s.starts_with(r"\\?\") || s.starts_with("//?/") {
+            s = &s[4..];
+            continue;
+        }
+        break;
+    }
+    if s.starts_with(r"\\?\") || s.starts_with("//?/") {
+        s = &s[4..];
+    }
+    #[cfg(windows)]
+    {
+        PathBuf::from(s.replace('/', "\\"))
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from(s)
+    }
+}
+
+pub(crate) fn strip_verbatim(p: &Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    if let Some(stripped) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else if let Some(stripped) = s.strip_prefix("//?/") {
+        PathBuf::from(stripped)
+    } else {
+        p.to_path_buf()
+    }
+}
+
 pub(crate) fn register_allowed_root(dir: &Path) {
-    let canon = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let norm = normalize_path_str(&dir.to_string_lossy());
+    let canon = fs::canonicalize(&norm).unwrap_or_else(|_| norm);
     if let Ok(mut roots) = ALLOWED_ROOTS.lock() {
         if !roots.contains(&canon) {
             roots.push(canon);
@@ -873,19 +920,23 @@ pub(crate) fn register_allowed_root(dir: &Path) {
 }
 
 pub(crate) fn register_allowed_file(path: &Path) {
-    let canon = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let norm = normalize_path_str(&path.to_string_lossy());
+    let canon = fs::canonicalize(&norm).unwrap_or_else(|_| norm);
     if let Ok(mut files) = ALLOWED_FILES.lock() {
         files.get_or_insert_with(std::collections::HashSet::new).insert(canon);
     }
 }
 
 fn is_media_path_allowed(path: &Path) -> bool {
-    let Ok(canon) = fs::canonicalize(path) else {
+    let norm = normalize_path_str(&path.to_string_lossy());
+    let canon = fs::canonicalize(&norm).or_else(|_| fs::canonicalize(path));
+    let Ok(canon) = canon else {
         return false;
     };
+    let stripped_canon = strip_verbatim(&canon);
     if let Ok(files) = ALLOWED_FILES.lock() {
         if let Some(set) = files.as_ref() {
-            if set.contains(&canon) {
+            if set.contains(&canon) || set.contains(&stripped_canon) {
                 return true;
             }
         }
@@ -895,7 +946,13 @@ fn is_media_path_allowed(path: &Path) -> bool {
             // In unit tests or before first library scan, allow existing valid audio files
             return true;
         }
-        if roots.iter().any(|r| canon.starts_with(r)) {
+        if roots.iter().any(|r| {
+            let stripped_r = strip_verbatim(r);
+            canon.starts_with(r)
+                || stripped_canon.starts_with(&stripped_r)
+                || canon.starts_with(&stripped_r)
+                || stripped_canon.starts_with(r)
+        }) {
             return true;
         }
     }
@@ -1021,7 +1078,13 @@ fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> 
             }
             let key = p.to_string_lossy().to_string();
             let r = match index.get(&key) {
-                Some(e) if e.size == *size && e.mtime == *mtime => Ok(e.meta.clone()),
+                Some(e) if e.size == *size && e.mtime == *mtime => {
+                    let mut m = e.meta.clone();
+                    if !m.has_cover {
+                        m.has_cover = covers::has_folder_cover(p);
+                    }
+                    Ok(m)
+                }
                 _ => probe::read_meta(p, false).map(|(m, _, _)| m),
             };
             let n = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
@@ -1643,13 +1706,94 @@ fn scan_cancel() {
 fn open_track(app: tauri::AppHandle, path: &str) -> Result<TrackMeta, String> {
     // Bounded reads; detect by MAGIC bytes, not extension. Full cover kept
     // (SMTC + now-playing need it) — this is one track, not the library.
-    let p = Path::new(path);
+    let norm = normalize_path_str(path);
+    let p = norm.as_path();
     register_allowed_file(p);
     let mut meta = probe::read_meta(p, true).map(|(m, _, _)| m)?;
+    if meta.cover.is_none() {
+        if let Some((mime, bytes)) = covers::extract_cover(p) {
+            let data_len = bytes.len() as u32;
+            let data_b64 = base64_encode(&bytes);
+            let (width, height) = image::load_from_memory(&bytes)
+                .map(|img| (img.width(), img.height()))
+                .unwrap_or((0, 0));
+            meta.has_cover = true;
+            meta.cover = Some(Picture {
+                mime,
+                data_b64,
+                width,
+                height,
+                data_len,
+            });
+        }
+    }
     db::with_db(&app, false, |db_state| {
         db::enrich_track_meta(db_state, &mut meta);
     });
     Ok(meta)
+}
+
+#[tauri::command]
+fn open_settings_window(app: tauri::AppHandle, section: Option<String>) -> Result<(), String> {
+    use tauri::{Emitter, Manager};
+    if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+        let _ = app.emit("halftone:settings-section", &section);
+        return Ok(());
+    }
+
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        "settings",
+        tauri::WebviewUrl::App("main.html?standaloneSettings=1".into()),
+    )
+    .title("Halftone — Settings")
+    .inner_size(680.0, 720.0)
+    .min_inner_size(500.0, 480.0)
+    .resizable(true)
+    .decorations(true)
+    .center()
+    .visible(true)
+    .focused(true)
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    if let Some(sec) = &section {
+        let _ = app.emit("halftone:settings-section", sec);
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn discord_update_presence(
+    title: String,
+    artist: String,
+    album: String,
+    duration_sec: f64,
+    position_sec: f64,
+    playing: bool,
+    enabled: bool,
+) -> Result<bool, String> {
+    if !enabled {
+        discord_rpc::clear_presence();
+        return Ok(false);
+    }
+    Ok(discord_rpc::update_presence(
+        &title,
+        &artist,
+        &album,
+        duration_sec,
+        position_sec,
+        playing,
+    ))
+}
+
+#[tauri::command]
+fn discord_clear_presence() -> Result<bool, String> {
+    Ok(discord_rpc::clear_presence())
 }
 
 #[tauri::command]
@@ -1860,10 +2004,12 @@ fn alac_wav(path: &Path, mtime: std::time::SystemTime) -> Result<std::sync::Arc<
 }
 
 fn serve_cover(path: &Path) -> tauri::http::Response<Vec<u8>> {
+    let norm = normalize_path_str(&path.to_string_lossy());
+    let path = norm.as_path();
     let Ok(mtime) = fs::metadata(path).and_then(|m| m.modified()) else {
         return http(404, b"no such file".to_vec());
     };
-    // Resolution order: user override > embedded art > web-fetched cache.
+    // Resolution order: user override > embedded art / folder cover > web-fetched cache.
     if let Some(r) = covers::serve_stored(path, mtime, "user") {
         return r;
     }
@@ -1878,15 +2024,19 @@ fn serve_cover(path: &Path) -> tauri::http::Response<Vec<u8>> {
         Some(a) => a,
         None => {
             let pic = probe::read_meta(path, true).ok().and_then(|(m, _, _)| m.cover);
-            let Some(pic) = pic else {
-                // No embedded art: fall through to the web-fetched cache.
+            let art_data = if let Some(pic) = pic {
+                base64_decode(&pic.data_b64).map(|bytes| (pic.mime, bytes))
+            } else {
+                covers::find_folder_cover(path)
+            };
+            let Some((mime, bytes)) = art_data else {
+                // No embedded art and no folder cover: fall through to the web-fetched cache.
                 if let Some(r) = covers::serve_stored(path, mtime, "web") {
                     return r;
                 }
                 return http(404, b"no embedded art".to_vec());
             };
-            let Some(bytes) = base64_decode(&pic.data_b64) else { return http(500, b"bad art".to_vec()) };
-            let a = std::sync::Arc::new((pic.mime, bytes));
+            let a = std::sync::Arc::new((mime, bytes));
             if let Ok(mut c) = COVER_CACHE.lock() {
                 if c.len() >= COVER_CACHE_MAX {
                     c.remove(0);
@@ -1952,7 +2102,10 @@ fn serve_media(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<
         .or_else(|| uri.strip_prefix("http://flac.localhost/"))     // legacy fallback
         .unwrap_or("");
     if let Some(t) = enc.strip_prefix("thumb/") {
-        let p = PathBuf::from(pct_decode(t));
+        let p = normalize_path_str(&pct_decode(t));
+        if !is_media_path_allowed(&p) {
+            return http(403, b"halftone: path outside allowlisted library roots".to_vec());
+        }
         if let Some((mime, bytes)) = art_thumb::serve_thumb(APP.get(), &p) {
             return tauri::http::Response::builder()
                 .status(200)
@@ -1965,9 +2118,13 @@ fn serve_media(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<
         return serve_cover(&p);
     }
     if let Some(c) = enc.strip_prefix("cover/") {
-        return serve_cover(Path::new(&pct_decode(c)));
+        let p = normalize_path_str(&pct_decode(c));
+        if !is_media_path_allowed(&p) {
+            return http(403, b"halftone: path outside allowlisted library roots".to_vec());
+        }
+        return serve_cover(&p);
     }
-    let path = PathBuf::from(pct_decode(enc));
+    let path = normalize_path_str(&pct_decode(enc));
     let range = request.headers().get("range").and_then(|v| v.to_str().ok());
 
     let md = match fs::metadata(&path) {
@@ -2051,6 +2208,53 @@ mod cover_route_tests {
         assert_eq!(r.status(), 200, "cache-buster query must not break media lookup");
         assert_eq!(r.headers().get("content-type").and_then(|v| v.to_str().ok()), Some("audio/wav"));
         let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn path_normalization_handles_windows_variants() {
+        let p1 = normalize_path_str("C:/Music/test.flac");
+        let p2 = normalize_path_str("/C:/Music/test.flac");
+        let p3 = normalize_path_str(r"\\?\C:\Music\test.flac");
+        let p4 = normalize_path_str(r"//?/C:/Music/test.flac");
+        let p5 = normalize_path_str(r"C:\Music\test.flac");
+
+        #[cfg(windows)]
+        {
+            assert_eq!(p1, PathBuf::from(r"C:\Music\test.flac"));
+            assert_eq!(p2, PathBuf::from(r"C:\Music\test.flac"));
+            assert_eq!(p3, PathBuf::from(r"C:\Music\test.flac"));
+            assert_eq!(p4, PathBuf::from(r"C:\Music\test.flac"));
+            assert_eq!(p5, PathBuf::from(r"C:\Music\test.flac"));
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (p1, p2, p3, p4, p5);
+        }
+    }
+
+    #[test]
+    fn cover_route_serves_folder_cover_fallback() {
+        let dir = std::env::temp_dir().join(format!("ht_fold_cov_route_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let audio = dir.join("track01.wav");
+        std::fs::write(&audio, tiny_wav()).unwrap();
+
+        // 1. Without sidecar, 404
+        let enc = pct_encode(&audio.to_string_lossy());
+        let r = serve_media(req(&format!("media://localhost/cover/{}", enc)));
+        assert_eq!(r.status(), 404);
+
+        // 2. Add sidecar cover.jpg -> must serve 200
+        let fake_jpg = [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4, 5];
+        let cover_path = dir.join("cover.jpg");
+        std::fs::write(&cover_path, &fake_jpg).unwrap();
+
+        let r = serve_media(req(&format!("media://localhost/cover/{}", enc)));
+        assert_eq!(r.status(), 200);
+        assert_eq!(r.headers().get("content-type").and_then(|v| v.to_str().ok()), Some("image/jpeg"));
+        assert_eq!(r.into_body(), fake_jpg);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
@@ -2280,6 +2484,9 @@ pub fn run() {
             db::db_import_bundle,
             mpris::smtc_update,
             mpris::smtc_clear,
+            open_settings_window,
+            discord_update_presence,
+            discord_clear_presence,
             ota_check,
             ota_download,
             ota_apply,

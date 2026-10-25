@@ -43,17 +43,17 @@
       "pass": true,
       "detail": {
         "thumb_url": "http://media.localhost/thumb/C%3A%5CUsers%5Ctraps%5CDocuments%5Cantigravity%5Chopeful-meitner%5Cui%5Ctest%5Cfixtures_lib%5C01_Analogue_Phosphor.wav",
-        "accent_hex": "#617eca",
-        "accent_dark_hex": "#617eca",
-        "accent_light_hex": "#1e3378",
-        "secondary_hex": "#825e9d",
+        "accent_hex": "#517ee1",
+        "accent_dark_hex": "#517ee1",
+        "accent_light_hex": "#3c67c7",
+        "secondary_hex": "#bf5587",
         "oklch": [
-          0.35,
-          0.120885596,
-          267.00964
+          0.5347256,
+          0.15753655,
+          263.837
         ],
         "is_dark_art": true,
-        "source": "web"
+        "source": "embedded"
       }
     },
     "6_analyze_track_lufs": {
@@ -126,14 +126,14 @@
               "dx": 0,
               "dy": 0,
               "rect": {
-                "x": 0,
-                "y": 0,
-                "width": 0,
-                "height": 0,
-                "top": 0,
-                "right": 0,
-                "bottom": 0,
-                "left": 0
+                "x": 13,
+                "y": 14,
+                "width": 60,
+                "height": 60,
+                "top": 14,
+                "right": 73,
+                "bottom": 74,
+                "left": 13
               }
             },
             {
@@ -142,14 +142,14 @@
               "dx": 0,
               "dy": 0,
               "rect": {
-                "x": 11.26710033416748,
-                "y": 7.800300121307373,
-                "width": 205.8683319091797,
-                "height": 60.66899871826172,
-                "top": 7.800300121307373,
-                "right": 217.13543224334717,
-                "bottom": 68.46929883956909,
-                "left": 11.26710033416748
+                "x": 83,
+                "y": 9,
+                "width": 108,
+                "height": 70,
+                "top": 9,
+                "right": 191,
+                "bottom": 79,
+                "left": 83
               }
             },
             {
@@ -158,14 +158,14 @@
               "dx": 0,
               "dy": 0,
               "rect": {
-                "x": 227.53582763671875,
-                "y": 7.800300121307373,
-                "width": 161.20620727539062,
-                "height": 29.46780014038086,
-                "top": 7.800300121307373,
-                "right": 388.7420349121094,
-                "bottom": 37.26810026168823,
-                "left": 227.53582763671875
+                "x": 201,
+                "y": 27,
+                "width": 186,
+                "height": 34,
+                "top": 27,
+                "right": 387,
+                "bottom": 61,
+                "left": 201
               }
             },
             {
@@ -174,14 +174,14 @@
               "dx": 0,
               "dy": 0,
               "rect": {
-                "x": 0.8666999936103821,
-                "y": 68.46929931640625,
-                "width": 398.2757263183594,
-                "height": 15.600601196289062,
-                "top": 68.46929931640625,
-                "right": 399.14242631196976,
-                "bottom": 84.06990051269531,
-                "left": 0.8666999936103821
+                "x": 13,
+                "y": 87,
+                "width": 374,
+                "height": 18,
+                "top": 87,
+                "right": 387,
+                "bottom": 105,
+                "left": 13
               }
             },
             {
@@ -190,14 +190,14 @@
               "dx": 0,
               "dy": 0,
               "rect": {
-                "x": 0.8666999936103821,
-                "y": 84.06990051269531,
-                "width": 398.2757263183594,
-                "height": 45.06840515136719,
-                "top": 84.06990051269531,
-                "right": 399.14242631196976,
-                "bottom": 129.1383056640625,
-                "left": 0.8666999936103821
+                "x": 1,
+                "y": 111,
+                "width": 398,
+                "height": 52,
+                "top": 111,
+                "right": 399,
+                "bottom": 163,
+                "left": 1
               }
             },
             {
@@ -206,14 +206,14 @@
               "dx": 0,
               "dy": 0,
               "rect": {
-                "x": 11.26710033416748,
-                "y": 97.07039642333984,
-                "width": 55.46879959106445,
-                "height": 12.133804321289062,
-                "top": 97.07039642333984,
-                "right": 66.73589992523193,
-                "bottom": 109.2042007446289,
-                "left": 11.26710033416748
+                "x": 13,
+                "y": 128,
+                "width": 64,
+                "height": 14,
+                "top": 128,
+                "right": 77,
+                "bottom": 142,
+                "left": 13
               }
             },
             {
@@ -222,14 +222,14 @@
               "dx": 0,
               "dy": 0,
               "rect": {
-                "x": 0.8666999936103821,
-                "y": 129.1383056640625,
-                "width": 398.2757263183594,
-                "height": 130.0050048828125,
-                "top": 129.1383056640625,
-                "right": 399.14242631196976,
-                "bottom": 259.143310546875,
-                "left": 0.8666999936103821
+                "x": 1,
+                "y": 163,
+                "width": 398,
+                "height": 96,
+                "top": 163,
+                "right": 399,
+                "bottom": 259,
+                "left": 1
               }
             }
           ]
@@ -240,7 +240,7 @@
       "pass": true,
       "detail": {
         "r0": 30,
-        "frac": 0.526,
+        "frac": 0.479,
         "rUndo": 0,
         "rRedo": 30
       }
@@ -273,6 +273,34 @@
         "applied": true,
         "h": 760,
         "w": 1200
+      }
+    },
+    "14_sidebar_essentials_and_customize": {
+      "pass": true,
+      "detail": {
+        "customBtn": true,
+        "eqHidden": true
+      }
+    },
+    "15_back_forward_navigation": {
+      "pass": true,
+      "detail": {
+        "hasButtons": true,
+        "afterBack": "albums",
+        "afterFwd": "smart"
+      }
+    },
+    "16_smart_mix_interactive_presets": {
+      "pass": true,
+      "detail": {
+        "cardCount": 5,
+        "hasPlayBtn": true
+      }
+    },
+    "17_discord_rpc_command": {
+      "pass": true,
+      "detail": {
+        "discord_ipc_ok_or_graceful": false
       }
     }
   },

@@ -472,6 +472,90 @@ function drawSeekLedShared(cv,p){
   g.fillRect(px-.75,0,1.5,H);
   g.beginPath();g.moveTo(px-3,0);g.lineTo(px+3,0);g.lineTo(px,4);g.closePath();g.fill();
 }
+/* ============================================================
+   PROCEDURAL VINYL ARTWORK (fallback when no embedded/network art)
+   ============================================================ */
+function drawProceduralVinyl(canvas, title, artist){
+  if(!canvas)return;
+  fitCanvas(canvas);
+  const ctx=canvas.getContext("2d");
+  if(!ctx)return;
+  const w=canvas.width,h=canvas.height;
+  ctx.clearRect(0,0,w,h);
+  const cx=w/2,cy=h/2;
+  const rMax=Math.min(cx,cy)*0.94;
+  if(rMax<=4)return;
+
+  // Outer vinyl disc with dark radial gradient
+  const grad=ctx.createRadialGradient(cx,cy,rMax*0.18,cx,cy,rMax);
+  grad.addColorStop(0,"#1d2024");
+  grad.addColorStop(0.65,"#121417");
+  grad.addColorStop(1,"#090a0c");
+  ctx.fillStyle=grad;
+  ctx.beginPath();
+  ctx.arc(cx,cy,rMax,0,Math.PI*2);
+  ctx.fill();
+
+  // Outer rim specular line
+  ctx.strokeStyle="rgba(255,255,255,0.08)";
+  ctx.lineWidth=1.5;
+  ctx.stroke();
+
+  // Concentric vinyl groove rings
+  ctx.lineWidth=1;
+  const step=Math.max(3,rMax*0.038);
+  for(let r=rMax*0.42;r<rMax*0.93;r+=step){
+    const alpha=(Math.sin(r*2.4)>0.25)?0.05:0.28;
+    ctx.strokeStyle=`rgba(255,255,255,${alpha})`;
+    ctx.beginPath();
+    ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.stroke();
+  }
+
+  // Light reflection sheen
+  if(ctx.createConicGradient){
+    try{
+      const sheen=ctx.createConicGradient(Math.PI/4,cx,cy);
+      sheen.addColorStop(0,"rgba(255,255,255,0.07)");
+      sheen.addColorStop(0.12,"transparent");
+      sheen.addColorStop(0.5,"rgba(255,255,255,0.07)");
+      sheen.addColorStop(0.62,"transparent");
+      sheen.addColorStop(1,"rgba(255,255,255,0.07)");
+      ctx.fillStyle=sheen;
+      ctx.beginPath();
+      ctx.arc(cx,cy,rMax*0.92,0,Math.PI*2);
+      ctx.fill();
+    }catch(_){}
+  }
+
+  // Center record label
+  const labelR=rMax*0.38;
+  const [ar,ag,ab]=ACC.cur||[102,224,194];
+  const labelGrad=ctx.createRadialGradient(cx,cy,2,cx,cy,labelR);
+  labelGrad.addColorStop(0,`rgb(${ar},${ag},${ab})`);
+  labelGrad.addColorStop(0.82,`rgb(${Math.round(ar*0.75)},${Math.round(ag*0.75)},${Math.round(ab*0.75)})`);
+  labelGrad.addColorStop(1,"#15171a");
+  ctx.fillStyle=labelGrad;
+  ctx.beginPath();
+  ctx.arc(cx,cy,labelR,0,Math.PI*2);
+  ctx.fill();
+
+  // Label rim
+  ctx.strokeStyle="rgba(0,0,0,0.4)";
+  ctx.lineWidth=1.2;
+  ctx.stroke();
+
+  // Spindle hole
+  ctx.fillStyle="#0a0b0d";
+  ctx.beginPath();
+  ctx.arc(cx,cy,Math.max(3,rMax*0.08),0,Math.PI*2);
+  ctx.fill();
+  ctx.strokeStyle="rgba(255,255,255,0.18)";
+  ctx.lineWidth=1;
+  ctx.stroke();
+}
+window.drawProceduralVinyl=drawProceduralVinyl;
+
 function drawAmbient(cv,now){
   if(!cv)return;
   fitCanvas(cv);
@@ -591,10 +675,26 @@ function applyDspChain(){
   if(loudnessHigh)loudnessHigh.gain.value=highBoost;
 }
 window.applyDspChain=applyDspChain;
-window.applyBalanceSetting=v=>{S.cfg.balance=+v||0;applyDspChain();saveStore()};
-window.applyMonoSetting=v=>{S.cfg.mono=!!v;applyDspChain();saveStore()};
-window.applyLoudnessComp=v=>{S.cfg.loudnessComp=!!v;applyDspChain();saveStore()};
-window.applyCrossfeedSetting=v=>{S.cfg.crossfeed=v||"off";applyDspChain();saveStore()};
+window.applyBalanceSetting=v=>{
+  S.cfg.balance=+v||0;
+  if(IS_OWNER){applyDspChain();saveStore()}
+  else emitCmd({cmd:"dsp",balance:S.cfg.balance});
+};
+window.applyMonoSetting=v=>{
+  S.cfg.mono=!!v;
+  if(IS_OWNER){applyDspChain();saveStore()}
+  else emitCmd({cmd:"dsp",mono:S.cfg.mono});
+};
+window.applyLoudnessComp=v=>{
+  S.cfg.loudnessComp=!!v;
+  if(IS_OWNER){applyDspChain();saveStore()}
+  else emitCmd({cmd:"dsp",loudnessComp:S.cfg.loudnessComp});
+};
+window.applyCrossfeedSetting=v=>{
+  S.cfg.crossfeed=v||"off";
+  if(IS_OWNER){applyDspChain();saveStore()}
+  else emitCmd({cmd:"dsp",crossfeed:S.cfg.crossfeed});
+};
 window.applyCrossfadeSetting=v=>{S.cfg.crossfade=+v||0;saveStore()};
 window.applyGaplessSetting=v=>{S.cfg.gapless=!!v;saveStore()};
 function signalPathInfo(){
@@ -729,10 +829,14 @@ function emitSync(extra){
 }
 window.emitSync=emitSync;
 function syncState(){
+  const liteUrl=S._thumbUrl||S._artUrl||(S.meta&&S.meta.coverUrl)||null;
+  const metaLite=S.meta?Object.assign({},S.meta,{cover:null,cover_b64:null,coverUrl:liteUrl}):null;
   return {
     i:S.i,playing:S.playing,shuffle:S.shuffle,repeat:S.repeat,vol:S.vol,
     pos:S._pos,libN:S.lib.length,
-    meta:S.meta?{...S.meta,cover:null,coverUrl:S.meta.coverUrl||null}:null,
+    meta:metaLite,
+    coverUrl:liteUrl,
+    coverData:S._thumbUrl?null:(S._coverData||null),
     lyrics:{lines:S.lyrics,plain:S.lyricsPlain,status:S.lyricsStatus,synced:S.lyrics.length>0},
     pinned:S.pinned,lyricsOpen:S.lyricsOpen,
     root:S.root,liked:[...S.liked],
@@ -789,6 +893,20 @@ const CMD={
   },
   async lrcfetch(o){if(IS_OWNER&&o&&o.path){try{await invoke("lrc_fetch",{path:o.path,artist:o.artist,title:o.title});await loadLyrics(S.meta,true)}catch(e){console.warn(e)}}},
   async scan(o){if(o&&o.dir)await scanLibrary(o.dir)},
+  async dsp(o){
+    if(!o)return;
+    if(o.balance!=null)S.cfg.balance=o.balance;
+    if(o.mono!=null)S.cfg.mono=o.mono;
+    if(o.loudnessComp!=null)S.cfg.loudnessComp=o.loudnessComp;
+    if(o.crossfeed!=null)S.cfg.crossfeed=o.crossfeed;
+    if(IS_OWNER){
+      if(o.balance!=null&&window.applyBalanceSetting)applyBalanceSetting(o.balance);
+      if(o.mono!=null&&window.applyMonoSetting)applyMonoSetting(o.mono);
+      if(o.loudnessComp!=null&&window.applyLoudnessComp)applyLoudnessComp(o.loudnessComp);
+      if(o.crossfeed!=null&&window.applyCrossfeedSetting)applyCrossfeedSetting(o.crossfeed);
+    }
+    emitSync();
+  },
   async pin(o){S.pinned=!!(o&&o.v);if(window.applyWidgetPin)applyWidgetPin(S.pinned);emitSync()},
   async hello(){
     emitSync();
@@ -859,6 +977,11 @@ function applySync(p){
   if(p.sleepLeft!=null)S._sleepLeft=p.sleepLeft;
   if(p.sleepTrack!=null)S._sleepTrack=p.sleepTrack;
   if(p.sink!=null)S.cfg.sink=p.sink;
+  if(p.coverData||p.coverUrl){
+    S._coverData=p.coverData||null;
+    S._artUrl=p.coverData||p.coverUrl;
+    if(S.meta)S.meta.coverUrl=S._artUrl;
+  }
   if(S.meta&&S.meta.path!==had)loadArtFromMeta(S.meta);
   document.dispatchEvent(new CustomEvent("halftone:track"));
   document.dispatchEvent(new CustomEvent("halftone:state"));
@@ -925,9 +1048,11 @@ async function setPlaying(v){
     if(AC&&AC.state==="suspended"){try{await AC.resume()}catch(e){}}
     if(v){try{await a.play()}catch(e){console.warn("play",e);S.playing=false}}
     else a.pause();
+  }else if(!IS_OWNER){
+    emitCmd({cmd:"play"});
   }
   updTransport&&updTransport();
-  emitSync();
+  if(IS_OWNER)emitSync();
   document.dispatchEvent(new CustomEvent("halftone:state"));
   wakeLoop();
 }
@@ -937,7 +1062,8 @@ function setVol(v){
   const a=document.getElementById("aud");
   if(a)a.volume=S.vol;
   document.dispatchEvent(new CustomEvent("halftone:vol"));
-  emitSync();
+  if(IS_OWNER)emitSync();
+  else emitCmd({cmd:"vol",v:S.vol});
 }
 window.setVol=setVol;
 function nudgeVol(d){setVol(S.vol+d)}
@@ -1001,7 +1127,31 @@ async function loadTrack(i,autoplay=true){
   try{full=await invoke("open_track",{path:t.path})}catch(e){console.warn("open_track",e)}
   if(seq!==loadSeq)return;   /* track changed mid-flight */
   S.meta=full||Object.assign({},t);
-  if(S.meta&&!S.meta.coverUrl)S.meta.coverUrl=null;
+  
+  let coverData=null;
+  if(full){
+    if(full.cover&&full.cover.data_b64){
+      coverData=`data:${full.cover.mime||"image/jpeg"};base64,${full.cover.data_b64}`;
+    }else if(full.cover_b64){
+      coverData=`data:${full.cover_mime||"image/jpeg"};base64,${full.cover_b64}`;
+    }else if(typeof full.cover==="string"&&full.cover.startsWith("data:")){
+      coverData=full.cover;
+    }
+  }
+  let thumbUrl=null;
+  try{
+    const r=await invoke("art_thumb",{path:t.path});
+    thumbUrl=(r&&r.thumb_url)||r;
+  }catch(_){}
+  if(!thumbUrl){
+    try{const u=await invoke("cover_url",{path:t.path});thumbUrl=(u&&u.url)||u}catch(_){}
+  }
+  const finalCover=thumbUrl||(full&&full.coverUrl)||coverData||null;
+  S._coverData=coverData;
+  S._thumbUrl=thumbUrl;
+  S._artUrl=finalCover;
+  if(S.meta)S.meta.coverUrl=finalCover;
+  S.library=S.lib;
   S._pos=0;S.lidx=-1;
   /* 2. playback URL + audio element */
   if(IS_OWNER){
@@ -1012,7 +1162,7 @@ async function loadTrack(i,autoplay=true){
       if(url&&a){a.src=url;S.playing?a.play().catch(()=>{}):0}
     }catch(e){console.warn("media_url",e)}
   }
-  /* 3. cover art (lazy URL, never base64 over IPC) */
+  /* 3. cover art (load into memory for accent & dither) */
   loadArtFromMeta(S.meta);
   /* 3b. no embedded art? auto-fetch (task 10) */
   coverAutoMaybe(S.meta);
@@ -1025,10 +1175,29 @@ async function loadTrack(i,autoplay=true){
 window.loadTrack=loadTrack;
 async function loadArtFromMeta(m){
   if(!m)return;
-  const a=document.getElementById("aud");
+  const src=S._coverData||(m&&m.coverUrl)||S._artUrl;
+  if(src){
+    S._artUrl=src;
+    const im=new Image();
+    im.crossOrigin="anonymous";
+    im.onload=()=>{
+      if(S.meta&&(S.meta.path===m.path||!m.path)){
+        S._img=im;
+        document.dispatchEvent(new CustomEvent("halftone:art"));
+        if(ACC.mode==="album"){
+          const acc=extractAccent(im);
+          if(acc)setAccentRGB(clampAccent(acc).rgb);
+        }
+      }
+    };
+    im.src=src;
+    return;
+  }
   if(m&&m.path){
     try{
-      const u=await invoke("cover_url",{path:m.path});
+      let u=null;
+      try{const r=await invoke("art_thumb",{path:m.path});u=(r&&r.thumb_url)||r}catch(_){}
+      if(!u)u=await invoke("cover_url",{path:m.path});
       if(!u)return;
       S._artUrl=u;
       const im=new Image();

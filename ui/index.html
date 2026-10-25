@@ -65,6 +65,7 @@ body{background:transparent;overflow:hidden}
 .w-actions .btn-icon svg{width:12px;height:12px}
 .w-gear{position:absolute;right:6px;top:6px;opacity:.5;transition:opacity var(--dur-1)}
 .w-gear:hover{opacity:1}
+.w-seek{margin:4px var(--sp3) 6px;position:relative}
 .w-transport{display:flex;align-items:center;gap:var(--sp2);padding:0 var(--sp3) var(--sp3)}
 .w-transport .btn-orb{width:34px;height:34px}
 .w-transport .btn-orb.lg{width:42px;height:42px}
@@ -164,14 +165,12 @@ body{background:transparent;overflow:hidden}
 .widget-stage.wp-square .w-meta{padding-top:0;flex:none}
 .widget-stage.wp-square .w-actions{flex:none;margin-left:0;align-self:flex-end}
 .widget-stage.wp-square .widget-lyrics .lyr-view{min-height:0}
-.widget-stage.wp-lyrics{--w-base-w:380;--w-base-h:300}
-/* lyrics hero: art gone, head + transport collapse to slim rows so the
-   pane is the hero; centre the active line by giving the scroll view
-   generous top/bottom padding (wrap centers when short, scrolls when long) */
-.widget-stage.wp-lyrics .w-artwrap{display:none}
-.widget-stage.wp-lyrics .w-head{padding:var(--sp2) var(--sp3) 0}
-.widget-stage.wp-lyrics .w-transport{padding-bottom:var(--sp2)}
-.widget-stage.wp-lyrics .w-lyrics-host{display:flex;padding:0 var(--sp3)}
+.widget-stage.wp-lyrics{--w-base-w:380;--w-base-h:260}
+.widget-stage.wp-lyrics .w-artwrap{display:block}
+.widget-stage.wp-lyrics .w-art{width:60px;height:60px;border-radius:var(--R-s)}
+.widget-stage.wp-lyrics .w-head{padding:8px var(--sp3) 4px;gap:10px;align-items:center}
+.widget-stage.wp-lyrics .w-transport{padding:2px var(--sp3) 6px}
+.widget-stage.wp-lyrics .w-lyrics-host{display:flex;padding:0 var(--sp3) 8px}
 /* NOTE: no %-of-height padding inside the scroll view here — the wrap
    centres itself via flex when it fits, and widget.js instantly centres
    the active line after a lyrics rebuild; extra padding double-counted
@@ -200,8 +199,10 @@ body{background:transparent;overflow:hidden}
   <div class="w-head">
     <div class="w-artwrap">
       <div class="w-art art-swap-host" id="wArt">
-        <img id="wCover" alt="cover art">
-        <canvas class="art-dither" id="wDither"></canvas>
+        <img id="wArtReal" class="art-real" alt="" onerror="this.style.display='none';" style="display:none">
+        <img id="wCover" style="display:none" alt="">
+        <canvas class="art-dither" id="wArtCanvas"></canvas>
+        <canvas class="art-dither" id="wDither" style="display:none"></canvas>
       </div>
     </div>
     <div class="w-meta">
@@ -215,7 +216,7 @@ body{background:transparent;overflow:hidden}
       <button class="btn-icon" id="wLayoutBtn" title="Edit layout (Ctrl+L)" aria-label="Edit layout">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
       </button>
-      <button class="btn-icon" id="wGear" title="Widget settings" aria-label="Widget settings">
+      <button class="btn-icon" id="wCfgBtn" title="Widget settings" aria-label="Widget settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/></svg>
       </button>
       <button class="btn-icon" id="wPin" title="Always on top" aria-label="Always on top">
@@ -229,7 +230,7 @@ body{background:transparent;overflow:hidden}
       </button>
     </div>
   </div>
-  <div class="seek w-seek" id="wSeek" style="margin:0 var(--sp3);flex:none">
+  <div class="seek w-seek" id="wSeek" style="margin:4px var(--sp3) 6px;flex:none">
     <canvas class="seek-led"></canvas>
     <div class="seek-gel"><div class="track"><canvas class="gel-bars" width="0" height="0"></canvas><div class="fill"></div><div class="knob"></div></div></div>
     <div class="seek-tip mono">00:00</div>

@@ -258,14 +258,21 @@ pub fn read_meta(path: &Path, want_cover: bool) -> Result<(TrackMeta, Kind, bool
     }
     .into();
     m.lossless = matches!(kind, Kind::Flac | Kind::Wav | Kind::Aiff | Kind::Wv) || alac;
+    let embedded_has_cover = m.cover.is_some();
     if !want_cover {
-        m.has_cover = m.has_cover || m.cover.is_some();
+        m.has_cover = m.has_cover || embedded_has_cover || crate::covers::has_folder_cover(path);
         m.cover = None;
         m.embedded_lyrics = None;
     } else {
-        m.has_cover = m.cover.is_some();
+        m.has_cover = embedded_has_cover || crate::covers::has_folder_cover(path);
     }
     Ok((m, kind, alac))
+}
+
+/// Convenience wrapper around `read_meta`.
+#[allow(dead_code)]
+pub fn probe_path(path: &Path, want_cover: bool) -> Result<(TrackMeta, Kind, bool), String> {
+    read_meta(path, want_cover)
 }
 
 /// Extensions worth opening during a scan. Magic bytes still decide the
@@ -354,6 +361,24 @@ mod tests {
         assert!(read_meta(&p, true).is_err());
         let p = tmp("z.mp3", &[]);
         assert!(read_meta(&p, true).is_err());
+    }
+
+    #[test]
+    fn folder_cover_sets_has_cover() {
+        let dir = std::env::temp_dir().join(format!("ht_probe_cov_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let audio = dir.join("song.wav");
+        std::fs::write(&audio, wav(44100 * 4, false)).unwrap();
+        let (m, _, _) = read_meta(&audio, false).unwrap();
+        assert!(!m.has_cover);
+
+        // Add a folder.jpg
+        let img = dir.join("folder.jpg");
+        std::fs::write(&img, [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3]).unwrap();
+        let (m, _, _) = probe_path(&audio, false).unwrap();
+        assert!(m.has_cover);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

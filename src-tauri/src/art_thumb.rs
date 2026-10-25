@@ -293,6 +293,9 @@ fn resolve_cover_bytes(app: &tauri::AppHandle, track_path: &Path) -> Option<(Str
             }
         }
     }
+    if let Some((_mime, bytes)) = covers::find_folder_cover(track_path) {
+        return Some(("embedded".into(), bytes));
+    }
     if let Some(resp) = covers::serve_stored(track_path, mtime, "web") {
         if resp.status() == 200 {
             return Some(("web".into(), resp.into_body()));
@@ -304,7 +307,8 @@ fn resolve_cover_bytes(app: &tauri::AppHandle, track_path: &Path) -> Option<(Str
 
 /// Generate a 256×256 PNG thumbnail and compute OKLCH accents for `track_path`.
 pub fn build_or_load_thumb(app: &tauri::AppHandle, path_str: &str) -> ArtThumbResult {
-    let path = Path::new(path_str);
+    let norm = crate::normalize_path_str(path_str);
+    let path = norm.as_path();
     let mtime_secs = fs::metadata(path)
         .and_then(|m| m.modified())
         .ok()
@@ -313,7 +317,7 @@ pub fn build_or_load_thumb(app: &tauri::AppHandle, path_str: &str) -> ArtThumbRe
         .unwrap_or(0);
     let cache_key = format!(
         "{:016x}_{}",
-        crate::lyrics::fnv(&path_str.to_lowercase()),
+        crate::lyrics::fnv(&norm.to_string_lossy().to_lowercase()),
         mtime_secs
     );
 
@@ -408,6 +412,11 @@ pub fn serve_thumb(app: Option<&tauri::AppHandle>, path: &Path) -> Option<(Strin
     let thumb_file = tdir.join(format!("{cache_key}.png"));
     let bytes = fs::read(thumb_file).ok()?;
     Some(("image/png".into(), bytes))
+}
+
+/// Convenience alias for `build_or_load_thumb`.
+pub fn get_or_create_thumb(app: &tauri::AppHandle, path_str: &str) -> ArtThumbResult {
+    build_or_load_thumb(app, path_str)
 }
 
 #[tauri::command]

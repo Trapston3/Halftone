@@ -779,6 +779,153 @@ pub(crate) async fn cover_info(app: tauri::AppHandle, path: String) -> Result<Co
 }
 
 // ---------------------------------------------------------------------------
+// Folder Cover Fallback & Cover Extraction
+// ---------------------------------------------------------------------------
+
+const FOLDER_COVER_NAMES: &[&str] = &[
+    "cover.jpg",
+    "cover.jpeg",
+    "cover.png",
+    "cover.webp",
+    "folder.jpg",
+    "folder.jpeg",
+    "folder.png",
+    "folder.webp",
+    "front.jpg",
+    "front.jpeg",
+    "front.png",
+    "front.webp",
+    "album.jpg",
+    "album.jpeg",
+    "album.png",
+    "artwork.jpg",
+    "artwork.jpeg",
+    "artwork.png",
+];
+
+const MAX_FOLDER_COVER_SIZE: u64 = 15 * 1024 * 1024; // 15 MB
+
+fn is_system_temp_or_root(dir: &Path) -> bool {
+    if dir.parent().is_none() {
+        return true;
+    }
+    let temp = std::env::temp_dir();
+    if dir == temp {
+        return true;
+    }
+    if let (Ok(c_dir), Ok(c_temp)) = (fs::canonicalize(dir), fs::canonicalize(&temp)) {
+        if c_dir == c_temp {
+            return true;
+        }
+    }
+    false
+}
+
+/// Look in `audio_path`'s parent directory for common sidecar cover files or any .jpg/.png under 15 MB.
+pub fn find_folder_cover_path(audio_path: &Path) -> Option<PathBuf> {
+    let parent = audio_path.parent()?;
+    let entries = fs::read_dir(parent).ok()?;
+    let allow_arbitrary = !is_system_temp_or_root(parent);
+
+    let mut preferred_match: Option<(usize, PathBuf)> = None;
+    let mut fallback_image: Option<PathBuf> = None;
+
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if !p.is_file() {
+            continue;
+        }
+        let Ok(meta) = p.metadata() else {
+            continue;
+        };
+        if meta.len() == 0 || meta.len() > MAX_FOLDER_COVER_SIZE {
+            continue;
+        }
+        let file_name = match p.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_ascii_lowercase(),
+            None => continue,
+        };
+
+        if let Some(pos) = FOLDER_COVER_NAMES.iter().position(|&cand| cand == file_name) {
+            match &preferred_match {
+                Some((best_pos, _)) if pos < *best_pos => {
+                    preferred_match = Some((pos, p));
+                }
+                None => {
+                    preferred_match = Some((pos, p));
+                }
+                _ => {}
+            }
+        } else if allow_arbitrary && fallback_image.is_none() {
+            if file_name.ends_with(".jpg")
+                || file_name.ends_with(".jpeg")
+                || file_name.ends_with(".png")
+                || file_name.ends_with(".webp")
+            {
+                fallback_image = Some(p);
+            }
+        }
+    }
+
+    preferred_match.map(|(_, p)| p).or(fallback_image)
+}
+
+/// Fast check whether a folder cover image exists for `audio_path`.
+pub fn has_folder_cover(audio_path: &Path) -> bool {
+    find_folder_cover_path(audio_path).is_some()
+}
+
+/// Reads the folder cover image if found, returning (mime, bytes).
+pub fn find_folder_cover(audio_path: &Path) -> Option<(String, Vec<u8>)> {
+    let path = find_folder_cover_path(audio_path)?;
+    let bytes = fs::read(&path).ok()?;
+    if bytes.len() > (MAX_FOLDER_COVER_SIZE as usize) {
+        return None;
+    }
+    let ext = sniff_image(&bytes).or_else(|| {
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .and_then(|e| match e.as_str() {
+                "jpg" | "jpeg" => Some("jpg"),
+                "png" => Some("png"),
+                "webp" => Some("webp"),
+                _ => None,
+            })
+    })?;
+    let mime = match ext {
+        "png" => "image/png",
+        "webp" => "image/webp",
+        _ => "image/jpeg",
+    };
+    Some((mime.to_string(), bytes))
+}
+
+/// Extracts embedded picture tag from `path`. If None, falls back to `find_folder_cover(path)`.
+pub fn extract_cover(path: &Path) -> Option<(String, Vec<u8>)> {
+    if let Ok((meta, _, _)) = probe::read_meta(path, true) {
+        if let Some(pic) = meta.cover {
+            if let Some(bytes) = crate::base64_decode_pub(&pic.data_b64) {
+                let mime = if pic.mime.is_empty() {
+                    sniff_image(&bytes)
+                        .map(|ext| match ext {
+                            "png" => "image/png",
+                            "webp" => "image/webp",
+                            _ => "image/jpeg",
+                        })
+                        .unwrap_or("image/jpeg")
+                        .to_string()
+                } else {
+                    pic.mime
+                };
+                return Some((mime, bytes));
+            }
+        }
+    }
+    find_folder_cover(path)
+}
+
+// ---------------------------------------------------------------------------
 // Helpers shared by commands
 // ---------------------------------------------------------------------------
 
@@ -968,6 +1115,48 @@ mod tests {
         // album-only match second
         assert_eq!(r[1].url, "u2");
         assert_eq!(r[2].url, "u3");
+    }
+
+    #[test]
+    fn folder_cover_fallback_finds_preferred_and_any_images() {
+        let dir = std::env::temp_dir().join(format!("ht_folder_art_test_{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let audio = dir.join("track01.flac");
+        fs::write(&audio, b"fLaC").unwrap();
+
+        // 1. Initially no cover
+        assert!(!has_folder_cover(&audio));
+        assert!(find_folder_cover(&audio).is_none());
+
+        // 2. An arbitrary .jpg image exists
+        let random_jpg = dir.join("some_artwork_photo.jpg");
+        let fake_jpg = [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4];
+        fs::write(&random_jpg, &fake_jpg).unwrap();
+
+        assert!(has_folder_cover(&audio));
+        let (mime, bytes) = find_folder_cover(&audio).unwrap();
+        assert_eq!(mime, "image/jpeg");
+        assert_eq!(bytes, fake_jpg);
+
+        // 3. A preferred "folder.png" is added -> should win over some_artwork_photo.jpg
+        let folder_png = dir.join("folder.png");
+        let fake_png = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 1];
+        fs::write(&folder_png, &fake_png).unwrap();
+
+        let (mime, bytes) = find_folder_cover(&audio).unwrap();
+        assert_eq!(mime, "image/png");
+        assert_eq!(bytes, fake_png);
+
+        // 4. A higher priority "cover.jpg" (case-insensitive "COVER.JPG") is added -> should win over folder.png
+        let cover_jpg = dir.join("COVER.JPG");
+        let fake_cover_jpg = [0xFF, 0xD8, 0xFF, 0xE1, 9, 9, 9];
+        fs::write(&cover_jpg, &fake_cover_jpg).unwrap();
+
+        let (mime, bytes) = find_folder_cover(&audio).unwrap();
+        assert_eq!(mime, "image/jpeg");
+        assert_eq!(bytes, fake_cover_jpg);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// Live network smoke test: a well-known album must return candidates.

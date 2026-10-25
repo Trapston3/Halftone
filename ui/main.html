@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <title>Halftone</title>
 <script>
+if(new URLSearchParams(location.search).get("standaloneSettings")==="1"){
+  window.IS_VIEWER=true;
+  window.IS_STANDALONE_SETTINGS=true;
+}
+</script>
+<script>
 /* boot-error reporter: last uncaught error + stack into __HT_BOOT_ERR
    (read by the test harness; harmless in production) */
 window.onerror=function(msg,src,line,col,err){
@@ -114,6 +120,51 @@ body{background:transparent}
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:var(--sp3);margin-bottom:var(--sp4)}
 .stat-card{padding:var(--sp3);border:1px solid var(--line);border-radius:var(--R-m);background:var(--bg-2);display:flex;flex-direction:column;gap:4px}
 .stat-val{font-size:1.35rem;font-weight:700;font-family:var(--font-mono);color:var(--accent)}
+
+/* Navigation back / forward buttons */
+.nav-history-btns{display:flex;align-items:center;gap:2px;margin-left:6px}
+.nav-history-btns .icon-btn{width:26px;height:26px;display:flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--fg-2);border-radius:var(--R-m);cursor:pointer;transition:all var(--dur-1)}
+.nav-history-btns .icon-btn:hover:not(:disabled){color:var(--fg);background:var(--bg-3)}
+.nav-history-btns .icon-btn:disabled{opacity:0.35;cursor:not-allowed}
+
+/* Standalone Settings Window Mode */
+body.standalone-settings-window .nav,
+body.standalone-settings-window #sidebar,
+body.standalone-settings-window .search,
+body.standalone-settings-window .tb-title,
+body.standalone-settings-window .nav-history-btns,
+body.standalone-settings-window .win-btn:not(#btnClose):not(#btnMin),
+body.standalone-settings-window .mini-bar,
+body.standalone-settings-window .queue-panel{
+  display:none!important;
+}
+body.standalone-settings-window .app-shell{
+  display:block!important;
+  width:100vw!important;
+  height:calc(100vh - 36px)!important;
+}
+body.standalone-settings-window .views{
+  width:100vw!important;
+  height:100%!important;
+}
+body.standalone-settings-window #v-content{
+  width:100vw!important;
+  height:100%!important;
+  display:block!important;
+  max-width:none!important;
+}
+body.standalone-settings-window #content{
+  width:100vw!important;
+  height:100%!important;
+  max-width:none!important;
+  padding:16px 24px!important;
+}
+body.standalone-settings-window .set-wrap{
+  max-width:100%!important;
+  width:100%!important;
+  height:100%!important;
+  max-height:calc(100vh - 70px)!important;
+}
 </style>
 </head>
 <body data-surface="main">
@@ -129,6 +180,14 @@ body{background:transparent}
         <canvas class="dotgrid" id="logoCv" width="20" height="20"></canvas>
         <div class="nm">HALF<em>TONE</em></div>
       </div>
+      <div class="nav-history-btns">
+        <button class="icon-btn" id="btnNavBack" title="Back (Alt+Left)" disabled aria-label="Back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        </button>
+        <button class="icon-btn" id="btnNavForward" title="Forward (Alt+Right)" disabled aria-label="Forward">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </button>
+      </div>
       <div class="tb-title" id="viewCap">NOW PLAYING</div>
       <div class="search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/></svg>
@@ -136,6 +195,7 @@ body{background:transparent}
       </div>
       <div class="tb-spacer" id="tbDrag"></div>
       <div class="win-btns">
+        <span id="discordBadge" class="badge" title="Discord Rich Presence Active" style="display:none;font-size:0.5625rem;cursor:pointer;margin-right:4px">RPC</span>
         <button class="win-btn" id="btnSignal" data-tip="SIGNAL PATH" aria-label="Signal path">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l3-7 4 14 3-7h6"/></svg>
         </button>
@@ -162,7 +222,17 @@ body{background:transparent}
 
     <!-- ============ app shell: nav + views ============ -->
     <div class="app-shell" id="appShell">
-      <nav class="nav" id="nav"></nav>
+      <nav class="nav sidebar" id="sidebar"></nav>
+      <!-- Floating Customize Sidebar Popover -->
+      <div id="sidebarCustomizePopover" class="sheet" style="display:none;position:fixed;z-index:90;width:240px;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:var(--R-m);box-shadow:var(--shadow-2);padding:12px;backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-sat));">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <span class="h-caps mono" style="font-size:0.6875rem;font-weight:700">CUSTOMIZE SIDEBAR</span>
+          <button class="btn-icon" id="btnCloseSidebarPop" style="width:20px;height:20px" aria-label="Close">✕</button>
+        </div>
+        <div class="sidebar-options" id="sidebarCheckboxes" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px"></div>
+        <button class="btn primary" id="btnResetSidebarEssentials" style="width:100%;font-size:0.6875rem">RESET TO ESSENTIALS</button>
+      </div>
+
       <div class="views" id="views" style="display:flex;flex-direction:column;min-height:0;min-width:0;flex:1">
 
         <!-- NOW PLAYING -->
@@ -171,8 +241,10 @@ body{background:transparent}
             <div class="np-grid">
               <div class="np-left">
                 <div class="np-art art-swap-host" id="npArt">
-                  <img id="npCover" alt="album art">
-                  <canvas class="art-dither" id="npDither"></canvas>
+                  <img id="artReal" class="art-real" alt="" onerror="this.style.display='none';" style="display:none">
+                  <img id="npCover" style="display:none" alt="">
+                  <canvas class="art-dither" id="artCanvas"></canvas>
+                  <canvas class="art-dither" id="npDither" style="display:none"></canvas>
                 </div>
                 <div class="np-info">
                   <div class="np-kicker" id="npKick">HALFTONE / &#8212;</div>
@@ -345,9 +417,18 @@ body{background:transparent}
 <script src="settings.js"></script>
 <script>
 /* ============ main player wiring ============ */
-["shell","edgeCv","np","npArt","npCover","npDither","npKick","npTitle","npArtist","npTech",
+const _origGetById = document.getElementById.bind(document);
+document.getElementById = function(id){
+  if(id === "nav" || id === "sidebar") return _origGetById("sidebar") || _origGetById("nav");
+  if(id === "npCover") return _origGetById("artReal") || _origGetById("npCover");
+  if(id === "npDither") return _origGetById("artCanvas") || _origGetById("npDither");
+  return _origGetById(id);
+};
+
+["shell","edgeCv","np","npArt","npCover","npDither","artReal","artCanvas","npKick","npTitle","npArtist","npTech",
  "seek","tip","tCur","tTot","lyrWrap","npLyrView","npNoLrc","lrcSearch","lrcRetry","lyrStatus","lyrCap","npLyr",
- "content","viewCap","search","npbar","npArtMb","nbTitle","nbSub","nbCur","nbTot","nav",
+ "content","viewCap","search","npbar","npArtMb","nbTitle","nbSub","nbCur","nbTot","nav","sidebar",
+ "btnNavBack","btnNavForward","discordBadge",
  "seek2","nbPrev","nbPlay","nbNext","nbIcoPlay","nbIcoPause",
  "icoPlay","icoPause","btnPlay","btnPrev","btnNext","btnShuf","btnRep","vol","volMb",
  "btnMin","btnClose","btnWidget","btnEq","btnPalette","logoCv","dragLogo","dragTop",
@@ -363,36 +444,289 @@ const EQ_BANDS=[32,64,125,250,500,1000,2000,4000,8000,16000].map(f=>({f}));
 const EQ_ZERO_IDX=5;   /* seg index of 0dB in the 13-seg fader (6 below + zero) */
 
 const VIEWS=[
-  ["nowplaying","NOW PLAYING",'<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2"/>'],
-  ["tracks","SONGS",'<path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.3"/><circle cx="16.5" cy="15" r="2.3"/>'],
-  ["albums","ALBUMS",'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>'],
-  ["coverflow","COVER FLOW",'<path d="M2 7v10M6 5v14M18 5v14M22 7v10"/><rect x="9" y="4" width="6" height="16" rx="1"/>'],
-  ["artists","ARTISTS",'<circle cx="12" cy="8" r="4"/><path d="M4 20c1.8-3.8 5-6 8-6s6.2 2.2 8 6"/>'],
-  ["genres","GENRES",'<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/>'],
-  ["folders","FOLDERS",'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'],
-  ["liked","LIKED",'<path d="M12 20s-7-4.3-9.3-8.6C.9 8 3 4.5 6.4 4.5c2 0 3.6 1.1 4.4 2.7l1.2 2 1.2-2c.8-1.6 2.4-2.7 4.4-2.7 3.4 0 5.5 3.5 3.7 6.9C19 15.7 12 20 12 20z"/>'],
-  ["playlists","PLAYLISTS",'<path d="M4 6h16M4 11h10"/><circle cx="18" cy="16" r="2.5"/><path d="M4 16h9"/>'],
-  ["smart","SMART MIX",'<path d="M12 2l2.4 5.2L20 9.6l-5.6 2.4L12 17.2 9.6 12 4 9.6l5.6-2.4z"/><path d="M5 19l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/>'],
-  ["queue","QUEUE",'<path d="M4 6h16M4 11h16M4 16h7"/><path d="M14 14.5l6 2.5-6 2.5z" fill="currentColor" stroke="none"/>'],
-  ["stats","STATS",'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'],
-  ["health","HEALTH",'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>'],
-  ["eq","EQUALIZER",'<path d="M5 4v6M5 14v6M12 4v10M12 18v2M19 4v2M19 10v10"/><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="16" r="1.8"/><circle cx="19" cy="8" r="1.8"/>'],
-  ["settings","SETTINGS",'<circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/>'],
+  ["nowplaying","now","tabNow","NOW PLAYING",'<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2"/>'],
+  ["tracks","tracks","tabTracks","SONGS",'<path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.3"/><circle cx="16.5" cy="15" r="2.3"/>'],
+  ["albums","albums","tabAlbums","ALBUMS",'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>'],
+  ["artists","artists","tabArtists","ARTISTS",'<circle cx="12" cy="8" r="4"/><path d="M4 20c1.8-3.8 5-6 8-6s6.2 2.2 8 6"/>'],
+  ["playlists","playlists","tabPlaylists","PLAYLISTS",'<path d="M4 6h16M4 11h10"/><circle cx="18" cy="16" r="2.5"/><path d="M4 16h9"/>'],
+  ["coverflow","coverflow","tabCoverFlow","COVER FLOW",'<path d="M2 7v10M6 5v14M18 5v14M22 7v10"/><rect x="9" y="4" width="6" height="16" rx="1"/>'],
+  ["genres","genres","tabGenres","GENRES",'<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/>'],
+  ["folders","folders","tabFolders","FOLDERS",'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'],
+  ["liked","liked","tabLiked","LIKED",'<path d="M12 20s-7-4.3-9.3-8.6C.9 8 3 4.5 6.4 4.5c2 0 3.6 1.1 4.4 2.7l1.2 2 1.2-2c.8-1.6 2.4-2.7 4.4-2.7 3.4 0 5.5 3.5 3.7 6.9C19 15.7 12 20 12 20z"/>'],
+  ["queue","queue","tabQueue","QUEUE",'<path d="M4 6h16M4 11h16M4 16h7"/><path d="M14 14.5l6 2.5-6 2.5z" fill="currentColor" stroke="none"/>'],
+  ["smart","smart","tabSmart","SMART MIX",'<path d="M12 2l2.4 5.2L20 9.6l-5.6 2.4L12 17.2 9.6 12 4 9.6l5.6-2.4z"/><path d="M5 19l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/>'],
+  ["stats","stats","tabStats","STATS",'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'],
+  ["health","health","tabHealth","HEALTH",'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>'],
+  ["eq","eq","tabEq","EQUALIZER",'<path d="M5 4v6M5 14v6M12 4v10M12 18v2M19 4v2M19 10v10"/><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="16" r="1.8"/><circle cx="19" cy="8" r="1.8"/>'],
 ];
 function navSVG(inner){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`}
 
+/* ============ NAVIGATION HISTORY (Back/Forward) ============ */
+const navHistory = [];
+let navIdx = -1;
+let isRestoringNav = false;
+
+function updateNavButtons(){
+  const btnBack = document.getElementById("btnNavBack");
+  const btnFwd = document.getElementById("btnNavForward");
+  if(btnBack) btnBack.disabled = (navIdx <= 0);
+  if(btnFwd) btnFwd.disabled = (navIdx >= navHistory.length - 1);
+}
+
+function pushNavState(st){
+  if(isRestoringNav) return;
+  const cur = navHistory[navIdx];
+  if(cur && cur.view === st.view && cur.search === st.search && cur.activeMix === st.activeMix && cur.subFilter === st.subFilter){
+    return;
+  }
+  navHistory.splice(navIdx + 1);
+  navHistory.push(st);
+  navIdx = navHistory.length - 1;
+  updateNavButtons();
+}
+
+function navBack(){
+  if(navIdx > 0){
+    navIdx--;
+    restoreNavState(navHistory[navIdx], "back");
+  }
+}
+
+function navForward(){
+  if(navIdx < navHistory.length - 1){
+    navIdx++;
+    restoreNavState(navHistory[navIdx], "forward");
+  }
+}
+
+function restoreNavState(st, dir){
+  if(!st) return;
+  isRestoringNav = true;
+  try {
+    const sBox = document.getElementById("search");
+    if(sBox){
+      sBox.value = st.search || "";
+      searchStr = sBox.value.trim().toLowerCase();
+    }
+    if(st.activeMix !== undefined) window.activeMixPreset = st.activeMix;
+    if(st.subFilter !== undefined) window.currentSubFilter = st.subFilter;
+    setView(st.view, { skipHistory: true, dir });
+  } finally {
+    isRestoringNav = false;
+    updateNavButtons();
+  }
+}
+window.navBack = navBack;
+window.navForward = navForward;
+
+/* Wire back/forward keyboard & mouse buttons */
+window.addEventListener("keydown", e => {
+  if (e.altKey && e.key === "ArrowLeft") {
+    e.preventDefault();
+    navBack();
+  } else if (e.altKey && e.key === "ArrowRight") {
+    e.preventDefault();
+    navForward();
+  }
+});
+window.addEventListener("mouseup", e => {
+  if (e.button === 3) {
+    e.preventDefault();
+    navBack();
+  } else if (e.button === 4) {
+    e.preventDefault();
+    navForward();
+  }
+});
+
+/* ============ DISCORD RICH PRESENCE ============ */
+function updateDiscordPresence(){
+  if(!IS_OWNER) return;
+  const enabled = (window.htSettings ? window.htSettings.get("discordRpc") !== false : true);
+  const badge = document.getElementById("discordBadge");
+  if(badge){
+    badge.style.display = enabled ? "inline-flex" : "none";
+    badge.classList.toggle("lossless", enabled && S.playing);
+  }
+  const m = S.meta || {};
+  const title = m.title || "Halftone";
+  const artist = m.artist || "Unknown Artist";
+  const album = m.album || "Unknown Album";
+  const dur = durSec() || 0;
+  const pos = posSec() || 0;
+  const isPlaying = !!S.playing;
+
+  const payload = {
+    title,
+    artist,
+    album,
+    duration_sec: dur,
+    durationSec: dur,
+    position_sec: pos,
+    positionSec: pos,
+    playing: isPlaying,
+    enabled
+  };
+
+  try{
+    if(window.__TAURI__?.core?.invoke){
+      window.__TAURI__.core.invoke("discord_update_presence", payload).catch(()=>{});
+    }else if(window.invoke){
+      window.invoke("discord_update_presence", payload).catch(()=>{});
+    }
+  }catch(_){}
+}
+window.updateDiscordPresence = updateDiscordPresence;
+window.applyDiscordRpcSetting = function(){ updateDiscordPresence(); };
+
+/* ============ SIDEBAR CUSTOMIZATION & POPUP ============ */
+const SIDEBAR_OPTIONAL_DEFS = [
+  { id: "coverflow", label: "Cover Flow" },
+  { id: "genres", label: "Genres" },
+  { id: "folders", label: "Folders" },
+  { id: "liked", label: "Liked Songs" },
+  { id: "queue", label: "Queue" },
+  { id: "smart", label: "Smart Mix" },
+  { id: "stats", label: "Listening Stats" },
+  { id: "health", label: "Library Health" },
+];
+
+function getSidebarVisible(){
+  try{
+    const r=localStorage.getItem("halftone.sidebar.visible");
+    if(r){
+      const a=JSON.parse(r);
+      if(Array.isArray(a)) return a;
+    }
+  }catch(_){}
+  return ["now","tracks","albums","artists","playlists"];
+}
+function setSidebarVisible(arr){
+  try{localStorage.setItem("halftone.sidebar.visible",JSON.stringify(arr))}catch(_){}
+  applySidebarVisibility();
+}
+function applySidebarVisibility(){
+  const visible = getSidebarVisible();
+  const essentials = new Set(["now","tracks","albums","artists","playlists"]);
+  const nav = document.getElementById("sidebar") || el.nav;
+  if(!nav) return;
+
+  nav.querySelectorAll(".nav-item[data-sidebar-id]").forEach(b => {
+    const sid = b.dataset.sidebarId;
+    if(sid === "eq"){
+      b.style.display = "none"; // EQ hidden from standalone sidebar
+      return;
+    }
+    if(sid === "settings"){
+      b.style.display = ""; // Always shown in pinned bottom
+      return;
+    }
+    if(essentials.has(sid) || visible.includes(sid)){
+      b.style.display = "";
+    } else {
+      b.style.display = "none";
+    }
+  });
+  paintNav();
+}
+window.applySidebarVisibility = applySidebarVisibility;
+
+function renderSidebarPopover(){
+  const container = document.getElementById("sidebarCheckboxes");
+  if(!container) return;
+  const visible = getSidebarVisible();
+  container.innerHTML = "";
+  SIDEBAR_OPTIONAL_DEFS.forEach(def => {
+    const isChecked = visible.includes(def.id);
+    const lbl = document.createElement("label");
+    lbl.style.cssText = "display:flex;align-items:center;gap:8px;font-size:0.6875rem;cursor:pointer;color:var(--fg);";
+    lbl.innerHTML = `<input type="checkbox" data-sid="${def.id}" ${isChecked ? "checked" : ""}> <span>${def.label}</span>`;
+    lbl.querySelector("input").onchange = () => {
+      const active = Array.from(container.querySelectorAll("input[type=checkbox]:checked")).map(cb => cb.dataset.sid);
+      const combined = Array.from(new Set(["now","tracks","albums","artists","playlists", ...active]));
+      setSidebarVisible(combined);
+    };
+    container.appendChild(lbl);
+  });
+}
+
+function toggleSidebarPopover(){
+  const pop = document.getElementById("sidebarCustomizePopover");
+  if(!pop) return;
+  if(pop.style.display === "block"){
+    pop.style.display = "none";
+    return;
+  }
+  renderSidebarPopover();
+  const btn = document.getElementById("btnCustomizeSidebar");
+  if(btn){
+    const r = btn.getBoundingClientRect();
+    pop.style.left = Math.min(window.innerWidth - 260, Math.max(10, r.right + 8)) + "px";
+    pop.style.bottom = Math.max(10, window.innerHeight - r.bottom) + "px";
+  }
+  pop.style.display = "block";
+}
+
+document.addEventListener("pointerdown", e => {
+  const pop = document.getElementById("sidebarCustomizePopover");
+  const btn = document.getElementById("btnCustomizeSidebar");
+  if(pop && pop.style.display === "block"){
+    if(!pop.contains(e.target) && (!btn || !btn.contains(e.target))){
+      pop.style.display = "none";
+    }
+  }
+});
+
 /* ============ NAV (rebuilt per position/labels) ============ */
 function buildNav(){
-  const nav=el.nav;
+  const nav=document.getElementById("sidebar")||el.nav;
+  if(!nav)return;
   nav.innerHTML="";
   const ind=document.createElement("div");ind.className="nav-ind";nav.appendChild(ind);
-  VIEWS.forEach(([id,label,icon])=>{
+  
+  const mainWrap=document.createElement("div");
+  mainWrap.className="nav-main-wrap";mainWrap.id="navMainWrap";
+  mainWrap.style.cssText="display:flex;flex-direction:column;gap:2px;flex:1;min-height:0;overflow-y:auto;";
+
+  VIEWS.forEach(([id,sid,tabId,label,icon])=>{
     const b=document.createElement("button");
-    b.className="nav-item";b.dataset.view=id;
+    b.className="nav-item";
+    b.id=tabId;
+    b.dataset.view=id;
+    b.dataset.sidebarId=sid;
+    b.title=label;
     b.innerHTML=navSVG(icon)+`<span class="nav-label">${label}</span>`;
-    b.onclick=()=>{S.view=id;render()};
-    nav.appendChild(b);
+    b.onclick=()=>setView(id);
+    mainWrap.appendChild(b);
   });
+  nav.appendChild(mainWrap);
+
+  /* Pinned at the bottom of the sidebar */
+  const bottomWrap=document.createElement("div");
+  bottomWrap.className="nav-bottom-pinned";bottomWrap.id="navBottomPinned";
+  bottomWrap.style.cssText="display:flex;flex-direction:column;gap:2px;margin-top:auto;border-top:1px solid var(--line);padding-top:4px;";
+
+  /* Customize Sidebar Button */
+  const btnCust=document.createElement("button");
+  btnCust.className="nav-item";btnCust.id="btnCustomizeSidebar";
+  btnCust.title="Customize Sidebar";
+  btnCust.setAttribute("aria-label","Customize Sidebar");
+  btnCust.innerHTML=navSVG('<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>')+`<span class="nav-label">CUSTOMIZE</span>`;
+  btnCust.onclick=(e)=>{e.stopPropagation();toggleSidebarPopover()};
+  bottomWrap.appendChild(btnCust);
+
+  /* Settings Button */
+  const btnSet=document.createElement("button");
+  btnSet.className="nav-item";btnSet.id="btnSettings";
+  btnSet.dataset.view="settings";btnSet.dataset.sidebarId="settings";
+  btnSet.title="Settings";
+  btnSet.setAttribute("aria-label","Settings");
+  btnSet.innerHTML=navSVG('<circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/>')+`<span class="nav-label">SETTINGS</span>`;
+  btnSet.onclick=()=>setView("settings");
+  bottomWrap.appendChild(btnSet);
+
+  nav.appendChild(bottomWrap);
+
   /* library zone (left/right rails with labels) */
   if(["left","right"].includes(S.cfg.nav)&&S.cfg.navLabels!=="icons"){
     const lz=document.createElement("div");lz.className="libzone";
@@ -403,7 +737,7 @@ function buildNav(){
       </button>
       <button id="libscan" class="btn">SCAN</button></div>
       <div class="libstat" id="libstat">no scan yet</div>`;
-    nav.appendChild(lz);
+    mainWrap.appendChild(lz);
     setTimeout(()=>{
       const lp=document.getElementById("libpath"),lb=document.getElementById("libbrowse"),ls=document.getElementById("libscan");
       if(lp){lp.value=S.root||"";lp.addEventListener("keydown",e=>{if(e.key==="Enter")ls.click()})}
@@ -411,10 +745,44 @@ function buildNav(){
       if(ls)ls.onclick=()=>scanLibrary(lp.value.trim()).then(()=>render());
     });
   }
-  paintNav();
+
+  /* Popover static buttons */
+  const btnClosePop=document.getElementById("btnCloseSidebarPop");
+  if(btnClosePop)btnClosePop.onclick=()=>{const p=document.getElementById("sidebarCustomizePopover");if(p)p.style.display="none"};
+  const btnResetPop=document.getElementById("btnResetSidebarEssentials");
+  if(btnResetPop)btnResetPop.onclick=()=>{setSidebarVisible(["now","tracks","albums","artists","playlists"]);renderSidebarPopover()};
+
+  /* Titlebar navigation buttons */
+  const bNavBack=document.getElementById("btnNavBack");
+  if(bNavBack)bNavBack.onclick=()=>navBack();
+  const bNavFwd=document.getElementById("btnNavForward");
+  if(bNavFwd)bNavFwd.onclick=()=>navForward();
+
+  applySidebarVisibility();
 }
+
+function setView(v,opts={}){
+  S.view=v;
+  if(!opts.skipHistory){
+    pushNavState({
+      view:v,
+      search:el.search?el.search.value:"",
+      activeMix:window.activeMixPreset||null,
+      subFilter:window.currentSubFilter||null
+    });
+  }
+  render();
+  const dir=opts.dir||(v==="nowplaying"?"up":"forward");
+  const activePane=(v==="nowplaying"?document.getElementById("v-nowplaying"):(v==="eq"?document.getElementById("v-eq"):document.getElementById("v-content")));
+  if(activePane&&window.HalftoneMotion?.animateView){
+    window.HalftoneMotion.animateView(activePane,dir);
+  }
+}
+window.setView=setView;
+
 function paintNav(){
-  const nav=el.nav;
+  const nav=document.getElementById("sidebar")||el.nav;
+  if(!nav)return;
   nav.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===S.view||
     (S.view.startsWith("album:")&&n.dataset.view==="albums")||(S.view.startsWith("playlist:")&&n.dataset.view==="playlists")));
   const cur=nav.querySelector(".nav-item.active");
@@ -436,7 +804,8 @@ function paintNav(){
   }else if(ind)ind.style.opacity="0";
   /* caption */
   const names={nowplaying:"NOW PLAYING",tracks:"SONGS",albums:"ALBUMS",coverflow:"COVER FLOW",artists:"ARTISTS",genres:"GENRES",folders:"FOLDERS",liked:"LIKED",playlists:"PLAYLISTS",smart:"SMART MIX",queue:"QUEUE",stats:"LISTENING STATS",health:"LIBRARY HEALTH",eq:"EQUALIZER",settings:"SETTINGS"};
-  el.viewCap.textContent=names[S.view]||(S.view.startsWith("album:")?"ALBUM":S.view.startsWith("playlist:")?"PLAYLIST":"HALFTONE");
+  el.viewCap.textContent=names[S.view]||(S.view.startsWith("album:")?"ALBUM":S.view.startsWith("playlist:")?"PLAYLIST":S.view.startsWith("artist:")?"ARTIST":S.view.startsWith("genre:")?"GENRE":S.view.startsWith("folder:")?"FOLDER":"HALFTONE");
+  updateNavButtons();
 }
 
 /* ============ ROUTER ============ */
@@ -507,7 +876,12 @@ function render(){
     return;
   }
   if(searchStr&&!["playlists"].includes(S.view)){renderSearch();return}
-  if(S.view==="tracks")renderTracks();
+  if(S.view.startsWith("album:"))renderAlbumDetail(S.view.slice(6));
+  else if(S.view.startsWith("playlist:"))renderPlaylistDetail(S.view.slice(9));
+  else if(S.view.startsWith("artist:"))renderArtistDetail(S.view.slice(7));
+  else if(S.view.startsWith("genre:"))renderGenreDetail(S.view.slice(6));
+  else if(S.view.startsWith("folder:"))renderFolderDetail(S.view.slice(7));
+  else if(S.view==="tracks")renderTracks();
   else if(S.view==="albums")renderAlbums();
   else if(S.view==="coverflow")renderCoverFlow();
   else if(S.view==="artists")renderArtists();
@@ -515,7 +889,7 @@ function render(){
   else if(S.view==="folders")renderFolders();
   else if(S.view==="liked")renderLiked();
   else if(S.view==="playlists")renderPlaylists();
-  else if(S.view==="smart")renderSmartPlaylists();
+  else if(S.view==="smart")renderSmartMixPane();
   else if(S.view==="queue")renderQueue();
   else if(S.view==="stats")renderStats();
   else if(S.view==="health")renderHealth();
@@ -742,7 +1116,7 @@ function renderCoverFlow(){
     card.onclick=()=>{if(cfIdx===idx)loadTrack(trks[0].i);else{cfIdx=idx;renderCoverFlow()}};
     stage.appendChild(card);
   });
-  stage.onwheel=e=>{e.preventDefault();cfIdx=clamp(cfIdx+(e.deltaY>0?1:-1),0,albums.length-1);renderCoverFlow()};
+  stage.onwheel=e=>{e.preventDefault();e.stopPropagation();cfIdx=clamp(cfIdx+(e.deltaY>0?1:-1),0,albums.length-1);renderCoverFlow()};
   renderVirtualList(document.getElementById("list"),curTracks);
 }
 function renderArtists(){
@@ -753,10 +1127,16 @@ function renderArtists(){
   byArtist.forEach((tracks,artist)=>{
     const card=document.createElement("button");card.className="card";
     card.innerHTML=`<div class="card-art"></div><span class="card-title">${esc(artist)}</span><span class="card-sub">${tracks.length} TRACKS</span>`;
-    card.onclick=()=>{el.content.innerHTML=`<div class="h1">${esc(artist)}</div>${listHead()}<div class="list" id="list"></div>`;renderVirtualList(document.getElementById("list"),tracks)};
+    card.onclick=()=>setView("artist:"+artist);
     grid.appendChild(card);
     const holder=card.querySelector(".card-art");holder.replaceWith(mkCover(holder,tracks[0].t));
   });
+}
+function renderArtistDetail(artist){
+  const tracks=S.lib.map((t,i)=>({t,i})).filter(x=>(x.t.album_artist||x.t.artist||"Unknown")===artist);
+  if(!tracks.length){setView("artists",{skipHistory:true});return}
+  el.content.innerHTML=`<div class="h1">${esc(artist)}</div>${listHead()}<div class="list" id="list"></div>`;
+  renderVirtualList(document.getElementById("list"),tracks);
 }
 function renderGenres(){
   const byGenre=new Map();
@@ -766,10 +1146,16 @@ function renderGenres(){
   byGenre.forEach((tracks,genre)=>{
     const card=document.createElement("button");card.className="card";
     card.innerHTML=`<div class="card-art"></div><span class="card-title">${esc(genre)}</span><span class="card-sub">${tracks.length} TRACKS</span>`;
-    card.onclick=()=>{el.content.innerHTML=`<div class="h1">${esc(genre)}</div>${listHead()}<div class="list" id="list"></div>`;renderVirtualList(document.getElementById("list"),tracks)};
+    card.onclick=()=>setView("genre:"+genre);
     grid.appendChild(card);
     const holder=card.querySelector(".card-art");holder.replaceWith(mkCover(holder,tracks[0].t));
   });
+}
+function renderGenreDetail(genre){
+  const tracks=S.lib.map((t,i)=>({t,i})).filter(x=>(x.t.genre||(x.t.lossless===false?"Lossy Audio":"Lossless Hi-Res"))===genre);
+  if(!tracks.length){setView("genres",{skipHistory:true});return}
+  el.content.innerHTML=`<div class="h1">${esc(genre)}</div>${listHead()}<div class="list" id="list"></div>`;
+  renderVirtualList(document.getElementById("list"),tracks);
 }
 function renderFolders(){
   const byFolder=new Map();
@@ -779,32 +1165,191 @@ function renderFolders(){
   byFolder.forEach((tracks,dir)=>{
     const b=document.createElement("button");b.className="pl-item";
     b.innerHTML=`<span class="pl-name mono">${esc(dir)}</span><span class="pl-n">${tracks.length} TRACKS</span>`;
-    b.onclick=()=>{el.content.innerHTML=`<div class="h1 mono" style="font-size:.9rem">${esc(dir)}</div>${listHead()}<div class="list" id="list"></div>`;renderVirtualList(document.getElementById("list"),tracks)};
+    b.onclick=()=>setView("folder:"+dir);
     box.appendChild(b);
   });
 }
-async function renderSmartPlaylists(){
-  el.content.innerHTML=`<div class="h1">Smart Mixes</div>
-    <div style="display:flex;gap:var(--sp2);flex-wrap:wrap;margin-bottom:var(--sp3)">
-      <button class="btn primary" id="smLossless">HI-RES LOSSLESS</button>
-      <button class="btn" id="smShort">QUICK CUTS (&lt; 3.5m)</button>
-      <button class="btn" id="smLong">DEEP EPICS (&gt; 5m)</button>
-      <button class="btn" id="sm96k">AUDIOPHILE (&ge; 88.2 kHz)</button>
-    </div>
-    ${listHead()}<div class="list" id="list"></div>`;
-  const runRule=async(rules,sortBy)=>{
-    let paths=[];
-    try{paths=await invoke("db_eval_smart_playlist",{def:{id:"smart",name:"Smart",rules,match_all:true,sort_by:sortBy||"title",sort_desc:false,limit:500}})||[]}catch(_){}
-    const pset=new Set(paths);
-    const items=S.lib.map((t,i)=>({t,i})).filter(x=>pset.has(x.t.path));
-    renderVirtualList(document.getElementById("list"),items.length?items:S.lib.map((t,i)=>({t,i})));
-  };
-  document.getElementById("smLossless").onclick=()=>runRule([{field:"lossless",op:"is_true",value:"true"}],"title");
-  document.getElementById("smShort").onclick=()=>runRule([{field:"duration",op:"lt",value:"210"}],"duration");
-  document.getElementById("smLong").onclick=()=>runRule([{field:"duration",op:"gt",value:"300"}],"duration");
-  document.getElementById("sm96k").onclick=()=>runRule([{field:"sample_rate",op:"gte",value:"88200"}],"sample_rate");
-  runRule([{field:"lossless",op:"is_true",value:"true"}],"title");
+function renderFolderDetail(dir){
+  const tracks=S.lib.map((t,i)=>({t,i})).filter(x=>((x.t.path||"").replace(/[\\/][^\\/]+$/,"")||"Root")===dir);
+  if(!tracks.length){setView("folders",{skipHistory:true});return}
+  el.content.innerHTML=`<div class="h1 mono" style="font-size:.9rem">${esc(dir)}</div>${listHead()}<div class="list" id="list"></div>`;
+  renderVirtualList(document.getElementById("list"),tracks);
 }
+
+const SMART_PRESETS=[
+  {
+    id:"lossless",
+    title:"Lossless Reference",
+    desc:"Studio master & Hi-Res bit-perfect audio",
+    badge:"HI-RES",
+    icon:'<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+    rules:[{field:"lossless",op:"is_true",value:"true"}],
+    sort_by:"title",
+    filter:t=>t.lossless===true||(t.format&&["flac","wav","alac","aiff"].includes(t.format.toLowerCase()))
+  },
+  {
+    id:"rotation",
+    title:"Heavy Rotation",
+    desc:"Your top played and favorite tracks",
+    badge:"HOT",
+    icon:'<path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>',
+    rules:[{field:"play_count",op:"gt",value:"0"}],
+    sort_by:"play_count",
+    sort_desc:true,
+    filter:t=>(t.play_count&&t.play_count>0)||S.liked.has(t.path)
+  },
+  {
+    id:"recent",
+    title:"Recently Added",
+    desc:"Latest library scans and discoveries",
+    badge:"NEW",
+    icon:'<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    rules:[{field:"added_at",op:"gt",value:"0"}],
+    sort_by:"added_at",
+    sort_desc:true,
+    filter:()=>true
+  },
+  {
+    id:"rated",
+    title:"Top Rated",
+    desc:"Starred and 4+ star rated tracks",
+    badge:"STAR",
+    icon:'<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+    rules:[{field:"rating",op:"gte",value:"4"}],
+    sort_by:"rating",
+    sort_desc:true,
+    filter:t=>(t.rating&&t.rating>=4)||S.liked.has(t.path)
+  },
+  {
+    id:"chill",
+    title:"Late Night / Chill",
+    desc:"Ambient, lo-fi, acoustic, and downtempo",
+    badge:"CHILL",
+    icon:'<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+    rules:[{field:"duration",op:"gt",value:"180"}],
+    sort_by:"title",
+    filter:t=>{
+      const g=(t.genre||"").toLowerCase();
+      const isChill=["chill","ambient","acoustic","jazz","classical","downtempo","lo-fi","soul"].some(k=>g.includes(k));
+      return isChill||(t.duration_s&&t.duration_s>=180);
+    }
+  }
+];
+
+let curSmartMixId="lossless";
+
+async function renderSmartMixPane(){
+  S.library=S.lib;
+  el.content.innerHTML=`
+    <div class="h1">Smart Mixes</div>
+    <div class="smart-grid" id="smartGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-bottom:14px"></div>
+    <div class="smart-toolbar" id="smartToolbar" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--R-m);margin-bottom:12px;">
+      <div>
+        <span class="h-caps mono" id="smMixTitle" style="font-weight:700">LOSSLESS REFERENCE</span>
+        <span class="mono" id="smMixCount" style="color:var(--fg-3);font-size:0.6875rem;margin-left:8px">0 TRACKS</span>
+      </div>
+      <button class="btn primary" id="btnPlayMix" style="font-size:0.6875rem;padding:6px 14px">PLAY MIX</button>
+    </div>
+    ${listHead()}
+    <div class="list" id="list"></div>
+  `;
+
+  const grid=document.getElementById("smartGrid");
+  const toolbarTitle=document.getElementById("smMixTitle");
+  const toolbarCount=document.getElementById("smMixCount");
+  const btnPlayMix=document.getElementById("btnPlayMix");
+  const listEl=document.getElementById("list");
+
+  let currentTracks=[];
+
+  const selectMix=async(preset)=>{
+    curSmartMixId=preset.id;
+    window.activeMixPreset=preset.id;
+    pushNavState({
+      view:"smart",
+      search:el.search?el.search.value:"",
+      activeMix:preset.id,
+      subFilter:null
+    });
+
+    grid.querySelectorAll(".card").forEach(c=>c.classList.toggle("active",c.dataset.id===preset.id));
+    toolbarTitle.textContent=preset.title.toUpperCase();
+
+    let paths=[];
+    try{
+      paths=await invoke("db_eval_smart_playlist",{
+        def:{
+          id:preset.id,
+          name:preset.title,
+          rules:preset.rules,
+          match_all:true,
+          sort_by:preset.sort_by||"title",
+          sort_desc:!!preset.sort_desc,
+          limit:500
+        }
+      })||[];
+    }catch(_){}
+
+    if(paths&&paths.length){
+      const pSet=new Set(paths);
+      currentTracks=S.lib.map((t,i)=>({t,i})).filter(x=>pSet.has(x.t.path));
+    }else{
+      currentTracks=S.lib.map((t,i)=>({t,i})).filter(x=>preset.filter(x.t,S.lib,x.i));
+    }
+
+    if(!currentTracks.length){
+      currentTracks=S.lib.map((t,i)=>({t,i})).slice(0,50);
+    }
+
+    toolbarCount.textContent=currentTracks.length+" TRACKS";
+    renderVirtualList(listEl,currentTracks);
+    window.HalftoneMotion?.animateView(listEl,"up");
+  };
+
+  btnPlayMix.onclick=()=>{
+    if(!currentTracks.length)return;
+    loadTrack(currentTracks[0].i,true);
+    if(currentTracks.length>1){
+      S.queue=currentTracks.slice(1).map(x=>({
+        path:x.t.path,
+        title:x.t.title,
+        artist:x.t.artist,
+        album:x.t.album,
+        duration_s:x.t.duration_s,
+        streaminfo:x.t.streaminfo,
+        format:x.t.format,
+        lossless:x.t.lossless,
+        bitrate_kbps:x.t.bitrate_kbps,
+        coverUrl:x.t.coverUrl
+      }));
+      emitSync();
+    }
+  };
+
+  SMART_PRESETS.forEach(p=>{
+    const card=document.createElement("button");
+    card.className="card"+(p.id===curSmartMixId?" active":"");
+    card.dataset.id=p.id;
+    card.style.cssText="display:flex;flex-direction:column;gap:4px;padding:12px;text-align:left;position:relative;";
+    card.innerHTML=`
+      <div style="display:flex;align-items:center;justify-content:space-between;width:100%;margin-bottom:4px">
+        <div style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;background:var(--accent-12);color:var(--accent);border-radius:var(--R-m)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">${p.icon}</svg>
+        </div>
+        <span class="badge lossless" style="font-size:0.5rem">${p.badge}</span>
+      </div>
+      <span class="card-title" style="font-weight:700;font-size:0.8125rem">${esc(p.title)}</span>
+      <span class="card-sub" style="font-size:0.625rem;line-height:1.3">${esc(p.desc)}</span>
+    `;
+    card.onclick=()=>selectMix(p);
+    grid.appendChild(card);
+  });
+
+  const initial=SMART_PRESETS.find(p=>p.id===(window.activeMixPreset||"lossless"))||SMART_PRESETS[0];
+  selectMix(initial);
+}
+window.renderSmartMixPane=renderSmartMixPane;
+const renderSmartPlaylists=renderSmartMixPane;
 async function renderStats(){
   el.content.innerHTML=`<div class="h1">Listening Statistics</div><div class="stat-grid" id="statGrid"></div><div class="h-caps mono">TOP TRACKS</div>${listHead()}<div class="list" id="list"></div>`;
   let st=null;
@@ -1061,22 +1606,75 @@ function paintNP(){
   el.nbTot.textContent=fmt(m?m.duration_s:0);
   el.nbTitle.textContent=m?m.title:"\u2014";
   el.nbSub.textContent=m?(m.artist+" / "+m.album).toUpperCase():"\u2014";
-  /* big cover: real photo or dither canvas (coverUrl, never base64) */
+
+  /* big cover: real photo or dither/procedural canvas */
   const mode=S.cfg.art==="theme"?themeArtDefault:S.cfg.art;
-  const showReal=mode==="real"&&S._artUrl;
-  el.npCover.style.display=showReal?"":"none";
-  el.npDither.style.display=showReal?"none":"";
-  if(showReal){if(el.npCover.src!==S._artUrl)el.npCover.src=S._artUrl}
-  else if(S._img)drawDither(el.npDither,S._img);
-  else if(!S._img)g_clear(el.npDither);
+  const artReal=el.artReal||el.npCover;
+  const artCanvas=el.artCanvas||el.npDither;
+  const coverSrc=S._coverData||S._artUrl||(m&&m.coverUrl);
+  const showReal=(mode==="real"||mode==="theme")&&coverSrc;
+
+  if(artReal){
+    artReal.onerror=function(){
+      this.style.display="none";
+      if(artCanvas){
+        artCanvas.style.display="";
+        if(window.drawProceduralVinyl)drawProceduralVinyl(artCanvas,m?.title,m?.artist);
+      }
+    };
+    artReal.onload=function(){
+      if(showReal){
+        this.style.display="block";
+        if(artCanvas)artCanvas.style.display="none";
+      }
+    };
+  }
+
+  if(showReal){
+    if(artReal){
+      if(artReal.src!==coverSrc){
+        artReal.style.display="none";
+        artReal.src=coverSrc;
+      }else if(artReal.complete && artReal.naturalWidth > 0){
+        artReal.style.display="block";
+      }
+    }
+    if(artCanvas&&!artReal)artCanvas.style.display="none";
+    if(artCanvas&&S._img&&mode!=="real")drawDither(artCanvas,S._img);
+  }else{
+    if(artReal){
+      artReal.style.display="none";
+      artReal.removeAttribute("src");
+    }
+    if(artCanvas){
+      artCanvas.style.display="";
+      if(S._img&&mode==="dither"){
+        drawDither(artCanvas,S._img);
+      }else if(window.drawProceduralVinyl){
+        drawProceduralVinyl(artCanvas,m?.title,m?.artist);
+      }else if(!S._img){
+        g_clear(artCanvas);
+      }
+    }
+  }
+
   /* tech line visibility */
   el.npTech.parentElement.style.display=(S.cfg.tech===false)?"none":"";
   /* mini-bar art */
-  if(S._artUrl)el.npArtMb.src=S._artUrl;
+  if(coverSrc&&el.npArtMb)el.npArtMb.src=coverSrc;
   /* art swap animation */
-  const art=el.npArt;art.classList.remove("art-swap");void art.offsetWidth;art.classList.add("art-swap");
+  const art=el.npArt;
+  if(art){
+    art.classList.remove("art-swap");
+    void art.offsetWidth;
+    art.classList.add("art-swap");
+  }
+  const metaWrap=document.querySelector(".np-info");
+  if(window.HalftoneMotion&&HalftoneMotion.animateTrackChange){
+    HalftoneMotion.animateTrackChange(art,metaWrap);
+  }
 }
-document.addEventListener("halftone:track",()=>{paintNP();updTransport()});
+document.addEventListener("halftone:track",()=>{paintNP();updTransport();updateDiscordPresence()});
 document.addEventListener("halftone:art",()=>{paintNP()});
 
 /* ============ elapsed time readout (np-seek / mb-seek) ============
@@ -1128,7 +1726,7 @@ el.lrcRetry.onclick=()=>retryLyrics();
 /* main lyric follow is in common.js (lyricFollow); manual-scroll pause
    + the ● LIVE pill live there too (wireLyrScroll bound in index/main) */
 try{wireLyrScroll(document)}catch(e){console.warn(e)}
-document.addEventListener("halftone:seeked",()=>{if(!S._lyrManual)S.lidx=-1});
+document.addEventListener("halftone:seeked",()=>{if(!S._lyrManual)S.lidx=-1;updateDiscordPresence()});
 
 /* ============ state/transport ============ */
 document.addEventListener("halftone:state",()=>{
@@ -1139,6 +1737,7 @@ document.addEventListener("halftone:state",()=>{
   el.nbIcoPlay.style.display=p?"none":"block";
   el.nbIcoPause.style.display=p?"block":"none";
   updTransport();
+  updateDiscordPresence();
 });
 function updTransport(){
   el.btnShuf.classList.toggle("on",S.shuffle);
@@ -1562,12 +2161,15 @@ function drawLogo(){const g=el.logoCv.getContext("2d");g.clearRect(0,0,20,20);
     g.fillStyle=on?css(ACC.cur):css(themeCanvas.off);
     g.fillRect(x*4,y*4,3,3)}}
 
-/* ============ wheel volume (except scrollables) ============ */
-document.body.addEventListener("wheel",e=>{
-  if(e.target.closest(".lyr-view,.list,.grid,.vscroll,.set-wrap,.content,.menu,.sheet,.cmdk-list,.qrows"))return;
-  e.preventDefault();
-  nudgeVol(e.deltaY<0?.05:-.05);
-},{passive:false});
+/* ============ wheel volume (strictly on volume bars) ============ */
+[el.vol,el.volMb].forEach(vEl=>{
+  if(!vEl)return;
+  vEl.addEventListener("wheel",e=>{
+    e.preventDefault();
+    e.stopPropagation();
+    nudgeVol(e.deltaY<0?.05:-.05);
+  },{passive:false});
+});
 
 /* ============ right-click configurator ============ */
 /* row / tile / art target for the "Change cover art" menu (task 10) */
@@ -1991,6 +2593,33 @@ if(!IS_OWNER){
 render();
 paintNP();
 paintLyrStatus();
+if(window.IS_STANDALONE_SETTINGS){
+  document.body.classList.add("standalone-settings-window");
+  S.view="settings";
+  render();
+  try{
+    if(T&&T.event&&T.event.listen){
+      T.event.listen("halftone:settings-section",e=>{
+        const sec=e&&e.payload;
+        if(sec){
+          const targetGroup=[...document.querySelectorAll(".set-group")].find(g=>(g.querySelector(".set-gh")||{}).textContent?.toLowerCase().includes(sec.toLowerCase()));
+          if(targetGroup){
+            targetGroup.scrollIntoView({behavior:"smooth",block:"start"});
+            targetGroup.style.outline="2px solid var(--accent)";
+            setTimeout(()=>{targetGroup.style.outline=""},1500);
+          }
+        }
+      }).catch(()=>{});
+    }
+  }catch(_){}
+  const qSec=new URLSearchParams(location.search).get("section");
+  if(qSec){
+    setTimeout(()=>{
+      const targetGroup=[...document.querySelectorAll(".set-group")].find(g=>(g.querySelector(".set-gh")||{}).textContent?.toLowerCase().includes(qSec.toLowerCase()));
+      if(targetGroup)targetGroup.scrollIntoView({behavior:"smooth",block:"start"});
+    },120);
+  }
+}
 (async()=>{
   if(S.root){
     const lp=document.getElementById("libpath");if(lp)lp.value=S.root;

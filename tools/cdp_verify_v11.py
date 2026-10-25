@@ -55,6 +55,25 @@ def ensure_test_library():
             with open(lrc_path, "w", encoding="utf-8") as lf:
                 lf.write("[00:00.00] <00:00.00>Halftone <00:00.40>analogue <00:00.80>phosphor\n")
                 lf.write("[00:01.20] <00:01.20>Liquid <00:01.60>glass <00:02.00>optics\n")
+    # Also generate a valid 64x64 gradient PNG sidecar cover.png in LIB_DIR to test folder cover art fallback
+    cover_path = os.path.join(LIB_DIR, "cover.png")
+    if not os.path.exists(cover_path):
+        import zlib
+        w_px, h_px = 128, 128
+        raw_rows = bytearray()
+        for y in range(h_px):
+            raw_rows.append(0)  # filter type 0
+            for x in range(w_px):
+                r = int(40 + 180 * (x / w_px))
+                g = int(60 + 140 * (y / h_px))
+                b = int(210 - 90 * (x / w_px))
+                raw_rows.extend((r, g, b))
+        def png_chunk(tag, data):
+            return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        ihdr = struct.pack(">IIBBBBB", w_px, h_px, 8, 2, 0, 0, 0)
+        png_bytes = b"\x89PNG\r\n\x1a\n" + png_chunk(b"IHDR", ihdr) + png_chunk(b"IDAT", zlib.compress(bytes(raw_rows))) + png_chunk(b"IEND", b"")
+        with open(cover_path, "wb") as cf:
+            cf.write(png_bytes)
 
 def ws_connect(url):
     rest = url[5:]
@@ -342,17 +361,86 @@ def main():
         corner_res = m.eval("window.invoke('ht_get_corner')")
         check("13_win32_corner_probe", isinstance(corner_res, dict) and corner_res.get("applied") is True, corner_res)
 
+        # 12. Sidebar Essentials Default + Customize Popover + EQ hidden in sidebar
+        sb_res = m.eval(
+            "(function(){"
+            "localStorage.removeItem('halftone.sidebar.visible');"
+            "if(window.applySidebarVisibility) window.applySidebarVisibility();"
+            "const customBtn=!!document.getElementById('btnCustomizeSidebar');"
+            "const eqBtn=document.getElementById('tabEq');"
+            "const eqHidden=!eqBtn || getComputedStyle(eqBtn).display==='none';"
+            "return {customBtn, eqHidden};"
+            "})()"
+        )
+        check("14_sidebar_essentials_and_customize", isinstance(sb_res, dict) and sb_res.get("customBtn") and sb_res.get("eqHidden"), sb_res)
+
+        # 13. Browser-Style Back / Forward Navigation History
+        nav_hist_res = m.eval(
+            "(async function(){"
+            "window.setView('nowplaying');"
+            "await new Promise(r=>setTimeout(r,80));"
+            "window.setView('albums');"
+            "await new Promise(r=>setTimeout(r,80));"
+            "window.setView('smart');"
+            "await new Promise(r=>setTimeout(r,80));"
+            "const backBtn=document.getElementById('btnNavBack');"
+            "const fwdBtn=document.getElementById('btnNavForward');"
+            "if(backBtn) backBtn.click();"
+            "await new Promise(r=>setTimeout(r,80));"
+            "const afterBack=window.S && window.S.view;"
+            "if(fwdBtn) fwdBtn.click();"
+            "await new Promise(r=>setTimeout(r,80));"
+            "const afterFwd=window.S && window.S.view;"
+            "return {hasButtons: !!backBtn && !!fwdBtn, afterBack, afterFwd};"
+            "})()"
+        )
+        check(
+            "15_back_forward_navigation",
+            isinstance(nav_hist_res, dict) and nav_hist_res.get("hasButtons") and nav_hist_res.get("afterBack") == "albums" and nav_hist_res.get("afterFwd") == "smart",
+            nav_hist_res,
+        )
+
+        # 14. Smart Mix Presets Interactive Evaluation & Track Table
+        smart_ui_res = m.eval(
+            "(async function(){"
+            "window.setView('smart');"
+            "await new Promise(r=>setTimeout(r,250));"
+            "const cards=document.querySelectorAll('#smartGrid .card');"
+            "if(cards.length>1) cards[1].click();"
+            "await new Promise(r=>setTimeout(r,100));"
+            "const html=document.getElementById('content').innerHTML;"
+            "return {cardCount: cards.length, hasPlayBtn: html.includes('Play') || html.includes('PLAY')};"
+            "})()"
+        )
+        check("16_smart_mix_interactive_presets", isinstance(smart_ui_res, dict) and smart_ui_res.get("cardCount", 0) >= 4 and smart_ui_res.get("hasPlayBtn"), smart_ui_res)
+
+        # 15. Discord Rich Presence Tauri Command
+        discord_res = m.eval(
+            "window.invoke('discord_update_presence', {title:'01_Analogue_Phosphor', artist:'Halftone', album:'Spec Rebuild', durationSec:180.0, positionSec:12.0, playing:true, enabled:true})"
+        )
+        check("17_discord_rpc_command", isinstance(discord_res, bool), {"discord_ipc_ok_or_graceful": discord_res})
+
         # Capture verification screenshots
         m.eval("window.curWin.show()")
         time.sleep(0.5)
         w.screenshot(os.path.join(SHOTS_DIR, "widget_v11_analogue.png"))
+        m.eval("window.__qa.nav('nowplaying')")
+        time.sleep(0.4)
         m.screenshot(os.path.join(SHOTS_DIR, "main_v11_nowplaying.png"))
         m.eval("window.__qa.nav('coverflow')")
         time.sleep(0.5)
         m.screenshot(os.path.join(SHOTS_DIR, "main_v11_coverflow.png"))
-        m.eval("window.htSetTheme('digital');window.htSetPalette('catppuccin')")
+        m.eval("window.htSetTheme('digital');window.htSetPalette('catppuccin');window.__qa.nav('nowplaying')")
         time.sleep(0.5)
+        m.eval("window.htSetPalette('classic')")
+        time.sleep(0.4)
+        w.screenshot(os.path.join(SHOTS_DIR, "widget_v11_digital_classic.png"))
+        m.eval("window.htSetPalette('catppuccin')")
+        time.sleep(0.4)
         w.screenshot(os.path.join(SHOTS_DIR, "widget_v11_digital_catppuccin.png"))
+        m.screenshot(os.path.join(SHOTS_DIR, "main_v11_digital_nowplaying.png"))
+        m.eval("window.__qa.nav('coverflow')")
+        time.sleep(0.5)
         m.screenshot(os.path.join(SHOTS_DIR, "main_v11_digital_coverflow.png"))
         m.eval("window.htSetTheme('analogue');window.htSetPalette('classic');window.__qa.nav('nowplaying')")
 
@@ -366,7 +454,7 @@ def main():
     if failures:
         print(f"FAILURES: {failures}")
         sys.exit(1)
-    print("ALL 13 V1.1 RELEASE-BUILD CDP CHECKS PASSED")
+    print("ALL 17 V1.1 RELEASE-BUILD CDP CHECKS PASSED")
 
 if __name__ == "__main__":
     main()

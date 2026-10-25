@@ -135,7 +135,53 @@ const SCHEMA=[
 {key:"lyricsShowMain",group:"Lyrics",label:"Show lyrics (main)",type:"toggle",surface:"main",default:true,alias:"lyrics",
   apply:v=>window.applyLyricsShowMain&&window.applyLyricsShowMain(!!v)},
 
+/* ---------------- Equalizer & DSP ---------------- */
+{key:"eqOn",group:"Equalizer & DSP",label:"Equalizer enabled",type:"toggle",surface:"both",default:true,
+  apply:v=>{
+    if(window.S&&window.S.cfg&&window.S.cfg.eq){
+      window.S.cfg.eq.on=!!v;
+      if(window.paintEq)window.paintEq();
+      if(window.pushEq)window.pushEq(true);
+    }
+  }},
+{key:"eqPre",group:"Equalizer & DSP",label:"Pre-amplification (dB)",type:"range",surface:"both",default:0,min:-12,max:12,step:0.5,
+  hint:"Pre-gain stage to avoid digital clipping with positive EQ boosts.",
+  apply:v=>{
+    if(window.S&&window.S.cfg&&window.S.cfg.eq){
+      window.S.cfg.eq.pre=+v;
+      if(window.paintEq)window.paintEq();
+      if(window.pushEq)window.pushEq(false);
+    }
+  }},
+{key:"eqPreset",group:"Equalizer & DSP",label:"EQ preset",type:"select",surface:"both",default:"flat",
+  options:[
+    ["flat","Flat (Bypass)"],["bass","Bass Boost"],["vocal","Vocal Boost"],["treble","Treble Boost"],
+    ["electronic","Electronic / Dance"],["rock","Rock / Metal"],["acoustic","Acoustic / Warm"],["classical","Classical / Air"]
+  ],
+  apply:v=>{
+    if(window.applyEqPresetNamed)window.applyEqPresetNamed(v);
+  }},
+{key:"balance",group:"Equalizer & DSP",label:"Stereo balance (L/R)",type:"range",surface:"main",default:0,min:-100,max:100,step:5,
+  apply:v=>window.applyBalanceSetting&&window.applyBalanceSetting(+v)},
+{key:"mono",group:"Equalizer & DSP",label:"Mono fold-down",type:"toggle",surface:"main",default:false,
+  apply:v=>window.applyMonoSetting&&window.applyMonoSetting(!!v)},
+{key:"loudnessComp",group:"Equalizer & DSP",label:"Equal-loudness contour",type:"toggle",surface:"main",default:false,
+  hint:"Boosts low and high frequencies at low listening volumes.",
+  apply:v=>window.applyLoudnessComp&&window.applyLoudnessComp(!!v)},
+{key:"crossfeed",group:"Equalizer & DSP",label:"Headphone crossfeed",type:"select",surface:"main",default:"off",
+  options:[["off","Off"],["light","Light (BS2B 30%)"],["medium","Medium (BS2B 50%)"],["studio","Studio speaker stage"]],
+  apply:v=>window.applyCrossfeedSetting&&window.applyCrossfeedSetting(v)},
+{key:"autoEqImport",group:"Equalizer & DSP",label:"Import AutoEQ profile (.txt)",type:"action",surface:"main",default:"",
+  apply:()=>{
+    const fileInp=document.getElementById("eqFile");
+    if(fileInp)fileInp.click();
+    else if(window.importAutoEqFile)window.importAutoEqFile();
+  }},
+
 /* ---------------- Playback ---------------- */
+{key:"discordRpc",group:"Playback",label:"Discord Rich Presence",type:"toggle",surface:"main",default:true,
+  hint:"Shares track, artist, album, and listening time on Discord with link to Halftone.",
+  apply:v=>{if(window.applyDiscordRpcSetting)window.applyDiscordRpcSetting(!!v)}},
 {key:"rg",group:"Playback",label:"ReplayGain mode",type:"select",surface:"both",default:"off",alias:"rg",
   options:[["off","Off"],["track","Track gain"],["album","Album gain"]],
   apply:v=>window.applyRgSetting&&window.applyRgSetting(v)},
@@ -144,16 +190,6 @@ const SCHEMA=[
   apply:v=>window.applyCrossfadeSetting&&window.applyCrossfadeSetting(+v)},
 {key:"gapless",group:"Playback",label:"Gapless playback",type:"toggle",surface:"main",default:true,
   apply:v=>window.applyGaplessSetting&&window.applyGaplessSetting(!!v)},
-{key:"crossfeed",group:"Playback",label:"Headphone crossfeed",type:"select",surface:"main",default:"off",
-  options:[["off","Off"],["light","Light (BS2B 30%)"],["medium","Medium (BS2B 50%)"],["studio","Studio speaker stage"]],
-  apply:v=>window.applyCrossfeedSetting&&window.applyCrossfeedSetting(v)},
-{key:"balance",group:"Playback",label:"Stereo balance (L/R)",type:"range",surface:"main",default:0,min:-100,max:100,step:5,
-  apply:v=>window.applyBalanceSetting&&window.applyBalanceSetting(+v)},
-{key:"mono",group:"Playback",label:"Mono fold-down",type:"toggle",surface:"main",default:false,
-  apply:v=>window.applyMonoSetting&&window.applyMonoSetting(!!v)},
-{key:"loudnessComp",group:"Playback",label:"Equal-loudness contour",type:"toggle",surface:"main",default:false,
-  hint:"Boosts low and high frequencies at low listening volumes.",
-  apply:v=>window.applyLoudnessComp&&window.applyLoudnessComp(!!v)},
 {key:"wordLyrics",group:"Lyrics",label:"Word-by-word spring karaoke",type:"toggle",surface:"both",default:true,
   apply:v=>{document.documentElement.classList.toggle("lyr-nowords",!v);window.buildLyrics&&window.buildLyrics()}},
 {key:"shaderPreset",group:"Appearance",label:"WebGL2 visualizer shader",type:"select",surface:"main",default:"aurora",
@@ -373,7 +409,19 @@ function fmtVal(s,v){
 function render(root,filter){
   if(!Store.v)return;
   root.innerHTML="";
+  root.style.overflowY="auto";
+  root.style.maxHeight="calc(100vh - 120px)";
   const wrap=document.createElement("div");wrap.className="set-wrap";
+  wrap.style.cssText="overflow-y:auto;max-height:calc(100vh - 120px);padding-right:6px;display:flex;flex-direction:column;gap:12px;";
+
+  /* header with prominent Reset All to Default */
+  const header=document.createElement("div");header.className="set-header";
+  header.style.cssText="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding-bottom:10px;border-bottom:1px solid var(--line);";
+  header.innerHTML=`<span class="h-caps mono" style="font-size:0.75rem;font-weight:700;color:var(--fg-2)">SETTINGS &amp; DSP</span>
+    <button class="btn danger" id="btnResetAllTop" style="font-size:0.625rem;padding:4px 10px">RESET ALL TO DEFAULT</button>`;
+  header.querySelector("#btnResetAllTop").onclick=resetAllToFactoryDefaults;
+  wrap.appendChild(header);
+
   /* search box (generated view is searchable; filters label+group+key) */
   const sbox=document.createElement("input");
   sbox.type="search";sbox.className="field set-search";
@@ -394,6 +442,39 @@ function render(root,filter){
   for(const g of groups){
     const sec=document.createElement("div");sec.className="set-group";
     sec.innerHTML=`<div class="h-caps">${g.name.toUpperCase()}</div>`;
+    
+    /* Embed 10-band interactive EQ sliders directly into Equalizer & DSP */
+    if(g.name==="Equalizer & DSP"){
+      const bandsStrip=document.createElement("div");
+      bandsStrip.className="set-eq-strip";
+      bandsStrip.style.cssText="display:flex;justify-content:space-between;align-items:flex-end;gap:4px;padding:12px 6px;margin:8px 0 14px;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--R-m);";
+      const freqs=[32,64,125,250,500,1000,2000,4000,8000,16000];
+      freqs.forEach((f,idx)=>{
+        const col=document.createElement("div");
+        col.style.cssText="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;";
+        const label=f>=1000?(f/1000)+"k":f;
+        const curVal=(window.S&&window.S.cfg&&window.S.cfg.eq&&window.S.cfg.eq.bands&&window.S.cfg.eq.bands[idx])||0;
+        col.innerHTML=`
+          <span class="mono" style="font-size:0.5625rem;color:var(--fg-3)" id="setEqVal_${idx}">${curVal>0?"+"+curVal.toFixed(1):(curVal===0?"0":curVal.toFixed(1))}</span>
+          <input type="range" min="-12" max="12" step="0.5" value="${curVal}" data-band="${idx}" style="writing-mode:bt-lr;-webkit-appearance:slider-vertical;width:16px;height:90px;accent-color:var(--accent);">
+          <span class="mono" style="font-size:0.5625rem;color:var(--fg-2)">${label}</span>
+        `;
+        const slider=col.querySelector("input");
+        slider.oninput=()=>{
+          const v=+slider.value;
+          col.querySelector(`#setEqVal_${idx}`).textContent=v>0?"+"+v.toFixed(1):(v===0?"0":v.toFixed(1));
+          if(window.S&&window.S.cfg&&window.S.cfg.eq){
+            window.S.cfg.eq.bands[idx]=v;
+            window.S.cfg.eq.profile=null;
+            if(window.paintEq)window.paintEq();
+            if(window.pushEq)window.pushEq(false);
+          }
+        };
+        bandsStrip.appendChild(col);
+      });
+      sec.appendChild(bandsStrip);
+    }
+
     for(const s of g.rows){
       const cur=s.key==="theme"?ThemeCur():s.key==="palette"?PaletteCur():getIn(s.key);
       const row=document.createElement("div");row.className="set-row";row.dataset.key=s.key;
@@ -404,7 +485,47 @@ function render(root,filter){
     }
     wrap.appendChild(sec);
   }
+
+  /* footer with prominent Reset All to Default */
+  const footer=document.createElement("div");footer.className="set-footer";
+  footer.style.cssText="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);";
+  footer.innerHTML=`<button class="btn danger" id="btnResetAllBottom" style="font-size:0.6875rem;padding:6px 14px">RESET ALL TO DEFAULT</button>`;
+  footer.querySelector("#btnResetAllBottom").onclick=resetAllToFactoryDefaults;
+  wrap.appendChild(footer);
+
   root.appendChild(wrap);
+
+  function resetAllToFactoryDefaults(){
+    if(!confirm("Reset all settings, EQ, layout, and appearance to factory defaults?"))return;
+    for(const s of SCHEMA){
+      if(s.type==="action")continue;
+      set(s.key,s.default,{force:true,noSave:true});
+    }
+    scheduleSave();
+    if(window.htSetTheme)window.htSetTheme("analogue");
+    if(window.htSetMode)window.htSetMode("dark");
+    if(window.htSetPalette)window.htSetPalette("classic");
+    try{
+      localStorage.setItem("halftone.sidebar.visible",JSON.stringify(["now","tracks","albums","artists","playlists"]));
+    }catch(_){}
+    if(window.applySidebarVisibility)window.applySidebarVisibility();
+    if(window.S&&window.S.cfg&&window.S.cfg.eq){
+      window.S.cfg.eq.bands=new Array(10).fill(0);
+      window.S.cfg.eq.pre=0;
+      window.S.cfg.eq.on=true;
+      window.S.cfg.eq.profile=null;
+      if(window.paintEq)window.paintEq();
+      if(window.pushEq)window.pushEq(true);
+    }
+    if(window.applyBalanceSetting)window.applyBalanceSetting(0);
+    if(window.applyMonoSetting)window.applyMonoSetting(false);
+    if(window.applyLoudnessComp)window.applyLoudnessComp(false);
+    if(window.applyCrossfeedSetting)window.applyCrossfeedSetting("off");
+    if(window.HalftoneLayout&&window.HalftoneLayout.resetLayout)window.HalftoneLayout.resetLayout();
+    if(window.setVol)window.setVol(0.8);
+    if(window.toast)window.toast("All settings reset to default","accent");
+    render(root,"");
+  }
 }
 
 /* theme value lives in theme.js state, not the store copy */

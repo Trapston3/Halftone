@@ -4,11 +4,14 @@
  * Implements Section 9 of the Halftone Build Specification:
  * - Pre-computed spring `linear()` easing curves & choreography tokens
  * - Tactile micro-interactions:
- *   - Digital: radial pointer luminance ripple + spring scale(0.96)
+ *   - Digital: radial pointer luminance ripple + spring scale(0.94) + magnetic hover on transport orbs
  *   - Analogue: mechanical bevel depression + 1-frame Bayer dither-inversion flash
  * - Traveling keyboard focus ring across controls
  * - FLIP list/queue reordering & staggered enter/exit choreography
  * - Shared-element cover art morph transitions (Album Card / Mini-Bar <-> Now Playing)
+ * - WAAPI Spring View Transitions with auto-staggering of child cards/rows
+ * - Smooth Cover Art Pulse & Metadata vertical mask reveal on track change
+ * - Automatic MutationObserver view watcher (seamless animated transitions on view switch/content fill)
  * - Rolling tabular digit counters
  * - Frame-time Performance Governor (monitors rAF delta; auto-downgrades blur/shader
  *   scale when frame times exceed 20ms for 18 consecutive frames)
@@ -149,6 +152,43 @@
       html.ht-perf-downgrade * {
         backdrop-filter: blur(10px) saturate(130%) !important;
       }
+
+      /* Halftone Choreographed View & Track Transitions */
+      @keyframes htViewEnterForward {
+        from { opacity: 0; transform: translate3d(16px, 0, 0) scale(0.992); }
+        to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+      }
+      @keyframes htViewEnterBack {
+        from { opacity: 0; transform: translate3d(-16px, 0, 0) scale(0.992); }
+        to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+      }
+      @keyframes htViewEnterUp {
+        from { opacity: 0; transform: translate3d(0, 14px, 0) scale(0.992); }
+        to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+      }
+      @keyframes htTrackChangePulse {
+        0% { opacity: 0.35; transform: scale(0.95); filter: blur(6px); }
+        100% { opacity: 1; transform: scale(1); filter: blur(0); }
+      }
+      @keyframes htMetaReveal {
+        from { opacity: 0; transform: translate3d(0, 8px, 0); }
+        to { opacity: 1; transform: translate3d(0, 0, 0); }
+      }
+      .ht-view-enter-forward {
+        animation: htViewEnterForward 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .ht-view-enter-back {
+        animation: htViewEnterBack 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .ht-view-enter-up {
+        animation: htViewEnterUp 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .ht-track-change-pulse {
+        animation: htTrackChangePulse 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .ht-meta-reveal {
+        animation: htMetaReveal 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
     `;
     document.head.appendChild(st);
   }
@@ -256,6 +296,41 @@
     }, { passive: true });
   }
 
+  // Magnetic hover micro-interaction on primary transport buttons in Digital mode
+  function bindMagneticButtons() {
+    const SELECTOR = "#btnPlay, #wPlay, #nbPlay, .btn-orb.lg, .cbtn.play";
+    document.addEventListener("pointermove", (e) => {
+      const theme = document.documentElement.getAttribute("data-theme") || "analogue";
+      if (theme !== "digital" || isReducedMotion()) return;
+      const target = e.target && e.target.closest ? e.target.closest(SELECTOR) : null;
+      if (!target) return;
+      const rect = target.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const maxOffset = 8;
+      const dx = Math.max(-maxOffset, Math.min(maxOffset, (e.clientX - centerX) * 0.28));
+      const dy = Math.max(-maxOffset, Math.min(maxOffset, (e.clientY - centerY) * 0.28));
+      target.style.transform = `translate3d(${dx.toFixed(1)}px, ${dy.toFixed(1)}px, 0) scale(1.07)`;
+    }, { passive: true });
+
+    document.addEventListener("pointerout", (e) => {
+      const target = e.target && e.target.closest ? e.target.closest(SELECTOR) : null;
+      if (!target) return;
+      target.style.transform = "";
+      if (!isReducedMotion()) {
+        try {
+          target.animate(
+            [
+              { transform: target.style.transform || "translate3d(0, 0, 0) scale(1.07)" },
+              { transform: "translate3d(0, 0, 0) scale(1)" },
+            ],
+            { duration: 240, easing: SPRING_PRESETS.snappy, fill: "forwards" }
+          );
+        } catch (_) {}
+      }
+    }, { passive: true });
+  }
+
   // FLIP helper for list/queue reorder or grid reflow
   function flipAnimate(container, mutateDomFn, durationMs = 240) {
     if (!container || isReducedMotion()) {
@@ -326,24 +401,188 @@
     anim.onfinish = () => clone.remove();
   }
 
-  // Staggered enter choreography for newly rendered cards/rows (max 16 items animated)
+  // Staggered enter choreography for newly rendered cards/rows (up to 24 items animated)
   function staggerEnter(elements, stepMs = 18) {
     if (!elements || isReducedMotion()) return;
-    const list = Array.from(elements).slice(0, 16);
+    const list = Array.from(elements).slice(0, 24);
     list.forEach((el, idx) => {
-      el.animate(
-        [
-          { opacity: 0, transform: "translate3d(0, 8px, 0)" },
-          { opacity: 1, transform: "translate3d(0, 0, 0)" },
-        ],
-        {
-          duration: 210,
-          delay: idx * stepMs,
-          easing: SPRING_PRESETS.quartOut,
-          fill: "both",
-        }
-      );
+      try {
+        el.animate(
+          [
+            { opacity: 0, transform: "translate3d(0, 10px, 0)" },
+            { opacity: 1, transform: "translate3d(0, 0, 0)" },
+          ],
+          {
+            duration: 260,
+            delay: idx * stepMs,
+            easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+            fill: "both",
+          }
+        );
+      } catch (_) {}
     });
+  }
+
+  // Animated Transitions Between Views, Pages & Sections with child staggering
+  function animateView(containerEl, dir = "up") {
+    const el = typeof containerEl === "string" ? document.querySelector(containerEl) : containerEl;
+    if (!el || isReducedMotion()) return null;
+    const d = String(dir || "up").toLowerCase();
+    let keyframes;
+    let animClass = "ht-view-enter-up";
+    if (d === "forward" || d === "next" || d === "right") {
+      animClass = "ht-view-enter-forward";
+      keyframes = [
+        { opacity: 0, transform: "translate3d(16px, 0, 0) scale(0.992)" },
+        { opacity: 1, transform: "translate3d(0, 0, 0) scale(1)" },
+      ];
+    } else if (d === "back" || d === "prev" || d === "left") {
+      animClass = "ht-view-enter-back";
+      keyframes = [
+        { opacity: 0, transform: "translate3d(-16px, 0, 0) scale(0.992)" },
+        { opacity: 1, transform: "translate3d(0, 0, 0) scale(1)" },
+      ];
+    } else {
+      animClass = "ht-view-enter-up";
+      keyframes = [
+        { opacity: 0, transform: "translate3d(0, 14px, 0) scale(0.992)" },
+        { opacity: 1, transform: "translate3d(0, 0, 0) scale(1)" },
+      ];
+    }
+
+    el.classList.remove("ht-view-enter-forward", "ht-view-enter-back", "ht-view-enter-up");
+    try {
+      const anim = el.animate(keyframes, {
+        duration: 320,
+        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+        fill: "both",
+      });
+      el.classList.add(animClass);
+      anim.onfinish = () => {
+        el.classList.remove(animClass);
+      };
+
+      // Automatically stagger child cards and rows inside the newly entered view
+      const children = el.querySelectorAll(
+        ".album-card, .v11-card, .smart-card, .stat-card, .cf-card, .row, .trow, .prow, .pl-item, .ht-setting-row, .card, .acard, .cover-cell, .set-row"
+      );
+      if (children.length > 0) {
+        staggerEnter(children, 18);
+      }
+
+      return anim;
+    } catch (_) {
+      el.classList.add(animClass);
+      setTimeout(() => el.classList.remove(animClass), 320);
+      return null;
+    }
+  }
+
+  // Smooth cover art crossfade & scale pulse + metadata mask reveal on track changes
+  function animateTrackChange(artEl, metaEl) {
+    if (isReducedMotion()) return [];
+    const resolve = (target) => (typeof target === "string" ? document.querySelector(target) : target);
+    const artTarget = resolve(artEl) || document.querySelector("#npArt, #wArt, #npCover, #wCover, #heroArt");
+    const metaTarget = resolve(metaEl) || document.querySelector("#npTitle, #wTitle, .np-info, .w-meta");
+    const anims = [];
+
+    if (artTarget) {
+      try {
+        artTarget.classList.remove("ht-track-change-pulse");
+        void artTarget.offsetWidth;
+        const a = artTarget.animate(
+          [
+            { opacity: 0.35, transform: "scale(0.95)", filter: "blur(6px)" },
+            { opacity: 1, transform: "scale(1)", filter: "blur(0)" },
+          ],
+          {
+            duration: 340,
+            easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+            fill: "both",
+          }
+        );
+        artTarget.classList.add("ht-track-change-pulse");
+        a.onfinish = () => artTarget.classList.remove("ht-track-change-pulse");
+        anims.push(a);
+      } catch (_) {}
+    }
+
+    if (metaTarget) {
+      try {
+        metaTarget.classList.remove("ht-meta-reveal");
+        void metaTarget.offsetWidth;
+        const b = metaTarget.animate(
+          [
+            { opacity: 0, transform: "translate3d(0, 8px, 0)" },
+            { opacity: 1, transform: "translate3d(0, 0, 0)" },
+          ],
+          {
+            duration: 280,
+            easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+            fill: "both",
+          }
+        );
+        metaTarget.classList.add("ht-meta-reveal");
+        b.onfinish = () => metaTarget.classList.remove("ht-meta-reveal");
+        anims.push(b);
+      } catch (_) {}
+    }
+
+    return anims;
+  }
+
+  // Automatically observe view changes & DOM updates to trigger smooth entrance choreography
+  function bindViewObserver() {
+    if (typeof MutationObserver === "undefined") return;
+    let lastAnimatedTime = 0;
+    const observer = new MutationObserver((mutations) => {
+      const now = performance.now();
+      if (now - lastAnimatedTime < 240) return;
+
+      for (const m of mutations) {
+        if (m.type === "attributes" && (m.attributeName === "style" || m.attributeName === "class")) {
+          const target = m.target;
+          if (
+            target &&
+            target.classList &&
+            (target.classList.contains("view") ||
+              target.id === "content" ||
+              target.id === "v-content" ||
+              target.id === "v-nowplaying" ||
+              target.id === "v-eq" ||
+              target.id === "v-queue" ||
+              target.id === "nowPane" ||
+              target.id === "albumsPane" ||
+              target.id === "viewExtraPane" ||
+              target.id === "eqSheet")
+          ) {
+            const disp = getComputedStyle(target).display;
+            if (disp !== "none" && target.offsetParent !== null) {
+              lastAnimatedTime = now;
+              animateView(target, "up");
+              break;
+            }
+          }
+        } else if (m.type === "childList" && m.addedNodes.length > 0) {
+          const target = m.target;
+          if (target && (target.id === "content" || target.id === "queueView" || target.classList.contains("vscroll"))) {
+            lastAnimatedTime = now;
+            const newChildren = target.querySelectorAll(
+              ".album-card, .v11-card, .smart-card, .stat-card, .cf-card, .row, .trow, .prow, .pl-item, .card, .acard, .cover-cell"
+            );
+            if (newChildren.length > 0) {
+              staggerEnter(newChildren, 18);
+            }
+            break;
+          }
+        }
+      }
+    });
+
+    const rootViews = document.getElementById("views") || document.getElementById("appShell") || document.body;
+    if (rootViews) {
+      observer.observe(rootViews, { attributes: true, childList: true, subtree: true, attributeFilter: ["style", "class"] });
+    }
   }
 
   // Frame-Time Performance Governor (monitors rAF delta when active)
@@ -411,11 +650,23 @@
     };
   }
 
+  // Load Ambient WebGL script dynamically if not present
+  function ensureAmbientShader() {
+    if (!window.HalftoneAmbient && !document.querySelector('script[src="ambient-webgl.js"]')) {
+      const s = document.createElement("script");
+      s.src = "ambient-webgl.js";
+      document.head.appendChild(s);
+    }
+  }
+
   function init() {
     injectMotionStyles();
     ensureIconSprite();
     bindMicroInteractions();
     bindTravelingFocus();
+    bindMagneticButtons();
+    bindViewObserver();
+    ensureAmbientShader();
     window.__qa = window.__qa || {};
     window.__qa.motionAudit = motionAudit;
     window.__qa.iconAudit = iconAudit;
@@ -435,6 +686,9 @@
     flipAnimate,
     morphCover,
     staggerEnter,
+    animateView,
+    animateTrackChange,
+    bindMagneticButtons,
     governor,
     motionAudit,
     iconAudit,

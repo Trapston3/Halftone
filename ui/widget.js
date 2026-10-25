@@ -15,9 +15,15 @@
    ============================================================ */
 const W={s:1,preset:"card",scaleMode:"fit",scalePct:100};
 const WID={};
-["stage","wCover","wDither","wTitle","wArtist","wTech","wTime","wLayoutBtn","wGear","wPin","wMain","wClose",
+["stage","wCover","wDither","wArtReal","wArtCanvas","wTitle","wArtist","wTech","wTime","wLayoutBtn","wGear","wCfgBtn","wPin","wMain","wClose",
  "wSeek","wVol","wPrev","wPlay","wNext","wIcoPlay","wIcoPause","wShuf","wRep",
  "wLyrHost","wLyrView","wLyrStatus","wSheet","wSheetTitle","wSheetBody","wArt"].forEach(k=>WID[k]=document.getElementById(k));
+if(!WID.wCfgBtn)WID.wCfgBtn=WID.wGear;
+if(!WID.wGear)WID.wGear=WID.wCfgBtn;
+if(!WID.wArtReal)WID.wArtReal=WID.wCover;
+if(!WID.wCover)WID.wCover=WID.wArtReal;
+if(!WID.wArtCanvas)WID.wArtCanvas=WID.wDither;
+if(!WID.wDither)WID.wDither=WID.wArtCanvas;
 
 /* QA probes need these on the window (page scripts use closure scope) */
 window.W=W;window.WID=WID;
@@ -31,7 +37,7 @@ window.W=W;window.WID=WID;
    windows sized to their natural content height, nudging rows past
    their own padding and compounding the glow-clipping symptom (owner
    bug: widget "scaling weird"). Keep this in sync with the CSS. */
-const BASE={card:[380,260],strip:[380,132],square:[300,400],lyrics:[380,300]};
+const BASE={card:[380,260],strip:[380,132],square:[300,400],lyrics:[380,260]};
 function baseSize(){return BASE[W.preset]||BASE.card}
 function applyStage(){
   const [bw,bh]=baseSize();
@@ -94,13 +100,62 @@ window.loadArtFromMeta=loadArt;
 function paintArt(){
   const mode=(window.getCfg&&window.getCfg("art"))||"theme";
   const eff=mode==="theme"?themeArtDefault:mode;
-  const showReal=eff==="real"&&S._artUrl;
-  WID.wCover.style.display=showReal?"":"none";
-  WID.wDither.style.display=showReal?"none":"";
-  if(showReal){if(WID.wCover.src!==S._artUrl)WID.wCover.src=S._artUrl}
-  else if(S._img)drawDither(WID.wDither,S._img);
+  const artReal=WID.wArtReal||WID.wCover;
+  const artCanvas=WID.wArtCanvas||WID.wDither;
+  const coverSrc=S._coverData||S._artUrl||(S.meta&&S.meta.coverUrl);
+  const showReal=(eff==="real"||eff==="theme")&&coverSrc;
+
+  if(artReal){
+    artReal.onerror=function(){
+      this.style.display="none";
+      if(artCanvas){
+        artCanvas.style.display="";
+        if(window.drawProceduralVinyl)drawProceduralVinyl(artCanvas,S.meta?.title,S.meta?.artist);
+      }
+    };
+    artReal.onload=function(){
+      if(showReal){
+        this.style.display="block";
+        if(artCanvas)artCanvas.style.display="none";
+      }
+    };
+  }
+
+  if(showReal){
+    if(artReal){
+      if(artReal.src!==coverSrc){
+        artReal.style.display="none";
+        artReal.src=coverSrc;
+      }else if(artReal.complete && artReal.naturalWidth>0){
+        artReal.style.display="block";
+      }
+    }
+    if(artCanvas&&!artReal)artCanvas.style.display="none";
+    if(artCanvas&&S._img&&eff!=="real")drawDither(artCanvas,S._img);
+  }else{
+    if(artReal){
+      artReal.style.display="none";
+      artReal.removeAttribute("src");
+    }
+    if(artCanvas){
+      artCanvas.style.display="";
+      if(S._img&&eff==="dither"){
+        drawDither(artCanvas,S._img);
+      }else if(window.drawProceduralVinyl){
+        drawProceduralVinyl(artCanvas,S.meta?.title,S.meta?.artist);
+      }
+    }
+  }
+
   const art=WID.wArt;
-  art.classList.remove("art-swap");void art.offsetWidth;art.classList.add("art-swap");
+  if(art){
+    const trackKey=(S.meta&&(S.meta.path||S.meta.title))||null;
+    if(trackKey&&trackKey!==window._lastAnimTrackKey){
+      window._lastAnimTrackKey=trackKey;
+      art.classList.remove("art-swap");void art.offsetWidth;art.classList.add("art-swap");
+      window.HalftoneMotion?.animateTrackChange(art,WID.stage?.querySelector(".w-meta"));
+    }
+  }
 }
 
 /* ---------- info + state painting ---------- */
@@ -112,6 +167,10 @@ function paintInfo(){
     ' <span class="badge '+(m.lossless===false?"lossy":"lossless")+'">'+(m.lossless===false?"LOSSY":"LOSSLESS")+"</span>"):"\u2014";
   const showTech=window.getCfg?window.getCfg("tech")!==false:true;
   WID.wTech.style.display=showTech?"":"none";
+  const meta=WID.stage?.querySelector(".w-meta");
+  if(meta&&meta.style.opacity==="0"&&!meta.classList.contains("ht-meta-reveal")){
+    meta.style.opacity="1";
+  }
 }
 function paintState(){
   WID.wIcoPlay.style.display=S.playing?"none":"block";
@@ -285,17 +344,14 @@ function buildVolDom(){
   vb.addEventListener("pointermove",e=>down&&set(e));
   vb.addEventListener("pointerup",()=>down=false);
   vb.addEventListener("pointercancel",()=>down=false);
+  /* volume scroll ONLY when hovering volume bar */
+  vb.addEventListener("wheel",e=>{
+    e.preventDefault();
+    e.stopPropagation();
+    emitCmd({cmd:"vol",v:clamp(S.vol+(e.deltaY<0?.05:-.05),0,1)});
+  },{passive:false});
 })();
 addEventListener("keydown",e=>{if(e.code==="Space"&&!e.target.closest("input")){e.preventDefault();emitCmd({cmd:"play"})}});
-addEventListener("wheel",e=>{
-  /* volume-on-wheel only outside scrollables (lyrics scroll freely) and
-     only when the wheel is actually over the widget chrome — events from
-     nested elements (seek strip has its own handler) must not double-fire */
-  if(e.target.closest(".lyr-view,.w-seek,.w-sheet,.menu"))return;
-  if(!(e.target===document.body||e.target===WID.stage||WID.stage.contains(e.target)))return;
-  e.preventDefault();
-  emitCmd({cmd:"vol",v:clamp(S.vol+(e.deltaY<0?.05:-.05),0,1)});
-},{passive:false});
 
 /* ============================================================
    WIDGET SHEET (⚙) — rendered in the UNSCALED overlay
@@ -328,7 +384,34 @@ function openWidgetSheet(){
   WID.wSheet.classList.add("open");
 }
 function closeSheet(){WID.wSheet.classList.remove("open")}
-WID.wGear.onclick=e=>{e.stopPropagation();WID.wSheet.classList.contains("open")?closeSheet():openWidgetSheet()};
+
+/* Settings gear in widget opens dedicated 680x720 window */
+function openDedicatedSettings(section="appearance"){
+  try{
+    if(window.__TAURI__?.core?.invoke){
+      window.__TAURI__.core.invoke("open_settings_window",{section}).catch(()=>{});
+      return;
+    }
+    if(window.invoke){
+      window.invoke("open_settings_window",{section}).catch(()=>{});
+      return;
+    }
+  }catch(e){console.warn("open_settings_window",e)}
+  openWidgetSheet();
+}
+const cfgBtn=WID.wCfgBtn||WID.wGear;
+if(cfgBtn){
+  cfgBtn.onclick=e=>{
+    e.stopPropagation();
+    openDedicatedSettings("appearance");
+  };
+}
+if(WID.wGear&&WID.wGear!==cfgBtn){
+  WID.wGear.onclick=e=>{
+    e.stopPropagation();
+    openDedicatedSettings("appearance");
+  };
+}
 document.addEventListener("pointerdown",e=>{
   if(!WID.wSheet.classList.contains("open"))return;
   if(WID.wSheet.contains(e.target)||WID.wGear.contains(e.target))return;
