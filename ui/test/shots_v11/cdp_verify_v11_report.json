@@ -1,0 +1,280 @@
+{
+  "results": {
+    "1_cdp_targets": {
+      "pass": true,
+      "detail": [
+        "main",
+        "widget"
+      ]
+    },
+    "2_zero_boot_errors": {
+      "pass": true,
+      "detail": {
+        "widget_err": null,
+        "main_err": null
+      }
+    },
+    "3_single_audio_owner": {
+      "pass": true,
+      "detail": {
+        "main_is_owner": true,
+        "widget_is_viewer": true
+      }
+    },
+    "4_library_scan_and_sync": {
+      "pass": true,
+      "detail": {
+        "scan": {
+          "tracks": 3,
+          "skipped": 0
+        },
+        "widget": {
+          "lib": 3,
+          "i": 0,
+          "playing": false,
+          "vol": 0.8,
+          "pos": 0,
+          "dur": 3,
+          "preset": "lyrics"
+        }
+      }
+    },
+    "5_art_thumb_oklab": {
+      "pass": true,
+      "detail": {
+        "thumb_url": "http://media.localhost/thumb/C%3A%5CUsers%5Ctraps%5CDocuments%5Cantigravity%5Chopeful-meitner%5Cui%5Ctest%5Cfixtures_lib%5C01_Analogue_Phosphor.wav",
+        "accent_hex": "#617eca",
+        "accent_dark_hex": "#617eca",
+        "accent_light_hex": "#1e3378",
+        "secondary_hex": "#825e9d",
+        "oklch": [
+          0.35,
+          0.120885596,
+          267.00964
+        ],
+        "is_dark_art": true,
+        "source": "web"
+      }
+    },
+    "6_analyze_track_lufs": {
+      "pass": true,
+      "detail": {
+        "peaks_len": 128,
+        "lufs": -11.9,
+        "true_peak": -5.2,
+        "cutoff_khz": 19
+      }
+    },
+    "7_db_health_stats_smart": {
+      "pass": true,
+      "detail": {
+        "health_keys": [
+          "total_tracks",
+          "missing_art",
+          "missing_tags",
+          "duplicate_groups",
+          "missing_files",
+          "suspect_transcodes",
+          "lossless_count",
+          "lossy_count"
+        ],
+        "total_plays": 0,
+        "smart_matches": 3
+      }
+    },
+    "8_word_lit_lyrics": {
+      "pass": true,
+      "detail": {
+        "word_spans": 3
+      }
+    },
+    "9_icons_motion_layout_audits": {
+      "pass": true,
+      "detail": {
+        "icons": {
+          "ok": true,
+          "spriteLoaded": true,
+          "symbolCount": 88,
+          "activeUseCount": 0
+        },
+        "motion": {
+          "ok": true,
+          "springSnappy": "linear(0, 0.45 12%, 0.88 28%, 1.04 48%, 0.99 72%, 1)",
+          "springFluid": "linear(0, 0.28 10%, 0.76 26%, 0.98 44%, 1.02 64%, 1)",
+          "reducedMotion": false,
+          "governorDowngraded": false,
+          "avgFrameMs": 16.6
+        },
+        "layout": {
+          "ok": true,
+          "editMode": false,
+          "preset": "classic",
+          "presetsAvailable": [
+            "classic",
+            "compact-strip",
+            "square-art",
+            "lyrics-focus",
+            "vertical-rack",
+            "meter-bar",
+            "tilted-desk"
+          ],
+          "moduleCount": 7,
+          "modules": [
+            {
+              "id": "cover-art",
+              "rot": 0,
+              "dx": 0,
+              "dy": 0,
+              "rect": {
+                "x": 0,
+                "y": 0,
+                "width": 0,
+                "height": 0,
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              }
+            },
+            {
+              "id": "track-marquee",
+              "rot": 0,
+              "dx": 0,
+              "dy": 0,
+              "rect": {
+                "x": 11.26710033416748,
+                "y": 7.800300121307373,
+                "width": 205.8683319091797,
+                "height": 60.66899871826172,
+                "top": 7.800300121307373,
+                "right": 217.13543224334717,
+                "bottom": 68.46929883956909,
+                "left": 11.26710033416748
+              }
+            },
+            {
+              "id": "window-controls",
+              "rot": 0,
+              "dx": 0,
+              "dy": 0,
+              "rect": {
+                "x": 227.53582763671875,
+                "y": 7.800300121307373,
+                "width": 161.20620727539062,
+                "height": 29.46780014038086,
+                "top": 7.800300121307373,
+                "right": 388.7420349121094,
+                "bottom": 37.26810026168823,
+                "left": 227.53582763671875
+              }
+            },
+            {
+              "id": "seek-bar",
+              "rot": 0,
+              "dx": 0,
+              "dy": 0,
+              "rect": {
+                "x": 0.8666999936103821,
+                "y": 68.46929931640625,
+                "width": 398.2757263183594,
+                "height": 15.600601196289062,
+                "top": 68.46929931640625,
+                "right": 399.14242631196976,
+                "bottom": 84.06990051269531,
+                "left": 0.8666999936103821
+              }
+            },
+            {
+              "id": "transport-cluster",
+              "rot": 0,
+              "dx": 0,
+              "dy": 0,
+              "rect": {
+                "x": 0.8666999936103821,
+                "y": 84.06990051269531,
+                "width": 398.2757263183594,
+                "height": 45.06840515136719,
+                "top": 84.06990051269531,
+                "right": 399.14242631196976,
+                "bottom": 129.1383056640625,
+                "left": 0.8666999936103821
+              }
+            },
+            {
+              "id": "volume-control",
+              "rot": 0,
+              "dx": 0,
+              "dy": 0,
+              "rect": {
+                "x": 11.26710033416748,
+                "y": 97.07039642333984,
+                "width": 55.46879959106445,
+                "height": 12.133804321289062,
+                "top": 97.07039642333984,
+                "right": 66.73589992523193,
+                "bottom": 109.2042007446289,
+                "left": 11.26710033416748
+              }
+            },
+            {
+              "id": "lyrics-ticker",
+              "rot": 0,
+              "dx": 0,
+              "dy": 0,
+              "rect": {
+                "x": 0.8666999936103821,
+                "y": 129.1383056640625,
+                "width": 398.2757263183594,
+                "height": 130.0050048828125,
+                "top": 129.1383056640625,
+                "right": 399.14242631196976,
+                "bottom": 259.143310546875,
+                "left": 0.8666999936103821
+              }
+            }
+          ]
+        }
+      }
+    },
+    "10_rotatable_layout_studio": {
+      "pass": true,
+      "detail": {
+        "r0": 30,
+        "frac": 0.526,
+        "rUndo": 0,
+        "rRedo": 30
+      }
+    },
+    "11_digital_palette_switch": {
+      "pass": true,
+      "detail": {
+        "theme": "digital",
+        "mode": "dark",
+        "palette": "tokyonight",
+        "bg": "#1a1b26"
+      }
+    },
+    "12_v11_views_and_signal_path": {
+      "pass": true,
+      "detail": {
+        "coverflow": true,
+        "artists": true,
+        "genres": true,
+        "folders": true,
+        "smart": true,
+        "stats": true,
+        "health": true,
+        "signalPath": true
+      }
+    },
+    "13_win32_corner_probe": {
+      "pass": true,
+      "detail": {
+        "applied": true,
+        "h": 760,
+        "w": 1200
+      }
+    }
+  },
+  "failures": []
+}

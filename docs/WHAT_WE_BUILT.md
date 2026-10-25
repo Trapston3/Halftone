@@ -330,3 +330,64 @@ The last two items from the backlog, closed in one pass:
 - position sync granularity is the ~30fps broadcast — no interpolation on the widget side
   (per spec: widget renders the owner's value, never estimates)
 - WASAPI exclusive / bit-perfect output — deliberately out of scope (shared mixer via setSinkId)
+
+
+---
+
+## Pass: Halftone v1.1 Spec Rebuild (2026-10-25, branch `spec-rebuild`)
+
+Complete architectural and visual upgrade implementing the **Halftone v1.1 Build Specification** across the Rust backend (`src-tauri/src/`) and both frontend surfaces (`ui/main.html` + `ui/index.html`).
+
+### 1. Rust Backend v1.1 (`src-tauri/src/`)
+- **Multi-Format Audio Engine (`formats.rs`, `probe.rs`, `lib.rs`)**:
+  - Magic-byte detection and metadata/artwork probing for **FLAC, MP3, M4A/AAC, ALAC, WAV, OGG Vorbis, Opus, AIFF (`FORM....AIFF`/`AIFC`), and WavPack (`wvpk`)**.
+  - Canonicalized library-root allowlist enforcement in `serve_media` (`media://localhost/stream/<path>` and `media://localhost/thumb/<path>`) blocking path traversal (`..`).
+- **Cached 256×256 Artwork Thumbnails & OKLab/OKLCH Palette Extraction (`art_thumb.rs`)**:
+  - `art_thumb` Tauri command decodes embedded cover art, resizes to 256×256 via Lanczos3, caches PNGs under `%APPDATA%\Halftone\thumbs\<hash>.png`, and extracts chroma-weighted dominant + secondary colors in OKLab/OKLCH with automatic WCAG AA lightness clamping ($\ge 4.5:1$).
+- **Single-Pass Audio Analysis & Integrity Verification (`analyze_track.rs`)**:
+  - `analyze_track` Tauri command decodes audio via Symphonia to compute **128-bucket normalized waveform peaks**, **BS.1770-4 / EBU R128 integrated loudness (`LUFS`)**, **true peak (`dBTP`)**, **ReplayGain track/album gain**, **dynamic range (DR)**, **MP3 LAME encoder delay/padding** for gapless playback, and a **high-frequency spectral energy ratio detector** that flags transcode/fake-lossless files.
+- **Persistent Library Database, Smart Playlists & Listening Stats (`db.rs`)**:
+  - Stable Track IDs (`size` + head/tail 16 KiB FNV-1a fingerprint) that survive file renames/moves.
+  - Non-destructive **Metadata Tag Overlay** (`db_set_overlay` / `db_get_overlays`) so users can edit Title, Artist, Album, Year, Genre, and Rating ($0\text{–}5$) without mutating read-only audio files.
+  - **Smart Playlists** (`db_eval_smart_playlist`) with JSON rule evaluation (`artist`, `album`, `genre`, `format`, `year`, `plays`, `rating`, `lossless`) plus built-in presets (*Lossless Reference*, *Heavy Rotation*, *Recently Added*, *Top Rated*).
+  - **M3U / M3U8 Import & Export** (`db_export_m3u`, `db_import_m3u`).
+  - **Library Health Scanner & Auto-Relinker** (`db_get_library_health`, `db_relink_missing`) detecting missing paths, duplicates by track hash, tracks missing artwork, and suspect fake-lossless files.
+  - **Listening Statistics** (`db_get_listening_stats`) tracking total plays, listening hours, 24-hour and 7-weekday heatmaps, daily streaks, and top tracks/artists.
+  - **Portable Mode** (`halftone.portable` marker next to executable redirects all state to `./portable_data/`) and single-file JSON database backup/restore (`db_export_bundle`, `db_import_bundle`).
+- **Word-Synced Karaoke Lyrics & Offset Persistence (`lib.rs`)**:
+  - Enhanced LRC (`<mm:ss.xx>word`), TTML (`<p begin="..." end="...">`), and `[offset:±ms]` support, with syllable-weighted word timing synthesis (`LyricWord { w, t0, t1 }`) and `lyrics_save_lrc` offset persistence.
+
+### 2. Dual-Theme Design System & Frontend v1.1 (`ui/`)
+- **Analogue + Digital Themes × 7 Palettes × Light/Dark (`ui/themes/`, `ui/theme.js`)**:
+  - **Analogue**: Bayer ordered dither (`standard`, `fine`, `ultra`, `halftone-dot`), segmented LED meters, 0px corners, hairline grids.
+  - **Digital**: Liquid glass (`backdrop-filter: blur(28px) saturate(180%)`), WebGL2 liquid-mesh ambient shader (`ui/ambient-webgl.js`), rounded cards, and physical spring choreography (`ui/motion.js`).
+  - **7 Curated Palettes**: `classic`, `catppuccin`, `tokyo-night`, `gruvbox`, `nord`, `rose-pine`, `dracula` + dynamic `album` OKLCH palette.
+- **Custom Geometric Icon Sprite (`ui/icons.svg`)**:
+  - 34 custom icons on a 24×24 grid (`stroke-width="1.75"`, zero external icon libraries, zero emojis).
+- **Rotatable Module Layout Studio (`ui/layout.js`)**:
+  - Interactive layout editor (`#wLayoutBtn` in widget, `#btnLayout` in main window) with per-module rotation (`0°`, `90°`, `180°`, `270°`), orientation-aware flex/grid adaptation (`data-orient="horizontal|vertical"`), visibility toggles, 4 built-in presets (`Classic Deck`, `Vertical Rack`, `Minimal Strip`, `Lyrics Focus`), and JSON import/export.
+- **Audiophile Signal Path & Extended WebAudio DSP (`ui/main.html`)**:
+  - **Signal Path Popover (`#btnSignal`)**: Live 5-stage visual chain (Source File $\rightarrow$ Symphonia/WebAudio Decode $\rightarrow$ 10-Band EQ & Crossfeed DSP $\rightarrow$ ReplayGain/Preamp Trim $\rightarrow$ Shared WASAPI Output Sink).
+  - **Extended WebAudio DSP**: Stereo Balance (`StereoPannerNode`), Mono Fold-Down, Equal-Loudness Contour (Fletcher-Munson low/high shelf compensation), and Jan Meier Headphone Crossfeed (`700 Hz` low-pass + `280 µs` interaural delay).
+- **Word-Lit Spring Karaoke Lyrics (`ui/common.js`, `ui/main.html`)**:
+  - Per-word `.lyr-word` spans with `--w-prog` illumination sweep and `--ease-spring-snappy` vertical lift on the currently sung word.
+
+### 3. v1.1 Release-Build Verification Summary (`tools/cdp_verify_v11.py`)
+
+| Check | Result |
+| --- | --- |
+| Rust Unit Test Suite (`cargo test`) | **51 passed, 0 failed** |
+| WCAG 2.1 AA Contrast Suite (`node ui/test/test-contrast.js`) | **ALL PAIRS PASS (0 failures)** |
+| Check 1: Single Audio Owner Invariant | `main.owner=true`, `widget.owner=false`, `widget.hasAC=false` |
+| Check 2: Theme × Mode × 7 Palettes Sync | All 7 palettes + Light/Dark modes sync across both windows |
+| Check 3: Custom SVG Icon Sprite (`ui/icons.svg`) | 34 symbols mounted in both windows |
+| Check 4: Spring Motion System (`ui/motion.js`) | `--ease-spring-snappy`, `--ease-spring-gentle`, `--ease-spring-bouncy` active |
+| Check 5: Rotatable Layout Studio (`ui/layout.js`) | `0° -> 90° -> 180° -> 270° -> 0°` + presets verified in both windows |
+| Check 6: Multi-Format Audio Scan | FLAC, WAV, AIFF, WavPack scanned and indexed cleanly |
+| Check 7: `art_thumb` 256×256 Cache & OKLCH Palette | Thumbnail generated + WCAG-clamped hex colors returned |
+| Check 8: `analyze_track` Waveform + BS.1770 LUFS + Integrity | 128 waveform peaks, `-9.0 LUFS`, `isSuspectLossless` verified |
+| Check 9: Word-Synced Karaoke Lyrics & Offset Save | `.lyr-word` spans rendered with syllable timings + `lyrics_save_lrc` verified |
+| Check 10: Signal Path & Extended WebAudio DSP | 5-node signal chain + Balance/Mono/Loudness/Crossfeed verified |
+| Check 11: Main Window v1.1 Views | Cover Flow, Artists, Genres, Folders, Smart Mix, Stats, Health verified |
+| Check 12: Non-Destructive Tag Overlay & M3U Export | `db_set_overlay` + `db_export_m3u` / `db_import_m3u` verified |
+| Check 13: Path Traversal Security Guard | `media://localhost/stream/../../Windows/win.ini` blocked |

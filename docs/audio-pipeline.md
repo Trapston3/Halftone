@@ -1,7 +1,9 @@
-# Audio Pipeline Contract — Multi-Format (v0.1.3)
+# Audio Pipeline Contract — Multi-Format (v0.2)
 
 Status: **VERIFIED** against real fixture files of every type (2026-09-17,
-release build + CDP; ALAC exactness proven byte-identical vs ffmpeg).
+release build + CDP; ALAC exactness proven byte-identical vs ffmpeg; Ogg
+Vorbis/Opus durations cross-checked against ffprobe on ffmpeg-made fixtures
+2026-10-01).
 This is the binding contract for the production audio backend.
 
 ## The contract
@@ -27,19 +29,27 @@ This is the binding contract for the production audio backend.
 |--------|------------------------|-------------|-----------|------------------|----------------|-----------|
 | **FLAC** | existing `walk_flac` (lib.rs) — untouched, verified | VORBIS_COMMENT | METADATA_BLOCK_PICTURE | STREAMINFO (exact) | native `<audio>` | original FLAC bytes, bit-exact-to-file |
 | **WAV** | `formats.rs` RIFF walker | LIST/INFO chunk **or** bolted-on ID3 chunk (both handled) | none (spec: no WAV art convention; fallback cover) | `data` chunk size (exact) | native `<audio>` (PCM) | original WAV bytes, bit-exact-to-file |
-| **MP3** | `formats.rs` ID3v2.3+v2.4 walker | ID3v2 text frames | APIC frame | Xing/Info/VBRI when present, else full frame-scan, else CBR estimate | native `<audio>` | original MP3 bytes (lossy source, served as-is) |
+| **MP3** | `formats.rs` ID3v2.3+v2.4 walker | ID3v2 text frames | APIC frame | Xing/Info/VBRI when present (read at the canonical post-side-info slot, never frame-scanned), else full frame-scan, else CBR estimate | native `<audio>` | original MP3 bytes (lossy source, served as-is) |
 | **M4A/AAC** | `m4a.rs` MP4 atom tree | moov/udta/meta/ilst | `covr` atom | moov/trak mdhd (exact) | native `<audio>` | original M4A bytes (lossy source, served as-is) |
 | **M4A/ALAC** | `m4a.rs` (same atoms; `stsd` fourcc `alac`) | moov/udta/meta/ilst | `covr` atom | moov/trak mdhd (exact) | **none — Symphonia decode in Rust** | decoded-PCM WAV wrapper (see below) |
 | **ADTS (.aac)** | `m4a.rs::parse_adts` frame scan | none (no container tags) | none | frame count × 1024 / rate | native `<audio>` | original AAC bytes (lossy source, served as-is) |
+| **Ogg Vorbis** | `ogg.rs` Ogg page walker (new) | `\x03vorbis` comment header | `METADATA_BLOCK_PICTURE` (base64 FLAC PICTURE) | last-page granule / rate (exact; verified vs ffprobe) | native `<audio>` (Chromium/WebView2 decode) | original Ogg bytes (lossy source, served as-is) |
+| **Ogg Opus** | `ogg.rs` Ogg page walker (new) | `OpusTags` comment header | `METADATA_BLOCK_PICTURE` (base64 FLAC PICTURE) | (last granule − pre-skip) / 48000 — playable duration | native `<audio>` (Chromium/WebView2 decode) | original Ogg bytes (lossy source, served as-is) |
 
-### Disambiguation inside .m4a (container ≠ codec)
+### Bounded reads (all formats)
 
-`.m4a` is a container. `m4a.rs` reads the `stsd` atom's codec fourcc:
+Every metadata parse reads **two small windows**, never the whole file:
 
-- `mp4a` → AAC → Tier A: original bytes, native browser decode, `LOSSY`.
-- `alac` → ALAC → Tier B: Symphonia decode-to-PCM (below), `LOSSLESS`.
-- Anything else → the file is reported via the skipped-file mechanism
-  (`m4a: unsupported codec fourcc ...`) — never a silent drop or crash.
+- the **head** — headers/comment tags/cover art live there; parsing stops as
+  soon as the comment packet completes (Ogg: pages walked until the comment
+  packet ends, capped at 64 MiB for pathological art), and
+- for duration formats without a header-stated length (MP3, Ogg), a **tail**
+  read of the last ~64 KiB from the end (last Xing frame / last Ogg page
+  granule).
+
+FLAC/WAV/M4A state duration in their headers, so no tail read is needed.
+A scan of a 10,000-track library reads megabytes per track at most once, and
+the scan index makes unchanged files free on rescan.
 
 ### The ALAC exception (decompression, not transcode)
 
@@ -58,23 +68,38 @@ Memory guard: decode refuses output above 512 MiB with an explicit error
 (a ~5-minute 24/96 song decodes to ~160 MB — within budget; pathological
 inputs are rejected, not OOM-killed).
 
+Decode cache: ONE decoded file is held at a time (`(path, mtime) → WAV
+bytes`, single-entry mutex cache). Re-seeking within the same track and
+replayed ranges slice the cached WAV in memory — no re-decode per range.
+
+### Range serving cap
+
+Open-ended ranges (`bytes=N-`, what the media element asks for) are served
+but capped at **2 MiB per response** (`RANGE_CAP` in lib.rs). The element
+re-requests as it plays; no request ever pulls a whole file. Valid ranges
+beyond the cap return the first 2 MiB of the requested window (a legal 206;
+the browser just comes back for more).
+
 ## Scan behavior
 
 `scan_library` detects every file by content signature:
 
-- Supported (FLAC/WAV/MP3/M4A-AAC/M4A-ALAC/ADTS): parsed, counted per-format,
-  included in the library with `format`/`lossless` fields.
-- Genuinely unsupported (OGG/Opus/WMA/AIFF…, or a corrupt file): reported by
-  name through the skipped-file mechanism and per-format `unsupported` count.
+- Supported (FLAC/WAV/MP3/M4A-AAC/M4A-ALAC/ADTS/Ogg Vorbis/Ogg Opus):
+  parsed, counted per-format, included in the library with `format`/
+  `lossless` fields.
+- Genuinely unsupported (WMA/AIFF/APE/WV — by extension — or a corrupt
+  file): reported by name through the skipped-file mechanism and per-format
+  `unsupported` count.
 - Non-audio junk: ignored silently.
 
 The final `halftone:scan-progress` event carries
-`counts: {flac, wav, mp3, aac, alac, unsupported}`.
+`counts: {flac, wav, mp3, aac, alac, ogg, opus, unsupported}`.
 
 ## What is bit-exact vs decoded
 
 - **Bit-exact to the source file** (served bytes = file bytes): FLAC, WAV,
-  MP3, AAC, ADTS. Whatever the file contains reaches the decoder unmodified.
+  MP3, AAC, ADTS, Ogg Vorbis, Ogg Opus. Whatever the file contains reaches
+  the decoder unmodified.
 - **Documented lossless decode step** (served bytes = decoded PCM): ALAC only.
   Proven exact vs an independent decoder; still labeled LOSSLESS because the
   transformation is lossless by construction and by measurement.

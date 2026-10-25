@@ -25,7 +25,7 @@ const MP3_AUDIO_WINDOW: u64 = 256 * 1024;
 const META_CAP: u64 = 64 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind { Flac, Wav, Mp3, M4a, Adts, Ogg, Opus }
+pub enum Kind { Flac, Wav, Aiff, Wv, Mp3, M4a, Adts, Ogg, Opus }
 
 impl Kind {
     /// Content-Type for the ORIGINAL bytes (ALAC is decided separately).
@@ -33,6 +33,8 @@ impl Kind {
         match self {
             Kind::Flac => "audio/flac",
             Kind::Wav => "audio/wav",
+            Kind::Aiff => "audio/aiff",
+            Kind::Wv => "audio/x-wavpack",
             Kind::Mp3 => "audio/mpeg",
             Kind::M4a => "audio/mp4",
             Kind::Adts => "audio/aac",
@@ -61,6 +63,8 @@ pub fn kind_of(head: &[u8]) -> Option<Kind> {
     }
     match formats::detect(head) {
         Ok("wav") => Some(Kind::Wav),
+        Ok("aiff") => Some(Kind::Aiff),
+        Ok("wv") => Some(Kind::Wv),
         Ok("mp3") => Some(Kind::Mp3),
         Ok("m4a") => Some(Kind::M4a),
         Ok("adts") => Some(Kind::Adts),
@@ -201,6 +205,14 @@ pub fn read_meta(path: &Path, want_cover: bool) -> Result<(TrackMeta, Kind, bool
             crate::track_from_flac_buf(&buf, path)?
         }
         Kind::Wav => formats::parse(&wav_buf(&mut f, len)?, path)?,
+        Kind::Aiff => {
+            let want = (256 * 1024).min(len);
+            formats::parse(&read_at(&mut f, 0, want)?, path)?
+        }
+        Kind::Wv => {
+            let want = (64 * 1024).min(len);
+            formats::parse(&read_at(&mut f, 0, want)?, path)?
+        }
         Kind::Mp3 => {
             let tag = head
                 .get(6..10)
@@ -230,12 +242,14 @@ pub fn read_meta(path: &Path, want_cover: bool) -> Result<(TrackMeta, Kind, bool
         }
     };
     // Bitrates from synthesized buffers would be wrong; use the real length.
-    if matches!(kind, Kind::M4a | Kind::Flac) && m.duration > 0.0 {
+    if matches!(kind, Kind::M4a | Kind::Flac | Kind::Wv) && m.duration > 0.0 {
         m.bitrate_kbps = ((len as f64) * 8.0 / m.duration / 1000.0).round() as u32;
     }
     m.format_tag = match kind {
         Kind::Flac => "FLAC",
         Kind::Wav => "WAV",
+        Kind::Aiff => "AIFF",
+        Kind::Wv => "WV",
         Kind::Mp3 => "MP3",
         Kind::M4a if alac => "ALAC",
         Kind::M4a | Kind::Adts => "AAC",
@@ -243,7 +257,7 @@ pub fn read_meta(path: &Path, want_cover: bool) -> Result<(TrackMeta, Kind, bool
         Kind::Opus => "OPUS",
     }
     .into();
-    m.lossless = matches!(kind, Kind::Flac | Kind::Wav) || alac;
+    m.lossless = matches!(kind, Kind::Flac | Kind::Wav | Kind::Aiff | Kind::Wv) || alac;
     if !want_cover {
         m.has_cover = m.has_cover || m.cover.is_some();
         m.cover = None;
@@ -257,7 +271,7 @@ pub fn read_meta(path: &Path, want_cover: bool) -> Result<(TrackMeta, Kind, bool
 /// Extensions worth opening during a scan. Magic bytes still decide the
 /// actual format — this only avoids opening every .jpg/.txt/.cue.
 pub const AUDIO_EXTS: &[&str] =
-    &["flac", "mp3", "wav", "wave", "m4a", "mp4", "aac", "alac", "ogg", "oga", "opus", "oggvorbis"];
+    &["flac", "mp3", "wav", "wave", "aiff", "aif", "wv", "m4a", "mp4", "aac", "alac", "ogg", "oga", "opus", "oggvorbis"];
 
 pub fn is_candidate(path: &Path) -> bool {
     path.extension()

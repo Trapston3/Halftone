@@ -1,7 +1,7 @@
 [package]
 name = "halftone"
-version = "0.2.4"
-description = "Floating desktop mini-player widget for a local music library"
+version = "1.1.0"
+description = "Halftone — Dual-surface desktop music player with Analogue & Digital themes"
 license = "MIT"
 edition = "2021"
 rust-version = "1.77"
@@ -17,8 +17,17 @@ rfd = "0.15"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
+semver = "1"
+rayon = "1"
 notify = "7"
-symphonia = { version = "0.5.5", default-features = false, features = ["isomp4", "alac"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+symphonia = { version = "0.5.5", default-features = false, features = ["isomp4", "alac", "flac", "mp3", "pcm", "wav", "ogg", "vorbis", "aac", "aiff"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt"] }
+
+[target.'cfg(windows)'.dependencies]
 windows-core = "0.58"
 windows = { version = "0.58", features = [
   "Media_Playback",
@@ -30,7 +39,12 @@ windows = { version = "0.58", features = [
   "Win32_Foundation",
   "Win32_Media",
   "Win32_UI_WindowsAndMessaging",
+  "Win32_Graphics_Dwm",
+  "Win32_Graphics_Gdi",
 ] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+souvlaki = { version = "0.8", default-features = true }
 
 [[bin]]
 name = "halftone-verify"

@@ -17,10 +17,282 @@ use std::path::{Path, PathBuf};
 // standalone TDD harness and this crate). They must NOT depend on tauri/serde.
 #[path = "formats.rs"]
 mod formats;
+mod probe;
+mod lyrics;
+mod covers;
+mod media_source;
 #[path = "alac.rs"]
 mod alac;
 #[path = "m4a.rs"]
 mod m4a;
+mod ogg;
+mod mpris;
+pub mod art_thumb;
+pub mod analyze_track;
+pub mod db;
+
+/// App handle for modules that emit backend->UI events (MPRIS bridge).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn app_handle() -> Option<tauri::AppHandle> {
+    APP.get().cloned()
+}
+
+// ---------------------------------------------------------------------------
+// Windows 11 native rounded corners (DWM). The app's windows are undecorated
+// + transparent:true; WebView2's "transparent" background does not clip the
+// OS window's own rectangular surface, so without this the real exe shows a
+// SQUARE window (the CSS border-radius only rounds the painted content —
+// the corner triangles outside that curve show through as a plain square
+// edge with the CSS border visible along the curve). DWMWA_WINDOW_CORNER_
+// PREFERENCE clips the actual HWND region at the OS/compositor level, which
+// is robust regardless of WebView2 transparency fidelity. No-op pre-Win11
+// (DwmSetWindowAttribute returns an error, which we ignore).
+#[cfg(windows)]
+mod win_corners {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Gdi::{
+        CreateRectRgn, CreateRoundRectRgn, DeleteObject, GetRegionData, GetWindowRgn,
+        SetWindowRgn, HRGN, RGNDATA,
+    };
+    use windows::Win32::Graphics::Dwm::{
+        DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE,
+        DWMWCP_DONOTROUND, DWMWCP_ROUND,
+    };
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetAncestor, GetClientRect, GetWindowRect, GA_ROOT,
+    };
+
+    /// Win32 region radius that visually matches the CSS --r-w curve
+    /// (region radius = diameter/2, CSS radius = the curve's own size).
+    pub const CORNER_RADIUS_CSS: i32 = 14;
+
+    fn region_round(w: i32, h: i32, r: i32) -> HRGN {
+        unsafe { CreateRoundRectRgn(0, 0, w + 1, h + 1, r, r) }
+    }
+
+    /// Apply a rounded-rect window region. Returns true when a read-back
+    /// confirms the region took (GetWindowRgn box == window box).
+    fn set_region_round(hwnd: HWND, round: bool) -> bool {
+        unsafe {
+            let mut r = RECT::default();
+            if GetWindowRect(hwnd, &mut r).is_err() {
+                return false;
+            }
+            let w = r.right - r.left;
+            let h = r.bottom - r.top;
+            if w <= 0 || h <= 0 {
+                return false;
+            }
+            let hrgn = if round {
+                region_round(w, h, 16)
+            } else {
+                // square: clear any region by setting an exact full-window rect
+                region_round(w, h, 1)
+            };
+            // SetWindowRgn: nonzero = success; system owns the region after.
+            let ok = SetWindowRgn(hwnd, hrgn, true);
+            if ok == 0 {
+                return false;
+            }
+            if !round {
+                return true;
+            }
+            // VERIFY: copy the window's region into a scratch region and read
+            // its bounding box back via GetRegionData.
+            let scratch = unsafe { CreateRectRgn(0, 0, 0, 0) };
+            let got = unsafe { GetWindowRgn(hwnd, scratch) };
+            let mut verified = false;
+            if got.0 != 0 {
+                // got: 1=NULLREGION 2=SIMPLE 3=COMPLEX; 0=ERROR
+                let needed = unsafe { GetRegionData(scratch, 0, None) };
+                if needed > 0 {
+                    let mut buf = vec![0u8; needed as usize];
+                    let written = unsafe {
+                        GetRegionData(scratch, needed, Some(buf.as_mut_ptr() as *mut RGNDATA))
+                    };
+                    if written > 0 && buf.len() >= std::mem::size_of::<RGNDATA>() {
+                        let rd = unsafe { &*(buf.as_ptr() as *const RGNDATA) };
+                        let bw = rd.rdh.rcBound.right - rd.rdh.rcBound.left;
+                        let bh = rd.rdh.rcBound.bottom - rd.rdh.rcBound.top;
+                        verified = bw >= w - 8 && bh >= h - 8;
+                    }
+                }
+            }
+            unsafe {
+                let _ = DeleteObject(scratch);
+            }
+            verified
+        }
+    }
+
+    /// hwnd as isize (raw pointer is not Send).
+    fn root_of(hwnd_isize: isize) -> HWND {
+        let hwnd = HWND(hwnd_isize as *mut core::ffi::c_void);
+        unsafe {
+            let root = GetAncestor(hwnd, GA_ROOT);
+            if root.0.is_null() { hwnd } else { root }
+        }
+    }
+
+    /// Apply a rounded-rect window region. Returns true when a read-back
+    /// confirms the region took. (Legacy name kept; DWM-pref variant below
+    /// is unused on this app — transparent undecorated windows ignore it.)
+    fn _dwm_pref_unused() {}
+
+    fn get_preference(hwnd: HWND) -> i32 {
+        let mut v: i32 = 0;
+        unsafe {
+            let _ = DwmGetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &mut v as *mut _ as *mut core::ffi::c_void,
+                std::mem::size_of_val(&v) as u32,
+            );
+        }
+        v
+    }
+
+    fn set_preference(hwnd: HWND, round: bool) {
+        let pref = if round { DWMWCP_ROUND } else { DWMWCP_DONOTROUND };
+        unsafe {
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &pref as *const _ as *const core::ffi::c_void,
+                std::mem::size_of_val(&pref) as u32,
+            );
+        }
+    }
+
+    /// DWM rounds the TOP-LEVEL window; hwnd() may return the WebView2 child.
+    fn root_hwnd(hwnd: HWND) -> HWND {
+        unsafe {
+            let root = GetAncestor(hwnd, GA_ROOT);
+            if root.0.is_null() { hwnd } else { root }
+        }
+    }
+
+    /// Apply + VERIFY by read-back. `round=false` forces square corners
+    /// (maximized/fullscreen, matching the CSS `[data-max="1"]` rule).
+    /// Returns true only if a read-back confirms the region took.
+    pub fn apply_hwnd(hwnd: HWND, round: bool) -> bool {
+        let h = root_hwnd(hwnd);
+        let ok = set_region_round(h, round);
+        if ok {
+            // best-effort extra: DWM pref (works on non-transparent windows;
+            // ignored on these, harmless to try)
+            set_preference(h, round);
+        }
+        ok
+    }
+
+    pub fn apply(window: &tauri::WebviewWindow, round: bool) {
+        if let Ok(hwnd) = window.hwnd() {
+            apply_hwnd(HWND(hwnd.0), round);
+        }
+    }
+
+    /// Same, but for the plain `Window` reference `on_window_event` hands us.
+    pub fn apply_window<R: tauri::Runtime>(window: &tauri::Window<R>, round: bool) {
+        if let Ok(hwnd) = window.hwnd() {
+            apply_hwnd(HWND(hwnd.0), round);
+        }
+    }
+
+    /// Retry until the read-back confirms (HWND timing at setup; the native
+    /// window may not be settled yet). Runs on its own thread, cheap.
+    /// Takes the hwnd as isize (HWND's raw pointer is not Send; the integer
+    /// is) and reconstructs it inside the thread.
+    pub fn apply_verified(hwnd_isize: isize, round: bool) {
+        std::thread::spawn(move || {
+            for _ in 0..40 {
+                let h = HWND(hwnd_isize as *mut core::ffi::c_void);
+                if apply_hwnd(h, round) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            }
+        });
+    }
+
+    /// Post a WM_SIZE (current client size) to the window's own thread.
+    /// tao's wndproc runs on the event-loop thread -> fires the Resized
+    /// event -> on_window_event hook re-applies the region on that thread.
+    pub fn nudge_wm_size(hwnd_isize: isize) {
+        let hwnd = HWND(hwnd_isize as *mut core::ffi::c_void);
+        use windows::Win32::Foundation::LPARAM;
+        use windows::Win32::Foundation::WPARAM;
+        use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_SIZE};
+        unsafe {
+            let mut cr = RECT::default();
+            if GetClientRect(hwnd, &mut cr).is_ok() {
+                // +1 on width: tao dedupes WM_SIZE with unchanged dims, so a
+                // fake-but-different size guarantees the Resized event fires;
+                // the event hook re-reads real dims for the region itself.
+                let w = ((cr.right - cr.left).max(1) + 1) & 0xFFFF;
+                let h = (cr.bottom - cr.top).max(1) & 0xFFFF;
+                let lp = ((h as i32) << 16) | (w as i32);
+                let _ = PostMessageW(hwnd, WM_SIZE, WPARAM(0), LPARAM(lp as isize));
+            }
+        }
+    }
+
+    /// Apply to several hwnds until ALL verified (one thread, 40 tries).
+    pub fn apply_verified_all(hwnds: Vec<isize>, round: bool) {
+        std::thread::spawn(move || {
+            for _ in 0..40 {
+                let mut pending = hwnds.clone();
+                pending.retain(|&isz| {
+                    let h = HWND(isz as *mut core::ffi::c_void);
+                    !apply_hwnd(h, round)
+                });
+                if pending.is_empty() {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            }
+        });
+    }
+
+    /// QA + live resize support: returns (applied, w, h) of the current
+    /// window region, via htGetCorner from any window.
+    pub fn query(hwnd_isize: isize) -> (bool, i32, i32) {
+        let h = root_of(hwnd_isize);
+        unsafe {
+            let scratch = CreateRectRgn(0, 0, 0, 0);
+            let got = GetWindowRgn(h, scratch);
+            let mut result = (false, 0, 0);
+            if got.0 != 0 {
+                let needed = GetRegionData(scratch, 0, None);
+                if needed > 0 {
+                    let mut buf = vec![0u8; needed as usize];
+                    let written =
+                        GetRegionData(scratch, needed, Some(buf.as_mut_ptr() as *mut RGNDATA));
+                    if written > 0 && buf.len() >= std::mem::size_of::<RGNDATA>() {
+                        let rd = &*(buf.as_ptr() as *const RGNDATA);
+                        let bw = rd.rdh.rcBound.right - rd.rdh.rcBound.left;
+                        let bh = rd.rdh.rcBound.bottom - rd.rdh.rcBound.top;
+                        let mut wr = RECT::default();
+                        if GetWindowRect(h, &mut wr).is_ok() {
+                            let w = wr.right - wr.left;
+                            let hh = wr.bottom - wr.top;
+                            result = (bw >= w - 8 && bh >= hh - 8, bw, bh);
+                        }
+                    }
+                }
+            }
+            let _ = DeleteObject(scratch);
+            result
+        }
+    }
+}
+
+#[cfg(not(windows))]
+mod win_corners {
+    pub fn apply(_window: &tauri::WebviewWindow, _round: bool) {}
+    pub fn apply_window<R: tauri::Runtime>(_window: &tauri::Window<R>, _round: bool) {}
+}
 
 // OTA update channel: latest.json published as a release asset. Override the
 // source for QA with HALFTONE_OTA_URL; disable the check with HALFTONE_NO_OTA.
@@ -47,7 +319,7 @@ pub fn base64_decode_pub(s: &str) -> Option<Vec<u8>> {
 /// metadata block happens to extend past this.
 const HEADER_READ: usize = 8 * 1024 * 1024;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct StreamInfo {
     pub sample_rate: u32,
     pub bits: u8,
@@ -55,7 +327,7 @@ pub struct StreamInfo {
     pub total_samples: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct Picture {
     pub mime: String,
     pub data_b64: String,
@@ -64,7 +336,7 @@ pub struct Picture {
     pub data_len: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct TrackMeta {
     pub path: String,
     pub title: String,
@@ -85,9 +357,17 @@ pub struct TrackMeta {
     pub lossless: bool,
     /// Average bitrate in kbps (rounded)
     pub bitrate_kbps: u32,
+    /// Embedded art exists. Scans never ship the bytes (they made the scan
+    /// payload enormous); the UI loads art via the `/cover/` media route.
+    #[serde(default)]
+    pub has_cover: bool,
+    /// Lyrics stored in the file's own tags (LYRICS / USLT / ©lyr). Only
+    /// filled by open_track; scans drop it like the cover.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedded_lyrics: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct ReplayGain {
     pub track_gain: Option<f64>,
     pub album_gain: Option<f64>,
@@ -108,10 +388,19 @@ pub struct ScanResult {
     pub unsupported: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct LyricWord {
+    pub w: String,
+    pub t0: f64,
+    pub t1: f64,
+}
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct LyricLine {
     pub t: f64,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<LyricWord>,
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +576,12 @@ pub fn read_track(path: &Path) -> Result<TrackMeta, String> {
         Ok(b) => b,
         Err(_) => fs::read(path).map_err(|e| format!("read {}: {}", path.display(), e))?,
     };
-    let (si, tags, mut pics, block_types) = walk_flac(&buf)?;
+    track_from_flac_buf(&buf, path)
+}
+
+/// FLAC TrackMeta from a buffer holding (at least) the metadata blocks.
+pub(crate) fn track_from_flac_buf(buf: &[u8], path: &Path) -> Result<TrackMeta, String> {
+    let (si, tags, mut pics, block_types) = walk_flac(buf)?;
     let duration_s = if si.sample_rate > 0 {
         si.total_samples as f64 / si.sample_rate as f64
     } else {
@@ -315,6 +609,8 @@ pub fn read_track(path: &Path) -> Result<TrackMeta, String> {
         format_tag: "FLAC".into(),
         lossless: true,
         bitrate_kbps: 0, // FLAC bitrate varies per frame; 0 = unknown/VBR
+        has_cover: !pics.is_empty(),
+        embedded_lyrics: tags.get("LYRICS").or_else(|| tags.get("UNSYNCEDLYRICS")).cloned(),
     })
 }
 
@@ -327,8 +623,151 @@ pub fn read_lrc_file(track_path: &Path) -> Vec<LyricLine> {
     let Ok(text) = fs::read_to_string(&lrc_path) else {
         return Vec::new();
     };
+    parse_lrc(&text)
+}
+
+fn parse_mm_ss(tag: &str) -> Option<f64> {
+    if let Some((mm, ss)) = tag.split_once(':') {
+        if let (Ok(m), Ok(s)) = (mm.trim().parse::<f64>(), ss.trim().parse::<f64>()) {
+            return Some(m * 60.0 + s);
+        }
+    }
+    None
+}
+
+/// Parse enhanced LRC word tags (`<00:12.34>word <00:12.80>next`) if present,
+/// returning `(clean_text, Vec<LyricWord>)`.
+fn extract_inline_word_tags(raw: &str, line_t: f64) -> (String, Vec<LyricWord>) {
+    if !raw.contains('<') || !raw.contains('>') {
+        return (raw.trim().to_string(), Vec::new());
+    }
+    let mut words: Vec<LyricWord> = Vec::new();
+    let mut clean_parts: Vec<String> = Vec::new();
+    let mut rest = raw.trim();
+    let mut cur_t = line_t;
+
+    while !rest.is_empty() {
+        if let Some(after_lt) = rest.strip_prefix('<') {
+            if let Some(gt) = after_lt.find('>') {
+                let tag = &after_lt[..gt];
+                if let Some(ts) = parse_mm_ss(tag) {
+                    cur_t = ts;
+                    rest = &after_lt[gt + 1..];
+                    continue;
+                }
+            }
+        }
+        let next_lt = rest.find('<').unwrap_or(rest.len());
+        let chunk = rest[..next_lt].trim();
+        if !chunk.is_empty() {
+            for tok in chunk.split_whitespace() {
+                clean_parts.push(tok.to_string());
+                words.push(LyricWord {
+                    w: tok.to_string(),
+                    t0: cur_t,
+                    t1: cur_t + 0.35,
+                });
+                cur_t += 0.25;
+            }
+        }
+        rest = &rest[next_lt..];
+    }
+    for i in 0..words.len() {
+        if i + 1 < words.len() && words[i + 1].t0 > words[i].t0 {
+            words[i].t1 = words[i + 1].t0;
+        }
+    }
+    if words.is_empty() {
+        (raw.trim().to_string(), Vec::new())
+    } else {
+        (clean_parts.join(" "), words)
+    }
+}
+
+/// Synthesize natural syllable-weighted per-word timings (`t0..t1`) when only
+/// line-level timestamps exist, enabling Apple Music–style word-lit spring lyrics.
+pub fn synthesize_word_timings(lines: &mut [LyricLine]) {
+    for i in 0..lines.len() {
+        if !lines[i].words.is_empty() {
+            continue;
+        }
+        let line_t = lines[i].t;
+        let next_t = lines
+            .get(i + 1)
+            .map(|n| n.t)
+            .unwrap_or(line_t + 3.6);
+        let span = (next_t - line_t - 0.18).clamp(0.6, 5.5);
+        let toks: Vec<&str> = lines[i].text.split_whitespace().collect();
+        if toks.is_empty() {
+            continue;
+        }
+        let weights: Vec<f64> = toks
+            .iter()
+            .map(|w| (w.chars().count().max(2) as f64).powf(0.75))
+            .collect();
+        let total_w: f64 = weights.iter().sum::<f64>().max(1.0);
+        let mut cursor = line_t;
+        let mut built = Vec::with_capacity(toks.len());
+        for (tok, w) in toks.into_iter().zip(weights.into_iter()) {
+            let dur = span * (w / total_w);
+            built.push(LyricWord {
+                w: tok.to_string(),
+                t0: (cursor * 1000.0).round() / 1000.0,
+                t1: ((cursor + dur) * 1000.0).round() / 1000.0,
+            });
+            cursor += dur;
+        }
+        lines[i].words = built;
+    }
+}
+
+/// LRC / TTML text -> sorted lines (multi-timestamp lines expand to one per stamp,
+/// `[offset:±ms]` applied, enhanced `<mm:ss.xx>` word tags parsed, and syllable-weighted
+/// word timings synthesized).
+pub fn parse_lrc(text: &str) -> Vec<LyricLine> {
     let mut out: Vec<LyricLine> = Vec::new();
+    let mut offset_sec: f64 = 0.0;
+
+    // Basic TTML `<p begin="00:01.20">...</p>` support if XML-like
+    if text.contains("<tt") && text.contains("<p ") {
+        for seg in text.split("<p ") {
+            if let Some(b_idx) = seg.find("begin=\"") {
+                let after_b = &seg[b_idx + 7..];
+                if let Some(q_end) = after_b.find('"') {
+                    let stamp_str = &after_b[..q_end];
+                    let ts = parse_mm_ss(stamp_str).or_else(|| stamp_str.trim_end_matches('s').parse::<f64>().ok());
+                    if let (Some(t), Some(gt)) = (ts, after_b.find('>')) {
+                        let body = &after_b[gt + 1..];
+                        let body_end = body.find("</p>").unwrap_or(body.len());
+                        let clean: String = body[..body_end]
+                            .split('<')
+                            .enumerate()
+                            .map(|(idx, part)| if idx == 0 { part } else { part.split_once('>').map(|x| x.1).unwrap_or("") })
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        let clean = clean.split_whitespace().collect::<Vec<_>>().join(" ");
+                        if !clean.is_empty() {
+                            out.push(LyricLine { t, text: clean, words: Vec::new() });
+                        }
+                    }
+                }
+            }
+        }
+        if !out.is_empty() {
+            out.sort_by(|a, b| a.t.partial_cmp(&b.t).unwrap_or(std::cmp::Ordering::Equal));
+            synthesize_word_timings(&mut out);
+            return out;
+        }
+    }
+
     for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(off_tag) = trimmed.strip_prefix("[offset:").and_then(|s| s.strip_suffix(']')) {
+            if let Ok(ms) = off_tag.trim().parse::<f64>() {
+                offset_sec = ms / 1000.0;
+            }
+            continue;
+        }
         let mut rest = line;
         let mut stamps: Vec<f64> = Vec::new();
         loop {
@@ -336,28 +775,34 @@ pub fn read_lrc_file(track_path: &Path) -> Vec<LyricLine> {
             let Some(after) = t.strip_prefix('[') else { break };
             let Some(close) = after.find(']') else { break };
             let tag = &after[..close];
-            if let Some((mm, ss)) = tag.split_once(':') {
-                if let (Ok(m), Ok(s)) = (mm.trim().parse::<f64>(), ss.trim().parse::<f64>()) {
-                    stamps.push(m * 60.0 + s);
-                    rest = &after[close + 1..];
-                    continue;
-                }
+            if let Some(ts) = parse_mm_ss(tag) {
+                stamps.push((ts + offset_sec).max(0.0));
+                rest = &after[close + 1..];
+                continue;
             }
             break; // [ti:...] etc — not a timestamp
         }
         if stamps.is_empty() {
             continue;
         }
-        let text = rest.trim();
-        if text.is_empty() {
+        let raw_text = rest.trim();
+        if raw_text.is_empty() {
             continue;
         }
         for t in stamps {
-            out.push(LyricLine { t, text: text.to_string() });
+            let (clean_text, words) = extract_inline_word_tags(raw_text, t);
+            if !clean_text.is_empty() {
+                out.push(LyricLine {
+                    t,
+                    text: clean_text,
+                    words,
+                });
+            }
         }
     }
     out.sort_by(|a, b| a.t.partial_cmp(&b.t).unwrap_or(std::cmp::Ordering::Equal));
-    out.dedup_by(|a, b| a.t == b.t);
+    out.dedup_by(|a, b| (a.t - b.t).abs() < 1e-4 && a.text == b.text);
+    synthesize_word_timings(&mut out);
     out
 }
 
@@ -401,23 +846,119 @@ fn try_watch(app: tauri::AppHandle, dir: String) -> Result<(), String> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Persistent scan index: path -> (size, mtime, meta). Rescans of an
+// unchanged library parse nothing.
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Serialize, serde::Deserialize)]
+struct ScanEntry {
+    size: u64,
+    mtime: u64,
+    meta: TrackMeta,
+}
+
+static LIBRARY: std::sync::Mutex<Vec<TrackMeta>> = std::sync::Mutex::new(Vec::new());
+static ALLOWED_ROOTS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+static ALLOWED_FILES: std::sync::Mutex<Option<std::collections::HashSet<PathBuf>>> =
+    std::sync::Mutex::new(None);
+
+pub(crate) fn register_allowed_root(dir: &Path) {
+    let canon = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    if let Ok(mut roots) = ALLOWED_ROOTS.lock() {
+        if !roots.contains(&canon) {
+            roots.push(canon);
+        }
+    }
+}
+
+pub(crate) fn register_allowed_file(path: &Path) {
+    let canon = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if let Ok(mut files) = ALLOWED_FILES.lock() {
+        files.get_or_insert_with(std::collections::HashSet::new).insert(canon);
+    }
+}
+
+fn is_media_path_allowed(path: &Path) -> bool {
+    let Ok(canon) = fs::canonicalize(path) else {
+        return false;
+    };
+    if let Ok(files) = ALLOWED_FILES.lock() {
+        if let Some(set) = files.as_ref() {
+            if set.contains(&canon) {
+                return true;
+            }
+        }
+    }
+    if let Ok(roots) = ALLOWED_ROOTS.lock() {
+        if roots.is_empty() {
+            // In unit tests or before first library scan, allow existing valid audio files
+            return true;
+        }
+        if roots.iter().any(|r| canon.starts_with(r)) {
+            return true;
+        }
+    }
+    false
+}
+
+pub(crate) fn library_snapshot_internal() -> Vec<TrackMeta> {
+    LIBRARY.lock().map(|l| l.clone()).unwrap_or_default()
+}
+
+fn scan_index_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("scan_index.json"))
+}
+
+fn scan_index_load(app: &tauri::AppHandle) -> HashMap<String, ScanEntry> {
+    scan_index_path(app)
+        .and_then(|p| fs::read(p).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+fn scan_index_save(app: &tauri::AppHandle, idx: &HashMap<String, ScanEntry>) {
+    let Some(p) = scan_index_path(app) else { return };
+    let _ = write_atomic(&p, &serde_json::to_vec(idx).unwrap_or_default());
+}
+
+pub(crate) fn write_atomic(p: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(d) = p.parent() {
+        fs::create_dir_all(d)?;
+    }
+    let tmp = p.with_extension("tmp");
+    fs::write(&tmp, bytes)?;
+    fs::rename(&tmp, p)
+}
+
+/// Last scan result (no covers) so viewer windows can fetch the library
+/// from Rust instead of receiving it inside every sync broadcast.
+#[tauri::command]
+fn library_snapshot() -> Vec<TrackMeta> {
+    LIBRARY.lock().map(|l| l.clone()).unwrap_or_default()
+}
+
 /// Extensions WebView2 can likely play but Halftone does not support yet.
-const UNSUPPORTED_AUDIO: &[&str] = &["ogg", "oga", "opus", "wma", "aiff", "aif"];
+const UNSUPPORTED_AUDIO: &[&str] = &["wma", "ape"];
 
 /// Format counters for per-format scan reporting.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanCounts {
     pub flac: usize,
     pub wav: usize,
+    pub aiff: usize,
+    pub wv: usize,
     pub mp3: usize,
     pub aac: usize,
     pub alac: usize,
+    pub ogg: usize,
+    pub opus: usize,
     pub unsupported: usize,
 }
 
 impl ScanCounts {
     fn new() -> Self {
-        Self { flac: 0, wav: 0, mp3: 0, aac: 0, alac: 0, unsupported: 0 }
+        Self { flac: 0, wav: 0, aiff: 0, wv: 0, mp3: 0, aac: 0, alac: 0, ogg: 0, opus: 0, unsupported: 0 }
     }
 }
 
@@ -432,132 +973,101 @@ fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> 
     if !Path::new(&dir).is_dir() {
         return Err(format!("folder not found: {}", dir));
     }
-    let mut tracks = Vec::new();
+    register_allowed_root(Path::new(&dir));
     let mut skipped = Vec::new();
     let mut counts = ScanCounts::new();
     let t0 = std::time::Instant::now();
     let _ = CANCEL_SCAN.swap(false, std::sync::atomic::Ordering::Relaxed);
 
-    // RECURSIVE walk (Artist/Album/ layouts) with progress events.
-    fn walk(
-        dir: &Path,
-        depth: usize,
-        tracks: &mut Vec<TrackMeta>,
-        skipped: &mut Vec<String>,
-        counts: &mut ScanCounts,
-        app: &tauri::AppHandle,
-    ) -> Result<(), String> {
-        if depth > 16 {
-            return Ok(()); // pathological nesting guard
+    // 1. Collect candidate paths (recursive, Artist/Album/ layouts). Only
+    //    audio extensions are opened; magic bytes still decide the format.
+    fn collect(dir: &Path, depth: usize, out: &mut Vec<(PathBuf, u64, u64)>, unsupported: &mut usize) {
+        if depth > 16 || CANCEL_SCAN.load(std::sync::atomic::Ordering::Relaxed) {
+            return; // pathological nesting guard / cancelled
         }
-        let rd = fs::read_dir(dir).map_err(|e| format!("open dir {}: {}", dir.display(), e))?;
+        let Ok(rd) = fs::read_dir(dir) else { return };
         for entry in rd.flatten() {
-            if CANCEL_SCAN.load(std::sync::atomic::Ordering::Relaxed) {
-                return Ok(());
-            }
             let p = entry.path();
-            if p.is_dir() {
-                walk(&p, depth + 1, tracks, skipped, counts, app)?;
-                continue;
+            let Ok(md) = entry.metadata() else { continue };
+            if md.is_dir() {
+                collect(&p, depth + 1, out, unsupported);
+            } else if md.is_file() {
+                if probe::is_candidate(&p) {
+                    let mtime = md.modified().ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs()).unwrap_or(0);
+                    out.push((p, md.len(), mtime));
+                } else if p.extension().and_then(|e| e.to_str())
+                    .map(|e| UNSUPPORTED_AUDIO.contains(&e.to_ascii_lowercase().as_str()))
+                    .unwrap_or(false)
+                {
+                    *unsupported += 1;
+                }
             }
-            if !p.is_file() {
-                continue;
-            }
+        }
+    }
+    let mut cands = Vec::new();
+    collect(Path::new(&dir), 0, &mut cands, &mut counts.unsupported);
 
-            // Read the file bytes once for format detection + parsing
-            let bytes = match fs::read(&p) {
-                Ok(b) => b,
-                Err(e) => { skipped.push(format!("{}: {}", p.display(), e)); continue; }
+    // 2. Parse in parallel with bounded reads; unchanged files (same size +
+    //    mtime) come straight from the persistent scan index.
+    let index = scan_index_load(&app);
+    let done = std::sync::atomic::AtomicUsize::new(0);
+    let results: Vec<(String, u64, u64, Result<TrackMeta, String>)> = {
+        use rayon::prelude::*;
+        cands.par_iter().filter_map(|(p, size, mtime)| {
+            if CANCEL_SCAN.load(std::sync::atomic::Ordering::Relaxed) {
+                return None;
+            }
+            let key = p.to_string_lossy().to_string();
+            let r = match index.get(&key) {
+                Some(e) if e.size == *size && e.mtime == *mtime => Ok(e.meta.clone()),
+                _ => probe::read_meta(p, false).map(|(m, _, _)| m),
             };
-            if bytes.is_empty() {
-                skipped.push(format!("{}: empty file", p.display()));
-                continue;
-            }
-
-            // Try Phase 1 parsers first (WAV, MP3, M4A/AAC/ALAC)
-            match formats::detect(&bytes) {
-                Ok("wav") => {
-                    counts.wav += 1;
-                    match formats::parse(&bytes, &p) {
-                        Ok(mut m) => {
-                            m.format_tag = "WAV".into();
-                            m.lossless = true;
-                            tracks.push(m);
-                        }
-                        Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
-                    }
-                }
-                Ok("mp3") => {
-                    counts.mp3 += 1;
-                    match formats::parse(&bytes, &p) {
-                        Ok(mut m) => {
-                            m.format_tag = "MP3".into();
-                            m.lossless = false;
-                            tracks.push(m);
-                        }
-                        Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
-                    }
-                }
-                Ok("m4a") => {
-                    // Disambiguate AAC vs ALAC via stsd fourcc in parse_m4a
-                    match m4a::parse_m4a(&bytes, &p) {
-                        Ok((mut m, is_alac)) => {
-                            if is_alac {
-                                counts.alac += 1;
-                                m.format_tag = "ALAC".into();
-                                m.lossless = true;
-                            } else {
-                                counts.aac += 1;
-                                m.format_tag = "AAC".into();
-                                m.lossless = false;
-                            }
-                            tracks.push(m);
-                        }
-                        Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
-                    }
-                }
-                Ok("adts") => {
-                    counts.aac += 1;
-                    match formats::parse(&bytes, &p) {
-                        Ok(mut m) => {
-                            m.format_tag = "AAC".into();
-                            m.lossless = false;
-                            tracks.push(m);
-                        }
-                        Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
-                    }
-                }
-                Ok(_) => { counts.unsupported += 1; } // should not happen
-                Err(_) => {
-                    // Fallback: check for FLAC magic
-                    if bytes.len() >= 4 && &bytes[0..4] == b"fLaC" {
-                        counts.flac += 1;
-                        match read_track(&p) {
-                            Ok(t) => tracks.push(t),
-                            Err(e) => skipped.push(format!("{}: {}", p.display(), e)),
-                        }
-                    } else if UNSUPPORTED_AUDIO.iter().any(|e| p.extension().and_then(|s| s.to_str()).map(|s| s.to_ascii_lowercase()).unwrap_or_default() == *e) {
-                        counts.unsupported += 1;
-                    }
-                    // silently ignore other extensions
-                }
-            }
-
-            // progress every 25 files
-            if tracks.len() % 25 == 0 {
+            let n = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            if n % 50 == 0 {
                 let _ = app.emit("halftone:scan-progress", serde_json::json!({
-                    "found": tracks.len(),
+                    "found": n, "total": cands.len(),
                     "folder": p.parent().map(|d| d.display().to_string()).unwrap_or_default(),
                     "done": false,
                 }));
             }
-        }
-        Ok(())
-    }
+            Some((key, *size, *mtime, r))
+        }).collect()
+    };
 
-    walk(Path::new(&dir), 0, &mut tracks, &mut skipped, &mut counts, &app)
-        .map_err(|e| format!("scan failed: {}", e))?;
-    CANCEL_SCAN.store(false, std::sync::atomic::Ordering::Relaxed);
+    let mut tracks = Vec::with_capacity(results.len());
+    let mut new_index = HashMap::with_capacity(results.len());
+    for (key, size, mtime, r) in results {
+        match r {
+            Ok(m) => {
+                match m.format_tag.as_str() {
+                    "FLAC" => counts.flac += 1,
+                    "WAV" => counts.wav += 1,
+                    "AIFF" => counts.aiff += 1,
+                    "WV" => counts.wv += 1,
+                    "MP3" => counts.mp3 += 1,
+                    "ALAC" => counts.alac += 1,
+                    "OGG" => counts.ogg += 1,
+                    "OPUS" => counts.opus += 1,
+                    _ => counts.aac += 1,
+                }
+                new_index.insert(key, ScanEntry { size, mtime, meta: m.clone() });
+                tracks.push(m);
+            }
+            // a .mp3-named text file etc: report it, never silently drop
+            Err(e) => skipped.push(format!("{}: {}", key, e)),
+        }
+    }
+    let cancelled = CANCEL_SCAN.load(std::sync::atomic::Ordering::Relaxed);
+    if !cancelled {
+        scan_index_save(&app, &new_index);
+    }
+    db::with_db(&app, true, |db_state| {
+        for m in &mut tracks {
+            db::enrich_track_meta(db_state, m);
+        }
+    });
     tracks.sort_by(|a, b| a.path.cmp(&b.path));
 
     // Emit final progress with per-format breakdown
@@ -569,9 +1079,13 @@ fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> 
             "counts": {
                 "flac": counts.flac,
                 "wav": counts.wav,
+                "aiff": counts.aiff,
+                "wv": counts.wv,
                 "mp3": counts.mp3,
                 "aac": counts.aac,
                 "alac": counts.alac,
+                "ogg": counts.ogg,
+                "opus": counts.opus,
                 "unsupported": counts.unsupported,
             },
             "done": true,
@@ -580,6 +1094,9 @@ fn scan_library(app: tauri::AppHandle, dir: &str) -> Result<ScanResult, String> 
     );
     if let Some(app) = APP.get() {
         watch_folder(app.clone(), &dir);
+    }
+    if let Ok(mut lib) = LIBRARY.lock() {
+        *lib = tracks.clone();
     }
     Ok(ScanResult { tracks, skipped, unsupported: counts.unsupported })
 }
@@ -601,22 +1118,62 @@ fn pick_folder() -> Option<String> {
 // Cannot touch the running image on Windows, so the new binary is staged as
 // Halftone.update.next to the exe's folder and swap_install() finishes the
 // job from a detached helper process once this one is gone.
+//
+// Platform gate: every command exists on all OSes (the UI calls them
+// unconditionally), but the network/swap work is Windows-only. On Linux the
+// commands return supported:false / an error instead of running a Windows
+// batch script through sh.
 // ---------------------------------------------------------------------------
 
 fn ota_url() -> String {
     std::env::var("HALFTONE_OTA_URL").unwrap_or_else(|_| OTA_LATEST_URL.to_string())
 }
 
-/// Fetch + parse latest.json -> (version, exe url)
-fn ota_latest() -> Result<(String, String), String> {
-    let b = ota_fetch(&ota_url())?;
-    let v: serde_json::Value = serde_json::from_slice(&b).map_err(|e| format!("bad latest.json: {e}"))?;
-    let ver = v["version"].as_str().unwrap_or("").to_string();
-    let url = v["url"].as_str().unwrap_or("").to_string();
-    if ver.is_empty() || url.is_empty() {
+/// One entry of latest.json. `sha256`/`size`/`notes` are optional so old
+/// release channels (version+url only) still parse.
+#[derive(Debug, Clone, serde::Deserialize)]
+struct OtaLatest {
+    version: String,
+    url: String,
+    #[serde(default)]
+    sha256: Option<String>,
+    #[serde(default)]
+    size: Option<u64>,
+    #[serde(default)]
+    #[allow(dead_code)] // part of the manifest schema (docs/OTA.md); read by tooling
+    notes: Option<String>,
+}
+
+/// Parse + validate a latest.json body -> OtaLatest (tests + ota_latest).
+fn parse_latest(bytes: &[u8]) -> Result<OtaLatest, String> {
+    let v: OtaLatest =
+        serde_json::from_slice(bytes).map_err(|e| format!("bad latest.json: {e}"))?;
+    if v.version.is_empty() || v.url.is_empty() {
         return Err("bad latest.json (missing version/url)".into());
     }
-    Ok((ver, url))
+    Ok(v)
+}
+
+/// Fetch + parse latest.json
+fn ota_latest() -> Result<OtaLatest, String> {
+    let b = ota_fetch(&ota_url())?;
+    parse_latest(&b)
+}
+
+/// Strip a leading "v" / "V" so tags like "v0.2.0" compare like "0.2.0".
+fn ota_version_cur(s: &str) -> Result<semver::Version, String> {
+    let t = s.trim();
+    let t = t.strip_prefix('v').or_else(|| t.strip_prefix('V')).unwrap_or(t);
+    semver::Version::parse(t).map_err(|e| format!("bad version \"{s}\": {e}"))
+}
+
+/// Offer an update only when remote > current (never downgrades / equal).
+fn ota_is_newer(remote: &str, current: &str) -> bool {
+    match (ota_version_cur(remote), ota_version_cur(current)) {
+        (Ok(r), Ok(c)) => r > c,
+        // Unparseable remote version: refuse to update rather than guess.
+        _ => false,
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -637,8 +1194,14 @@ fn ota_paths() -> Result<(PathBuf, PathBuf), String> {
     Ok((exe, dir.join("Halftone.update.next")))
 }
 
-#[tauri::command]
-fn ota_check() -> OtaStatus {
+/// True when a staged update file is sitting next to the exe.
+fn ota_ready_now() -> bool {
+    ota_paths().map(|(_, s)| s.exists()).unwrap_or(false)
+}
+
+/// The blocking body of ota_check. Runs on a worker thread (spawn_blocking);
+/// returns the same OtaStatus the command contract promises.
+fn ota_check_blocking() -> OtaStatus {
     let mut st = OtaStatus {
         supported: true,
         checking: false,
@@ -646,16 +1209,16 @@ fn ota_check() -> OtaStatus {
         current: env!("CARGO_PKG_VERSION").to_string(),
         available: None,
         downloading: false,
-        ready: ota_paths().map(|(_, s)| s.exists()).unwrap_or(false),
+        ready: ota_ready_now(),
         error: None,
     };
     if st.disabled || st.ready {
         return st; // update already staged or check disabled (QA/dev)
     }
     match ota_latest() {
-        Ok((ver, _url)) => {
-            if ver != env!("CARGO_PKG_VERSION") {
-                st.available = Some(ver);
+        Ok(latest) => {
+            if ota_is_newer(&latest.version, env!("CARGO_PKG_VERSION")) {
+                st.available = Some(latest.version);
             }
         }
         Err(e) => st.error = Some(e),
@@ -692,15 +1255,53 @@ fn ota_fetch(url: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-#[tauri::command]
-fn ota_download() -> OtaStatus {
-    let mut st = ota_check();
+/// sha256 hex of some bytes (integrity check against latest.json).
+fn ota_sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(bytes);
+    let d = h.finalize();
+    let mut s = String::with_capacity(d.len() * 2);
+    for b in d {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
+}
+
+/// Verify a downloaded payload against latest.json's sha256/size when
+/// present. Missing fields = accept (old channels) — the MZ check stays.
+fn ota_verify(bytes: &[u8], latest: &OtaLatest) -> Result<(), String> {
+    if !bytes.starts_with(b"MZ") {
+        return Err("downloaded file is not a Windows exe".into());
+    }
+    if let Some(size) = latest.size {
+        if bytes.len() as u64 != size {
+            return Err(format!(
+                "downloaded size mismatch (got {} B, expected {size} B)",
+                bytes.len()
+            ));
+        }
+    }
+    if let Some(want) = &latest.sha256 {
+        let got = ota_sha256_hex(bytes);
+        // tolerate upper/lowercase hex in the manifest
+        if !got.eq_ignore_ascii_case(want.trim()) {
+            return Err(format!("sha256 mismatch (got {got})"));
+        }
+    }
+    Ok(())
+}
+
+/// The blocking body of ota_download. Runs on a worker thread; downloads,
+/// verifies (sha256/size/MZ), then atomically stages next to the exe.
+fn ota_download_blocking() -> OtaStatus {
+    let mut st = ota_check_blocking();
     if st.disabled || st.available.is_none() || st.ready {
         return st;
     }
     let ver = st.available.clone().unwrap_or_default();
-    let url = match ota_latest() {
-        Ok((v, u)) if v == ver => u,
+    let latest = match ota_latest() {
+        Ok(l) if l.version == ver => l,
         Ok(_) => {
             st.error = Some("latest.json changed mid-update".into());
             return st;
@@ -717,20 +1318,27 @@ fn ota_download() -> OtaStatus {
             return st;
         }
     };
-    match ota_fetch(&url) {
+    match ota_fetch(&latest.url) {
         Ok(bytes) => {
             if bytes.len() < 1_000_000 {
                 st.error = Some(format!("downloaded exe too small ({} B)", bytes.len()));
                 return st;
             }
-            if std::fs::write(&stage, &bytes).is_err() {
+            // Integrity BEFORE anything touches the stage path.
+            if let Err(e) = ota_verify(&bytes, &latest) {
+                let _ = std::fs::remove_file(&stage);
+                st.error = Some(e);
+                return st;
+            }
+            // Atomic stage: write a temp sibling, then rename over the target.
+            let tmp = stage.with_extension("download.tmp");
+            if std::fs::write(&tmp, &bytes).is_err() {
                 st.error = Some("cannot write update next to the exe".into());
                 return st;
             }
-            // sanity: PE images start with "MZ"
-            if !bytes.starts_with(b"MZ") {
-                let _ = std::fs::remove_file(&stage);
-                st.error = Some("downloaded file is not a Windows exe".into());
+            if std::fs::rename(&tmp, &stage).is_err() {
+                let _ = std::fs::remove_file(&tmp);
+                st.error = Some("cannot stage the update file".into());
                 return st;
             }
             st.downloading = false;
@@ -746,48 +1354,281 @@ fn ota_download() -> OtaStatus {
     }
 }
 
+/// The blocking body of ota_apply (Windows): verify the staged exe once more,
+/// then generate + spawn the detached helper .cmd and exit the process.
+#[cfg(windows)]
+fn ota_apply_windows(exe_path: &Path, stage: &Path) -> Result<String, String> {
+    // sanity: PE images start with "MZ"
+    let mut f = fs::File::open(stage).map_err(|e| e.to_string())?;
+    let mut magic = [0u8; 2];
+    f.read_exact(&mut magic).map_err(|e| e.to_string())?;
+    drop(f);
+    if &magic != b"MZ" {
+        let _ = std::fs::remove_file(stage);
+        return Err("staged file is not a Windows exe".into());
+    }
+    let exe = exe_path.to_string_lossy().to_string();
+    let stage_s = stage.to_string_lossy().to_string();
+    let dir = exe_path.parent().ok_or("no parent dir")?;
+    let log = dir.join("Halftone.update.log");
+    /* Helper as a generated .cmd file — nested cmd /C start /C "..." quoting is
+       fragile (cmd's quote stripping mangles it); a batch file is deterministic.
+
+       `timeout /T` is NOT usable here: with no console (CREATE_NO_WINDOW) it
+       aborts instantly with "Input redirection is not supported", so `copy`
+      used to hit the still-locked exe and fail. Instead: a retry loop — ping
+      (a real delay that works headless) then copy, up to ~20 rounds ≈ 20-40 s,
+      giving this process time to fully exit and the image lock to drop.
+
+      On final failure the staged file is LEFT in place and the OLD exe is
+      relaunched, so the user keeps a working app; the log records why. */
+    let bat = dir.join("Halftone.update.cmd");
+    let script = format!(
+        "@echo off\r\n\
+         set \"TRIES=0\"\r\n\
+         :retry\r\n\
+         ping -n 2 127.0.0.1 >NUL\r\n\
+         copy /Y \"{st}\" \"{ex}\" >NUL 2>&1\r\n\
+         if errorlevel 1 (\r\n\
+           set /a TRIES+=1\r\n\
+           if %TRIES% GEQ 20 goto :fail\r\n\
+           goto retry\r\n\
+         )\r\n\
+         del /Q \"{st}\" >NUL 2>&1\r\n\
+         echo [%DATE% %TIME%] update applied, relaunching > \"{lg}\"\r\n\
+         start \"\" \"{ex}\"\r\n\
+         del /Q \"%~f0\"\r\n\
+         exit /B 0\r\n\
+         :fail\r\n\
+         echo [%DATE% %TIME%] copy failed after retries; staged file kept at \"{st}\" > \"{lg}\"\r\n\
+         start \"\" \"{ex}\"\r\n\
+         del /Q \"%~f0\"\r\n\
+         exit /B 1\r\n",
+        st = stage_s,
+        ex = exe,
+        lg = log.to_string_lossy()
+    );
+    fs::write(&bat, &script).map_err(|e| format!("cannot write update helper: {e}"))?;
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    std::process::Command::new("cmd")
+        .arg("/C")
+        .arg(&bat)
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    std::process::exit(0);
+}
+
+/// Linux body: the swap helper is a Windows batch script; there is no OTA
+/// flow on Linux, so applying is a clean error (UI shows it via ota_check's
+/// supported:false). Nothing is ever staged here anyway.
+#[cfg(not(windows))]
+fn ota_apply_windows(_exe_path: &Path, _stage: &Path) -> Result<String, String> {
+    let _ = std::fs::remove_file(_stage);
+    Err("OTA updates are not supported on this platform".into())
+}
+
+#[tauri::command]
+async fn ota_check() -> OtaStatus {
+    // Windows-only OTA; other platforms report a clean not-supported.
+    if !cfg!(windows) {
+        return OtaStatus {
+            supported: false,
+            checking: false,
+            disabled: false,
+            current: env!("CARGO_PKG_VERSION").to_string(),
+            available: None,
+            downloading: false,
+            ready: false,
+            error: None,
+        };
+    }
+    // Sync command bodies run on the MAIN thread and would freeze the UI for
+    // the whole network call — run the blocking check on the async runtime's
+    // blocking pool instead. Awaiting JoinHandle is non-blocking.
+    match tauri::async_runtime::spawn_blocking(ota_check_blocking).await {
+        Ok(st) => st,
+        Err(e) => OtaStatus {
+            supported: true,
+            checking: false,
+            disabled: false,
+            current: env!("CARGO_PKG_VERSION").to_string(),
+            available: None,
+            downloading: false,
+            ready: ota_ready_now(),
+            error: Some(format!("ota_check task failed: {e}")),
+        },
+    }
+}
+
+#[tauri::command]
+async fn ota_download() -> OtaStatus {
+    if !cfg!(windows) {
+        return OtaStatus {
+            supported: false,
+            checking: false,
+            disabled: false,
+            current: env!("CARGO_PKG_VERSION").to_string(),
+            available: None,
+            downloading: false,
+            ready: false,
+            error: Some("OTA updates are not supported on this platform".into()),
+        };
+    }
+    // ~9 MB download + hash: blocking work off the main thread.
+    match tauri::async_runtime::spawn_blocking(ota_download_blocking).await {
+        Ok(st) => st,
+        Err(e) => OtaStatus {
+            supported: true,
+            checking: false,
+            disabled: false,
+            current: env!("CARGO_PKG_VERSION").to_string(),
+            available: None,
+            downloading: false,
+            ready: ota_ready_now(),
+            error: Some(format!("ota_download task failed: {e}")),
+        },
+    }
+}
+
 #[tauri::command]
 fn ota_apply() -> Result<String, String> {
     let (exe_path, stage) = ota_paths()?;
     if !stage.exists() {
         return Err("no update staged".into());
     }
-    // sanity: PE images start with "MZ"
-    let mut f = fs::File::open(&stage).map_err(|e| e.to_string())?;
-    let mut magic = [0u8; 2];
-    f.read_exact(&mut magic).map_err(|e| e.to_string())?;
-    drop(f);
-    if &magic != b"MZ" {
-        let _ = std::fs::remove_file(&stage);
-        return Err("staged file is not a Windows exe".into());
+    ota_apply_windows(&exe_path, &stage)
+}
+
+// ---------------------------------------------------------------------------
+// OTA tests (pure logic: version compare, manifest parse, integrity verify)
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod ota_tests {
+    use super::*;
+
+    #[test]
+    fn semver_newer() {
+        assert!(ota_is_newer("0.2.0", "0.1.2"));
+        assert!(ota_is_newer("1.0.0", "0.9.9"));
+        assert!(ota_is_newer("0.1.10", "0.1.9")); // numeric, not lexicographic
+        assert!(ota_is_newer("0.1.3-rc.1", "0.1.2"));
     }
-    let exe = exe_path.to_string_lossy().to_string();
-    let stage_s = stage.to_string_lossy().to_string();
-    /* Helper as a generated .cmd file — nested cmd /C start /C "..." quoting is
-       fragile (cmd's quote stripping mangles it); a batch file is deterministic.
-       %~f0 self-deletes the script; the app must be gone before copy, hence the
-       2s wait (process::exit below takes effect immediately). */
-    let bat = exe_path.parent().ok_or("no parent dir")?.join("Halftone.update.cmd");
-    let script = format!(
-        "@echo off\r\ntimeout /T 2 /NOBREAK >NUL\r\ncopy /Y \"{st}\" \"{ex}\" >NUL\r\nif errorlevel 1 exit 1\r\ndel /Q \"{st}\"\r\nstart \"\" \"{ex}\"\r\ndel /Q \"%~f0\"\r\n",
-        st = stage_s,
-        ex = exe
-    );
-    fs::write(&bat, &script).map_err(|e| format!("cannot write update helper: {e}"))?;
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        std::process::Command::new("cmd")
-            .arg("/C")
-            .arg(&bat)
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+
+    #[test]
+    fn semver_v_prefix() {
+        assert!(ota_is_newer("v0.2.0", "0.1.2"));
+        assert!(ota_is_newer("V0.2.0", "0.1.2"));
+        assert!(ota_is_newer("0.2.0", "v0.1.2"));
+        assert!(ota_is_newer("v0.2.0", "V0.1.2"));
     }
-    #[cfg(not(windows))]
-    std::process::Command::new("sh").arg("-c").arg(&script).spawn().map_err(|e| e.to_string())?;
-    std::process::exit(0);
+
+    #[test]
+    fn semver_equal_and_older() {
+        assert!(!ota_is_newer("0.1.2", "0.1.2"));
+        assert!(!ota_is_newer("v0.1.2", "0.1.2")); // same version, v-prefixed
+        assert!(!ota_is_newer("0.1.1", "0.1.2"));
+        assert!(!ota_is_newer("0.0.9", "0.1.2"));
+        assert!(!ota_is_newer("0.1.2", "0.2.0")); // downgrade refused
+    }
+
+    #[test]
+    fn semver_garbage_never_updates() {
+        assert!(!ota_is_newer("", "0.1.2"));
+        assert!(!ota_is_newer("not-a-version", "0.1.2"));
+        assert!(!ota_is_newer("0.1.2.3", "0.1.2")); // 4 components: not semver
+    }
+
+    #[test]
+    fn latest_json_full() {
+        let body = r#"{"version":"0.2.0","url":"https://x/Halftone.exe",
+            "sha256":"abc123","size":9123456,"notes":"hi"}"#;
+        let l = parse_latest(body.as_bytes()).unwrap();
+        assert_eq!(l.version, "0.2.0");
+        assert_eq!(l.url, "https://x/Halftone.exe");
+        assert_eq!(l.sha256.as_deref(), Some("abc123"));
+        assert_eq!(l.size, Some(9123456));
+        assert_eq!(l.notes.as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn latest_json_without_optional_fields() {
+        // old channel shape: version + url only
+        let body = r#"{"version":"0.1.2","url":"https://x/Halftone.exe"}"#;
+        let l = parse_latest(body.as_bytes()).unwrap();
+        assert_eq!(l.version, "0.1.2");
+        assert!(l.sha256.is_none());
+        assert!(l.size.is_none());
+        assert!(l.notes.is_none());
+    }
+
+    #[test]
+    fn latest_json_rejects_missing_fields() {
+        assert!(parse_latest(br#"{"url":"https://x"}"#).is_err());
+        assert!(parse_latest(br#"{"version":"1.0.0"}"#).is_err());
+        assert!(parse_latest(b"not json").is_err());
+        assert!(parse_latest(b"{}").is_err());
+    }
+
+    #[test]
+    fn sha256_verify_helper() {
+        // sha256("abc") = ba7816bf...
+        let h = ota_sha256_hex(b"abc");
+        assert_eq!(
+            h,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        // empty input
+        assert_eq!(
+            ota_sha256_hex(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn verify_checks_hash_and_size_and_mz() {
+        let exe = [b'M', b'Z', 0u8, 1u8, 2u8];
+        let mut l = OtaLatest {
+            version: "0.2.0".into(),
+            url: "https://x/Halftone.exe".into(),
+            sha256: Some(ota_sha256_hex(&exe)),
+            size: Some(exe.len() as u64),
+            notes: None,
+        };
+        assert!(ota_verify(&exe, &l).is_ok());
+
+        // corrupt byte -> hash mismatch
+        let bad = [b'M', b'Z', 0u8, 1u8, 3u8];
+        assert!(ota_verify(&bad, &l).is_err());
+
+        // size mismatch
+        l.size = Some(999);
+        assert!(ota_verify(&exe, &l).is_err());
+
+        // missing sha256/size (old channel): accepted on a valid MZ
+        l.sha256 = None;
+        l.size = None;
+        assert!(ota_verify(&exe, &l).is_ok());
+
+        // non-exe payload always refused, even without a manifest hash
+        let text: &[u8] = b"<html>not an exe</html>";
+        assert!(ota_verify(text, &l).is_err());
+    }
+
+    #[test]
+    fn verify_hash_case_insensitive() {
+        let exe = [b'M', b'Z', 7u8, 8u8];
+        let upper = ota_sha256_hex(&exe).to_uppercase();
+        let l = OtaLatest {
+            version: "0.2.0".into(),
+            url: "u".into(),
+            sha256: Some(upper),
+            size: None,
+            notes: None,
+        };
+        assert!(ota_verify(&exe, &l).is_ok());
+    }
 }
 
 
@@ -799,19 +1640,23 @@ fn scan_cancel() {
 }
 
 #[tauri::command]
-fn open_track(path: &str) -> Result<TrackMeta, String> {
-    let p = PathBuf::from(path);
-    // Read once; detect by MAGIC bytes, not extension (Phase 1 contract).
-    let buf = fs::read(&p).map_err(|e| format!("read {}: {}", p.display(), e))?;
-    if buf.len() >= 4 && &buf[0..4] == b"fLaC" {
-        return read_track(&p); // existing verified FLAC parser
-    }
-    match formats::detect(&buf) {
-        Ok("wav") | Ok("mp3") => formats::parse(&buf, &p),
-        Ok("m4a") => m4a::parse_m4a(&buf, &p).map(|(m, _)| m),
-        Ok("adts") => m4a::parse_adts(&buf, &p),
-        _ => read_track(&p), // FLAC magic handled above; fall back for errors
-    }
+fn open_track(app: tauri::AppHandle, path: &str) -> Result<TrackMeta, String> {
+    // Bounded reads; detect by MAGIC bytes, not extension. Full cover kept
+    // (SMTC + now-playing need it) — this is one track, not the library.
+    let p = Path::new(path);
+    register_allowed_file(p);
+    let mut meta = probe::read_meta(p, true).map(|(m, _, _)| m)?;
+    db::with_db(&app, false, |db_state| {
+        db::enrich_track_meta(db_state, &mut meta);
+    });
+    Ok(meta)
+}
+
+#[tauri::command]
+fn lyrics_save_lrc(path: String, lrc_text: String) -> Result<String, String> {
+    let lrc_path = Path::new(&path).with_extension("lrc");
+    write_atomic(&lrc_path, lrc_text.as_bytes()).map_err(|e| format!("cannot write {}: {e}", lrc_path.display()))?;
+    Ok(lrc_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -863,63 +1708,242 @@ fn pct_decode(s: &str) -> String {
 
 // LRCLIB auto-fetch: search for a track, download its synced .lrc if present,
 // and save it next to the FLAC so the normal read_lyrics path picks it up.
+/// Legacy button path: force a fresh LRCLIB lookup, and (as before) also
+/// save a sidecar `.lrc` next to the track when synced lyrics were found.
 #[tauri::command]
-async fn lrc_fetch(path: String, artist: String, title: String) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("halftone-lrc/0.1.1")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    // lrclib GET /api/search — docs: https://lrclib.net/docs (also supports
-    // track_name/artist_name params; q= full-text works for odd tags).
-    let search_url = "https://lrclib.net/api/search".to_string();
-    let resp = client.get(&search_url)
-        .query(&[("artist_name", artist.as_str()), ("track_name", title.as_str())])
-        .send().await.map_err(|e| e.to_string())?;
-    let resp = if !resp.status().is_success() {
-        // fallback: generic q= search
-        client.get(&search_url)
-            .query(&[("q", format!("{} {}", artist, title).as_str())])
-            .send().await.map_err(|e| e.to_string())?
-    } else { resp };
-
-    if !resp.status().is_success() {
-        return Err(format!("lrclib search failed ({})", resp.status()));
-    }
-    let results: Vec<serde_json::Value> = resp.json().await.map_err(|e| e.to_string())?;
-    if results.is_empty() {
-        return Err("no lyrics found on lrclib".into());
-    }
-
-    // prefer an exact-ish match with synced lyrics; fall back to any synced result
-    let pick = results.iter().find(|r| {
-        r["syncedLyrics"].as_str().map_or(false, |s: &str| !s.trim().is_empty())
-            && r["trackName"].as_str().map_or(false, |n: &str| n.eq_ignore_ascii_case(&title))
-    }).or_else(|| results.iter().find(|r| {
-        r["syncedLyrics"].as_str().map_or(false, |s: &str| !s.trim().is_empty())
-    }));
-    let lrc_text = match pick.and_then(|r| r["syncedLyrics"].as_str()) {
-        Some(t) if !t.trim().is_empty() => t,
-        _ => return Err("no synced lyrics available".into()),
+async fn lrc_fetch(app: tauri::AppHandle, path: String, artist: String, title: String) -> Result<String, String> {
+    let dur = {
+        let p = PathBuf::from(&path);
+        tauri::async_runtime::spawn_blocking(move || probe::read_meta(&p, false).map(|(m, _, _)| m.duration).unwrap_or(0.0))
+            .await
+            .unwrap_or(0.0)
     };
-
-    // write <audio-basename>.lrc next to the FLAC
-    let src = Path::new(&path);
-    if !src.exists() {
-        return Err("track file not found".into());
+    let r = lyrics::resolve(&app, &path, &artist, &title, "", dur, true, true).await?;
+    if !r.synced {
+        return Err(if r.plain.is_some() { "only unsynced lyrics on lrclib".into() } else { "no lyrics found on lrclib".into() });
     }
-    let lrc_path = src.with_extension("lrc");
-    fs::write(&lrc_path, lrc_text).map_err(|e| format!("cannot write {}: {e}", lrc_path.display()))?;
+    let lrc: String = r.lines.iter().map(|l| {
+        let m = (l.t / 60.0).floor();
+        format!("[{:02}:{:05.2}]{}\n", m as u64, l.t - m * 60.0, l.text)
+    }).collect();
+    let lrc_path = Path::new(&path).with_extension("lrc");
+    fs::write(&lrc_path, lrc).map_err(|e| format!("cannot write {}: {e}", lrc_path.display()))?;
     Ok(lrc_path.to_string_lossy().to_string())
+}
+
+/// Automatic lyrics for the playing track (see lyrics.rs for the order).
+#[tauri::command]
+async fn lyrics_get(
+    app: tauri::AppHandle,
+    path: String,
+    artist: String,
+    title: String,
+    album: String,
+    duration: f64,
+    allow_net: bool,
+    force: bool,
+) -> Result<lyrics::LyricsResult, String> {
+    lyrics::resolve(&app, &path, &artist, &title, &album, duration, allow_net, force).await
+}
+
+/// URL of the track's cover via the media protocol. Resolution order in the
+/// route: user override > embedded art > web-fetched cache (see covers.rs).
+/// The `?v=` buster changes with the covers index so the webview reloads
+/// art after an apply/import/reset/auto change (the route strips the query).
+#[tauri::command]
+fn cover_url(app: tauri::AppHandle, path: &str) -> String {
+    covers::cover_url_for(&app, path)
+}
+
+pub(crate) fn settings_load_internal(app: &tauri::AppHandle) -> serde_json::Value {
+    let dir = db::is_portable_mode().or_else(|| app.path().app_config_dir().ok());
+    dir.and_then(|d| fs::read(d.join("settings.json")).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(serde_json::Value::Null)
+}
+
+pub(crate) fn settings_save_internal(app: &tauri::AppHandle, v: serde_json::Value) -> Result<(), String> {
+    let d = db::is_portable_mode()
+        .or_else(|| app.path().app_config_dir().ok())
+        .ok_or_else(|| "cannot resolve config dir".to_string())?;
+    let bytes = serde_json::to_vec_pretty(&v).map_err(|e| e.to_string())?;
+    write_atomic(&d.join("settings.json"), &bytes).map_err(|e| e.to_string())
+}
+
+/// One settings file shared by both windows (localStorage is per-webview
+/// on some platforms and gets wiped with WebView2 caches).
+#[tauri::command]
+fn settings_load(app: tauri::AppHandle) -> serde_json::Value {
+    settings_load_internal(&app)
+}
+
+#[tauri::command]
+fn settings_save(app: tauri::AppHandle, v: serde_json::Value) -> Result<(), String> {
+    settings_save_internal(&app, v)
+}
+
+// ---------------------------------------------------------------------------
+// Window corners QA command: read the actual OS window region of this
+// window's root. Returns {applied, w, h}; applied=false means square/default.
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn ht_get_corner(window: tauri::WebviewWindow) -> Result<serde_json::Value, String> {
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+    let (applied, w, h) = win_corners::query(hwnd.0 as isize);
+    Ok(serde_json::json!({ "applied": applied, "w": w, "h": h }))
 }
 
 // ---------------------------------------------------------------------------
 // SMTC bridge commands (owner/UI only)
 // ---------------------------------------------------------------------------
 
+/// Longest body returned for an open-ended range (`bytes=N-`). The media
+/// element asks for the rest; nothing ever loads a whole file per request.
+const RANGE_CAP: usize = 2 * 1024 * 1024;
+
+/// One decoded ALAC file (path, mtime) -> WAV bytes. Decoding is the
+/// expensive part; ranges are then sliced out of memory.
+static ALAC_CACHE: std::sync::Mutex<Option<(PathBuf, std::time::SystemTime, std::sync::Arc<Vec<u8>>)>> =
+    std::sync::Mutex::new(None);
+
+/// Small per-file facts (format, ALAC?) so every range request doesn't
+/// re-probe. Keyed by path + mtime.
+static MEDIA_KIND: std::sync::Mutex<Option<HashMap<PathBuf, (std::time::SystemTime, probe::Kind, bool)>>> =
+    std::sync::Mutex::new(None);
+
+/// Embedded-art LRU for the `/cover/` route.
+static COVER_CACHE: std::sync::Mutex<Vec<(PathBuf, std::time::SystemTime, std::sync::Arc<(String, Vec<u8>)>)>> =
+    std::sync::Mutex::new(Vec::new());
+const COVER_CACHE_MAX: usize = 256;
+
+fn http(status: u16, body: Vec<u8>) -> tauri::http::Response<Vec<u8>> {
+    tauri::http::Response::builder()
+        .status(status)
+        .header("Access-Control-Allow-Origin", "*")
+        .body(body)
+        .unwrap_or_default()
+}
+
+fn media_kind(path: &Path, mtime: std::time::SystemTime) -> Result<(probe::Kind, bool), String> {
+    if let Ok(mut g) = MEDIA_KIND.lock() {
+        let map = g.get_or_insert_with(HashMap::new);
+        if let Some((t, k, a)) = map.get(path) {
+            if *t == mtime {
+                return Ok((*k, *a));
+            }
+        }
+        let mut f = fs::File::open(path).map_err(|e| e.to_string())?;
+        let head = probe::sniff_file(&mut f)?;
+        let kind = probe::kind_of(&head).ok_or("unrecognized audio format")?;
+        let alac = kind == probe::Kind::M4a
+            && probe::read_meta(path, false).map(|(_, _, a)| a).unwrap_or(false);
+        if map.len() > 64 {
+            map.clear();
+        }
+        map.insert(path.to_path_buf(), (mtime, kind, alac));
+        return Ok((kind, alac));
+    }
+    Err("media state poisoned".into())
+}
+
+fn alac_wav(path: &Path, mtime: std::time::SystemTime) -> Result<std::sync::Arc<Vec<u8>>, String> {
+    let mut g = ALAC_CACHE.lock().map_err(|_| "alac cache poisoned")?;
+    if let Some((p, t, w)) = g.as_ref() {
+        if p == path && *t == mtime {
+            return Ok(w.clone());
+        }
+    }
+    let wav = std::sync::Arc::new(alac::decode(fs::read(path).map_err(|e| e.to_string())?)?);
+    *g = Some((path.to_path_buf(), mtime, wav.clone()));
+    Ok(wav)
+}
+
+fn serve_cover(path: &Path) -> tauri::http::Response<Vec<u8>> {
+    let Ok(mtime) = fs::metadata(path).and_then(|m| m.modified()) else {
+        return http(404, b"no such file".to_vec());
+    };
+    // Resolution order: user override > embedded art > web-fetched cache.
+    if let Some(r) = covers::serve_stored(path, mtime, "user") {
+        return r;
+    }
+    let hit = COVER_CACHE.lock().ok().and_then(|mut c| {
+        let i = c.iter().position(|(p, t, _)| p == path && *t == mtime)?;
+        let e = c.remove(i);
+        let v = e.2.clone();
+        c.push(e); // most recently used at the end
+        Some(v)
+    });
+    let art = match hit {
+        Some(a) => a,
+        None => {
+            let pic = probe::read_meta(path, true).ok().and_then(|(m, _, _)| m.cover);
+            let Some(pic) = pic else {
+                // No embedded art: fall through to the web-fetched cache.
+                if let Some(r) = covers::serve_stored(path, mtime, "web") {
+                    return r;
+                }
+                return http(404, b"no embedded art".to_vec());
+            };
+            let Some(bytes) = base64_decode(&pic.data_b64) else { return http(500, b"bad art".to_vec()) };
+            let a = std::sync::Arc::new((pic.mime, bytes));
+            if let Ok(mut c) = COVER_CACHE.lock() {
+                if c.len() >= COVER_CACHE_MAX {
+                    c.remove(0);
+                }
+                c.push((path.to_path_buf(), mtime, a.clone()));
+            }
+            a
+        }
+    };
+    tauri::http::Response::builder()
+        .status(200)
+        .header("Content-Type", if art.0.is_empty() { "image/jpeg" } else { art.0.as_str() })
+        .header("Cache-Control", "max-age=31536000")
+        .header("Access-Control-Allow-Origin", "*")
+        .body(art.1.clone())
+        .unwrap_or_default()
+}
+
+fn range_response(
+    total: usize,
+    range: Option<&str>,
+    content_type: &str,
+    read: impl FnOnce(usize, usize) -> Result<Vec<u8>, String>,
+) -> tauri::http::Response<Vec<u8>> {
+    let r = match media_source::select_range(range, total) {
+        Ok(r) => r,
+        Err(()) => {
+            return tauri::http::Response::builder()
+                .status(416)
+                .header("Content-Range", format!("bytes */{}", total))
+                .body(Vec::new())
+                .unwrap_or_default()
+        }
+    };
+    let r = media_source::cap_range(r, RANGE_CAP);
+    let body = match read(r.start, r.end) {
+        Ok(b) => b,
+        Err(e) => return http(500, e.into_bytes()),
+    };
+    let mut b = tauri::http::Response::builder()
+        .header("Content-Type", content_type)
+        .header("Content-Length", body.len().to_string())
+        .header("Accept-Ranges", "bytes")
+        .header("Access-Control-Allow-Origin", "*");
+    b = if r.partial {
+        b.status(206).header("Content-Range", format!("bytes {}-{}/{}", r.start, r.end - 1, total))
+    } else {
+        b.status(200)
+    };
+    b.body(body).unwrap_or_default()
+}
+
 fn serve_media(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
     let uri = request.uri().to_string();
+    // Strip any query string ("?v=<ts>" cache buster) before decoding — the
+    // webview may append one to bust its cache after an art change.
+    let uri = uri.split('?').next().unwrap_or(&uri).to_string();
     let enc = uri
         .strip_prefix("media://localhost/")
         .or_else(|| uri.strip_prefix("http://media.localhost/"))
@@ -927,82 +1951,106 @@ fn serve_media(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<
         .or_else(|| uri.strip_prefix("flac://localhost/"))          // legacy fallback
         .or_else(|| uri.strip_prefix("http://flac.localhost/"))     // legacy fallback
         .unwrap_or("");
-    let path = pct_decode(enc);
-
-    let range: Option<(u64, u64)> = request
-        .headers()
-        .get("range")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|r| r.strip_prefix("bytes="))
-        .and_then(|r| {
-            let (a, b) = r.split_once('-')?;
-            let start: u64 = a.parse().ok()?;
-            let end: u64 = if b.is_empty() { u64::MAX } else { b.parse().ok()? };
-            Some((start, end))
-        });
-
-    // --- ALAC path: decode once to PCM WAV, serve byte ranges from memory ---
-    // Detection is by content (ftyp + stsd fourcc), not extension.
-    let is_alac = {
-        match fs::read(&path) {
-            Ok(b) => b.len() > 12
-                && &b[4..8.min(b.len())] == b"ftyp"
-                && m4a::parse_m4a(&b, Path::new(&path)).map(|(_, alac)| alac).unwrap_or(false),
-            Err(_) => false,
-        }
-    };
-
-    let (body, content_type): (Vec<u8>, &str) = if is_alac {
-        match fs::read(&path).map_err(|e| e.to_string()).and_then(alac::decode) {
-            Ok(wav) => (wav, "audio/wav"),
-            Err(_e) => {
-                return tauri::http::Response::builder()
-                    .status(500)
-                    .body(b"alac decode failed".to_vec())
-                    .unwrap()
-            }
-        }
-    } else {
-        match fs::read(&path) {
-            Ok(b) => (b, "audio/flac"),
-            Err(e) => {
-                return tauri::http::Response::builder()
-                    .status(404)
-                    .body(format!("halftone: cannot read {}: {}", path, e).into_bytes())
-                    .unwrap()
-            }
-        }
-    };
-
-    let total = body.len() as u64;
-    match range {
-        Some((start, end)) if start < total => {
-            let end = end.min(total - 1);
-            let len = (end - start + 1) as usize;
-            let buf = body[start as usize..(start as usize + len)].to_vec();
-            tauri::http::Response::builder()
-                .status(206)
-                .header("Content-Type", content_type)
-                .header("Content-Length", len.to_string())
-                .header("Accept-Ranges", "bytes")
+    if let Some(t) = enc.strip_prefix("thumb/") {
+        let p = PathBuf::from(pct_decode(t));
+        if let Some((mime, bytes)) = art_thumb::serve_thumb(APP.get(), &p) {
+            return tauri::http::Response::builder()
+                .status(200)
+                .header("Content-Type", mime)
+                .header("Cache-Control", "max-age=31536000")
                 .header("Access-Control-Allow-Origin", "*")
-                .header("Content-Range", format!("bytes {}-{}/{}", start, end, total))
-                .body(buf)
-                .unwrap()
+                .body(bytes)
+                .unwrap_or_default();
         }
-        Some(_) => tauri::http::Response::builder()
-            .status(416)
-            .header("Content-Range", format!("bytes */{}", total))
-            .body(Vec::new())
-            .unwrap(),
-        None => tauri::http::Response::builder()
-            .status(200)
-            .header("Content-Type", content_type)
-            .header("Content-Length", total.to_string())
-            .header("Accept-Ranges", "bytes")
-            .header("Access-Control-Allow-Origin", "*")
-            .body(body)
-            .unwrap(),
+        return serve_cover(&p);
+    }
+    if let Some(c) = enc.strip_prefix("cover/") {
+        return serve_cover(Path::new(&pct_decode(c)));
+    }
+    let path = PathBuf::from(pct_decode(enc));
+    let range = request.headers().get("range").and_then(|v| v.to_str().ok());
+
+    let md = match fs::metadata(&path) {
+        Ok(m) => m,
+        Err(e) => return http(404, format!("halftone: cannot read {}: {}", path.display(), e).into_bytes()),
+    };
+    if !is_media_path_allowed(&path) {
+        return http(403, b"halftone: path outside allowlisted library roots".to_vec());
+    }
+    let mtime = md.modified().unwrap_or(std::time::UNIX_EPOCH);
+    let (kind, is_alac) = match media_kind(&path, mtime) {
+        Ok(k) => k,
+        Err(e) => return http(415, e.into_bytes()),
+    };
+
+    if is_alac {
+        // Lossless decompression (see audio-pipeline.md), decoded ONCE.
+        return match alac_wav(&path, mtime) {
+            Ok(wav) => range_response(wav.len(), range, "audio/wav", |a, b| Ok(wav[a..b].to_vec())),
+            Err(_) => http(500, b"alac decode failed".to_vec()),
+        };
+    }
+    // Original bytes: seek + read only the requested window.
+    range_response(md.len() as usize, range, kind.mime(), |a, b| {
+        use std::io::{Seek, SeekFrom};
+        let mut f = fs::File::open(&path).map_err(|e| e.to_string())?;
+        f.seek(SeekFrom::Start(a as u64)).map_err(|e| e.to_string())?;
+        let mut buf = vec![0u8; b - a];
+        f.read_exact(&mut buf).map_err(|e| e.to_string())?;
+        Ok(buf)
+    })
+}
+
+#[cfg(test)]
+mod cover_route_tests {
+    use super::*;
+
+    fn req(uri: &str) -> tauri::http::Request<Vec<u8>> {
+        tauri::http::Request::builder().uri(uri).body(Vec::new()).unwrap()
+    }
+
+    fn tiny_wav() -> Vec<u8> {
+        let mut v = b"RIFF".to_vec();
+        v.extend(36u32.to_le_bytes());
+        v.extend(b"WAVEfmt ");
+        v.extend(16u32.to_le_bytes());
+        v.extend(1u16.to_le_bytes()); // PCM
+        v.extend(2u16.to_le_bytes());
+        v.extend(44100u32.to_le_bytes());
+        v.extend(88200u32.to_le_bytes());
+        v.extend(4u16.to_le_bytes());
+        v.extend(16u16.to_le_bytes());
+        v.extend(b"data");
+        v.extend(0u32.to_le_bytes());
+        v
+    }
+
+    #[test]
+    fn cover_route_ignores_query_string_when_decoding_path() {
+        // Real file WITHOUT embedded art: a correct strip decodes the path,
+        // finds the file, and fails later with "no embedded art". A leaked
+        // "?v=…" suffix would 404 with "no such file" instead.
+        let p = std::env::temp_dir().join(format!("ht_qcov_{}.wav", std::process::id()));
+        std::fs::write(&p, tiny_wav()).unwrap();
+        let enc = pct_encode(&p.to_string_lossy());
+        for scheme in ["media://localhost", "http://media.localhost"] {
+            let r = serve_media(req(&format!("{scheme}/cover/{enc}?v=1759315200")));
+            assert_eq!(r.status(), 404);
+            let body = String::from_utf8(r.into_body()).unwrap();
+            assert_eq!(body, "no embedded art", "query string leaked into the path ({scheme})");
+        }
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn media_route_serves_file_despite_cache_buster() {
+        let p = std::env::temp_dir().join(format!("ht_qmed_{}.wav", std::process::id()));
+        std::fs::write(&p, tiny_wav()).unwrap();
+        let enc = pct_encode(&p.to_string_lossy());
+        let r = serve_media(req(&format!("media://localhost/{enc}?v=1759315200")));
+        assert_eq!(r.status(), 200, "cache-buster query must not break media lookup");
+        assert_eq!(r.headers().get("content-type").and_then(|v| v.to_str().ok()), Some("audio/wav"));
+        let _ = std::fs::remove_file(&p);
     }
 }
 
@@ -1115,6 +2163,40 @@ pub fn run() {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
             });
+            // Native rounded corners (Windows 11 DWM) for both undecorated
+            // windows — see win_corners module doc comment for why this is
+            // needed in addition to the CSS radius. Applied for every
+            // window already registered from tauri.conf.json (main, widget);
+            // the main window starts hidden (visible:false) but hwnd() still
+            // resolves once the native HWND exists.
+            // Corner regions: SetWindowRgn only takes when called on the
+            // event-loop (main) thread — foreign-thread calls silently fail
+            // (v5/v6 real-app evidence). The proven working path is the
+            // Resized-event hook, so NUDGE each window by 0.01 logical px
+            // until the region verifies. The widget never resizes by itself
+            // and main boots hidden, hence the artificial nudge.
+            {
+                let c_app = app.handle().clone();
+                std::thread::spawn(move || {
+                    use tauri::Manager;
+                    for label in ["main", "widget"] {
+                        for _ in 0..120 {
+                            if let Some(w) = c_app.get_webview_window(label) {
+                                if let Ok(hwnd) = w.hwnd() {
+                                    let (ok, _, _) = win_corners::query(
+                                        hwnd.0 as isize,
+                                    );
+                                    if ok {
+                                        break;
+                                    }
+                                    win_corners::nudge_wm_size(hwnd.0 as isize);
+                                }
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+                        }
+                    }
+                });
+            }
             let _ = APP.set(app.handle().clone());
             Ok(())
         })
@@ -1128,20 +2210,80 @@ pub fn run() {
                     let _ = window.hide();
                 }
             }
+            // Maximized/restored: native corner rounding must match the CSS
+            // [data-max="1"] square-corner rule, otherwise DWM keeps rounding
+            // a window that's flush with the screen edges (visible notch at
+            // the corners against the desktop).
+            if let tauri::WindowEvent::Resized(_) = event {
+                // SetWindowRgn regions are absolute — a resized window keeps
+                // the OLD region until re-applied. Square when maximized
+                // (CSS [data-max="1"] rule), rounded otherwise.
+                let round = !window.is_maximized().unwrap_or(false);
+                win_corners::apply_window(window, round);
+            }
+            if let tauri::WindowEvent::ScaleFactorChanged { .. } = event {
+                let round = !window.is_maximized().unwrap_or(false);
+                win_corners::apply_window(window, round);
+            }
+            // Both windows are created (config) before this hook registers,
+            // so their boot Resized events were never seen; main works only
+            // because it is shown later (fires Resized). The widget never
+            // resizes or shows late -> arm on first focus. apply_window is
+            // idempotent (verified set -> true), so extra events are cheap.
+            if let tauri::WindowEvent::Focused(_) = event {
+                let round = !window.is_maximized().unwrap_or(false);
+                win_corners::apply_window(window, round);
+            }
         })
         .register_uri_scheme_protocol("media", |_ctx, request| serve_media(request))
         .register_uri_scheme_protocol("flac", |_ctx, request| serve_media(request)) // legacy
+        .setup(|app| {
+            covers::init(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             scan_library,
             scan_cancel,
             open_track,
             read_lyrics,
+            lyrics_save_lrc,
             media_url,
             pick_folder,
             lrc_fetch,
+            lyrics_get,
+            cover_url,
+            library_snapshot,
+            settings_load,
+            settings_save,
+            covers::cover_search,
+            covers::cover_apply_url,
+            covers::cover_import,
+            covers::cover_reset,
+            covers::cover_auto,
+            covers::cover_info,
+            art_thumb::art_thumb,
+            analyze_track::analyze_track,
+            db::db_get_state,
+            db::db_set_overlay,
+            db::db_toggle_like,
+            db::db_record_play,
+            db::db_save_playlist,
+            db::db_delete_playlist,
+            db::db_save_smart_playlist,
+            db::db_eval_smart_playlist,
+            db::db_import_m3u,
+            db::db_export_m3u,
+            db::db_get_library_health,
+            db::db_relink_missing,
+            db::db_get_listening_stats,
+            db::db_export_bundle,
+            db::db_import_bundle,
+            mpris::smtc_update,
+            mpris::smtc_clear,
             ota_check,
             ota_download,
-            ota_apply
+            ota_apply,
+            ht_get_corner
         ])
         .run(tauri::generate_context!())
         .expect("halftone widget failed to start");

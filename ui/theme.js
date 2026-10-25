@@ -176,10 +176,11 @@ window.htSetNavState=function(st){
   if(!["expanded","collapsed","hidden"].includes(st))st="expanded";
   if(Theme.navState===st)return;
   Theme.navState=st;dispatchTheme();syncOther()};
-/* analogue palette presets — only meaningful when theme==="analogue",
-   but harmless (no selector matches) when theme is "digital" */
+/* palette presets — supports both canonical and hyphenated aliases */
+const PALETTE_ALIAS={"tokyo-night":"tokyonight","rose-pine":"rosepine"};
 const PALETTES=["classic","catppuccin","tokyonight","gruvbox","nord","rosepine","dracula"];
 window.htSetPalette=function(p){
+  p=PALETTE_ALIAS[p]||p;
   if(!PALETTES.includes(p))p="classic";
   if(Theme.palette===p)return;
   Theme.palette=p;dispatchTheme();syncOther();

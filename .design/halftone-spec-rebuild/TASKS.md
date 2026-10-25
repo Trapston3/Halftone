@@ -1,0 +1,35 @@
+# Halftone v1.1 (`spec-rebuild`) — Implementation Task Checklist
+
+- [x] **Phase 0: Repository Audit & v0.2.3 Foundation Recovery**
+  - [x] Inspect `Halftone — Build Specification.md` (v1.1) and all 43 workspace skills.
+  - [x] Create and checkout `spec-rebuild` branch.
+  - [x] Recover clean v0.2.3 (`bdda8dd`) `lib.rs`, `formats.rs`, `m4a.rs`, `Cargo.toml`, `ui/common.js`, `ui/index.html`, `ui/main.html` from broken merge commit `4887db6`.
+- [x] **Phase 1: Design, Architecture & Planning Artifacts**
+  - [x] `.design/halftone-spec-rebuild/DESIGN_BRIEF.md` & `INFORMATION_ARCHITECTURE.md`
+  - [x] `DESIGN.md` (Google `design-md` token specification)
+  - [x] `docs/adr/0001-dual-window-single-audio-owner.md` .. `0004-rotatable-module-layout-engine.md`
+  - [x] `docs/superpowers/plans/2026-10-25-halftone-spec-rebuild.md`
+  - [x] `docs/architecture.html` (`archify` standalone interactive SVG architecture diagram)
+- [x] **Phase 2: Rust Backend v1.1 Upgrades (`src-tauri/src/`)**
+  - [x] `art_thumb.rs`: 256×256 cached thumbnails + OKLCH median-cut chroma-weighted dominant accent color + OKLab contrast clamp (`art_thumb` command).
+  - [x] `analyze_track.rs`: Waveform peaks (128/256 buckets), integrated loudness (LUFS), ReplayGain track/album, true peak, spectral cutoff fake-lossless detector (`analyze_track` command).
+  - [x] `db.rs`: Stable track IDs (`size` + head/tail hash), non-destructive metadata overlays, smart playlists JSON rule engine, M3U/M3U8 import/export, play statistics (total time, top lists, heatmap, streaks), library health scanner, single-file DB export/import, portable mode detection (`halftone.portable`).
+  - [x] `lyrics` & `lib.rs`: `[offset:]`, enhanced word-synced LRC (`<mm:ss.xx>word`), TTML word timing, syllable-weighted word timing synthesis (`read_lyrics` / `lyrics_get` / `lyrics_save_lrc`).
+  - [x] Security & Format Hardening: Canonicalized library root allowlist in `serve_media`, 512 MiB cap on ALAC/lossless decode, AIFF (`.aiff`/`.aif`) & WavPack (`.wv`) support, MP3 LAME delay/padding metadata.
+  - [x] Verify all Rust unit tests pass (`cargo test` — 51 passed, 0 failed).
+- [x] **Phase 3: Custom SVG Icon System (`ui/icons.svg`)**
+  - [x] Build `ui/icons.svg` with 34 24×24 vector icons (`stroke-width="1.75"`, zero external icon libraries, zero emojis).
+- [x] **Phase 4: Motion Engine (`ui/motion.js`), Layout Studio (`ui/layout.js`), Theme & Settings Upgrades**
+  - [x] Build `ui/motion.js` (spring `linear()` curves, pointer ripple / dither flash, traveling focus ring, FLIP reorder, shared-element transitions, rolling tabular counters, frame-time governor, `__qa.motionAudit()`).
+  - [x] Build `ui/layout.js` (per-module rotation `0°/90°/180°/270°`, orientation-aware layout adaptation, visibility toggles, 4 presets, JSON import/export).
+  - [x] Upgrade `ui/theme.js` & `ui/themes/palettes.css` (all 7 palettes across both Analogue and Digital themes + Light/Dark modes + OKLCH album extraction).
+  - [x] Upgrade `ui/settings.js` (live search, per-group/global reset, undo/redo, JSON export/import).
+- [x] **Phase 5: Main Window, Widget & Audio Pipeline v1.1 Upgrades**
+  - [x] Upgrade `ui/common.js` (word-lit `.lyr-word` karaoke lyrics, multi-format filter pills, layout/motion/icon auto-loaders).
+  - [x] Upgrade `ui/main.html` (Artists, Genres, Folders, Smart Mix, Cover Flow, Library Health, Listening Statistics, Signal Path popover, Extended WebAudio DSP: Stereo Balance, Mono, Loudness, Crossfeed, Tag Overlay Editor).
+  - [x] Upgrade `ui/index.html` & `ui/widget.js` (wire `ui/layout.js` rotation/presets, `ui/motion.js`, `ui/icons.svg`).
+- [x] **Phase 6: Release Build & Exhaustive CDP + OS Verification**
+  - [x] Build `cargo build --release` -> `src-tauri/target/release/halftone.exe`.
+  - [x] Run `ui/test/test-contrast.js` (WCAG AA contrast across all theme×mode×palette states — ALL PAIRS PASS).
+  - [x] Run `tools/cdp_verify_v11.py` (all 13 release-build CDP checks pass + screenshots visually verified).
+  - [x] Write `docs/WHAT_WE_BUILT.md` and `.design/halftone-spec-rebuild/DESIGN_REVIEW.md`, commit to `spec-rebuild`, and push to `origin/spec-rebuild`.

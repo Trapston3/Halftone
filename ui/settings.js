@@ -39,8 +39,8 @@ const SCHEMA=[
 {key:"mode",group:"Appearance",label:"Color mode",type:"seg",surface:"both",default:"dark",
   options:[["system","SYS"],["light","LIGHT"],["dark","DARK"]],
   apply:v=>window.htSetMode&&window.htSetMode(v)},
-{key:"palette",group:"Appearance",label:"Analogue palette",type:"select",surface:"both",default:"classic",
-  hint:"Only applies when Theme = Analogue.",
+{key:"palette",group:"Appearance",label:"Color palette",type:"select",surface:"both",default:"classic",
+  hint:"Applies across both Analogue and Digital themes.",
   options:[["classic","Classic (default)"],["catppuccin","Catppuccin"],["tokyonight","Tokyo Night"],
            ["gruvbox","Gruvbox"],["nord","Nord"],["rosepine","Rosé Pine"],["dracula","Dracula"]],
   apply:v=>window.htSetPalette&&window.htSetPalette(v)},
@@ -139,6 +139,26 @@ const SCHEMA=[
 {key:"rg",group:"Playback",label:"ReplayGain mode",type:"select",surface:"both",default:"off",alias:"rg",
   options:[["off","Off"],["track","Track gain"],["album","Album gain"]],
   apply:v=>window.applyRgSetting&&window.applyRgSetting(v)},
+{key:"crossfade",group:"Playback",label:"Crossfade duration",type:"range",surface:"main",default:0,min:0,max:12,step:1,
+  hint:"Smooth fade between tracks (0s = gapless).",
+  apply:v=>window.applyCrossfadeSetting&&window.applyCrossfadeSetting(+v)},
+{key:"gapless",group:"Playback",label:"Gapless playback",type:"toggle",surface:"main",default:true,
+  apply:v=>window.applyGaplessSetting&&window.applyGaplessSetting(!!v)},
+{key:"crossfeed",group:"Playback",label:"Headphone crossfeed",type:"select",surface:"main",default:"off",
+  options:[["off","Off"],["light","Light (BS2B 30%)"],["medium","Medium (BS2B 50%)"],["studio","Studio speaker stage"]],
+  apply:v=>window.applyCrossfeedSetting&&window.applyCrossfeedSetting(v)},
+{key:"balance",group:"Playback",label:"Stereo balance (L/R)",type:"range",surface:"main",default:0,min:-100,max:100,step:5,
+  apply:v=>window.applyBalanceSetting&&window.applyBalanceSetting(+v)},
+{key:"mono",group:"Playback",label:"Mono fold-down",type:"toggle",surface:"main",default:false,
+  apply:v=>window.applyMonoSetting&&window.applyMonoSetting(!!v)},
+{key:"loudnessComp",group:"Playback",label:"Equal-loudness contour",type:"toggle",surface:"main",default:false,
+  hint:"Boosts low and high frequencies at low listening volumes.",
+  apply:v=>window.applyLoudnessComp&&window.applyLoudnessComp(!!v)},
+{key:"wordLyrics",group:"Lyrics",label:"Word-by-word spring karaoke",type:"toggle",surface:"both",default:true,
+  apply:v=>{document.documentElement.classList.toggle("lyr-nowords",!v);window.buildLyrics&&window.buildLyrics()}},
+{key:"shaderPreset",group:"Appearance",label:"WebGL2 visualizer shader",type:"select",surface:"main",default:"aurora",
+  options:[["aurora","Liquid Aurora (Digital)"],["risograph","Risograph Halftone (Analogue)"],["spectrum","3D Spectrum Ribbon"],["off","Canvas 2D only"]],
+  apply:v=>window.applyShaderPreset&&window.applyShaderPreset(v)},
 {key:"sink",group:"Playback",label:"Output device",type:"device",surface:"both",default:"",alias:"sink",
   apply:v=>window.applySinkSetting&&window.applySinkSetting(v)},
 {key:"resume",group:"Playback",label:"Resume on launch",type:"toggle",surface:"both",default:false,alias:"resumeOnLaunch",
@@ -159,6 +179,10 @@ const SCHEMA=[
 /* ---------------- Actions ---------------- */
 {key:"rescan",group:"Library",label:"Rescan library now",type:"action",surface:"main",default:"",
   apply:()=>window.rescanLibrary&&window.rescanLibrary()},
+{key:"layoutStudio",group:"Layout",label:"Open Layout Studio (Ctrl+L)",type:"action",surface:"both",default:"",
+  apply:()=>window.HalftoneLayout&&window.HalftoneLayout.toggleEditMode()},
+{key:"exportDb",group:"Library",label:"Export portable backup bundle",type:"action",surface:"main",default:"",
+  apply:()=>window.exportDbBundle&&window.exportDbBundle()},
 {key:"checkUpdates",group:"About",label:"Check for updates",type:"action",surface:"main",default:"",
   apply:()=>window.checkOta&&window.checkOta()},
 ];
@@ -341,6 +365,8 @@ function fmtVal(s,v){
   if(s.key==="widgetBgOpacity")return (+v)+"%";
   if(s.key==="lyricsOffset")return ((+v)>0?"+":"")+(+v)+"ms";
   if(s.key==="lyricsFontSize")return (+v)+"px";
+  if(s.key==="crossfade")return (+v)+"s";
+  if(s.key==="balance")return (+v===0)?"CENTER":((+v>0?"R+":"L")+Math.abs(+v)+"%");
   return String(v);
 }
 

@@ -90,6 +90,14 @@ input,select,textarea{font:inherit;color:inherit}
 ::-webkit-scrollbar-thumb:hover{background:var(--fg-3)}
 img{-webkit-user-drag:none}
 
+/* word-by-word spring karaoke lyrics */
+.lyric-line .lyr-word{display:inline-block;opacity:.45;transition:opacity 180ms var(--ease-out),transform 220ms var(--ease-spring),color 180ms var(--ease-out)}
+.lyric-line.active .lyr-word{opacity:.55}
+.lyric-line.active .lyr-word.w-lit{opacity:1;color:var(--fg)}
+.lyric-line.active .lyr-word.w-cur{opacity:1;color:var(--accent);transform:translateY(-1.5px) scale(1.04)}
+.lyric-line.past .lyr-word{opacity:.75}
+html.lyr-nowords .lyric-line .lyr-word{opacity:1!important;transform:none!important;color:inherit!important}
+
 /* window backdrop is transparent; the shell paints the rounded panel */
 body{background:transparent}
 

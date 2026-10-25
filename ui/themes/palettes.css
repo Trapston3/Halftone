@@ -30,7 +30,8 @@
 /* ----------------------------------------------------
    CATPPUCCIN — dark = Mocha, light = Latte
    ---------------------------------------------------- */
-:root[data-theme="analogue"][data-palette="catppuccin"][data-mode="dark"] {
+:root[data-theme="analogue"][data-palette="catppuccin"][data-mode="dark"],
+:root[data-theme="digital"][data-palette="catppuccin"][data-mode="dark"] {
   --bg: #1e1e2e;       /* base */
   --bg-2: #181825;     /* mantle */
   --bg-3: #313244;     /* surface0 */
@@ -51,7 +52,8 @@
   --glow-accent: 0 0 12px rgba(203,166,247,.35), 0 0 2px rgba(203,166,247,.5);
   --glow-text: 0 0 8px rgba(203,166,247,.35);
 }
-:root[data-theme="analogue"][data-palette="catppuccin"][data-mode="light"] {
+:root[data-theme="analogue"][data-palette="catppuccin"][data-mode="light"],
+:root[data-theme="digital"][data-palette="catppuccin"][data-mode="light"] {
   --bg: #eff1f5;        /* base */
   --bg-2: #e6e9ef;      /* mantle */
   --bg-3: #dce0e8;      /* crust */
@@ -77,7 +79,10 @@
 /* ----------------------------------------------------
    TOKYO NIGHT — dark = Night, light = Day
    ---------------------------------------------------- */
-:root[data-theme="analogue"][data-palette="tokyonight"][data-mode="dark"] {
+:root[data-theme="analogue"][data-palette="tokyonight"][data-mode="dark"],
+:root[data-theme="analogue"][data-palette="tokyo-night"][data-mode="dark"],
+:root[data-theme="digital"][data-palette="tokyonight"][data-mode="dark"],
+:root[data-theme="digital"][data-palette="tokyo-night"][data-mode="dark"] {
   --bg: #1a1b26;
   --bg-2: #16161e;
   --bg-3: #292e42;
@@ -98,7 +103,10 @@
   --glow-accent: 0 0 12px rgba(122,162,247,.35), 0 0 2px rgba(122,162,247,.5);
   --glow-text: 0 0 8px rgba(122,162,247,.35);
 }
-:root[data-theme="analogue"][data-palette="tokyonight"][data-mode="light"] {
+:root[data-theme="analogue"][data-palette="tokyonight"][data-mode="light"],
+:root[data-theme="analogue"][data-palette="tokyo-night"][data-mode="light"],
+:root[data-theme="digital"][data-palette="tokyonight"][data-mode="light"],
+:root[data-theme="digital"][data-palette="tokyo-night"][data-mode="light"] {
   --bg: #e1e2e7;
   --bg-2: #d5d6db;
   --bg-3: #c4c8da;
@@ -124,7 +132,8 @@
 /* ----------------------------------------------------
    GRUVBOX — dark = hard, light = hard
    ---------------------------------------------------- */
-:root[data-theme="analogue"][data-palette="gruvbox"][data-mode="dark"] {
+:root[data-theme="analogue"][data-palette="gruvbox"][data-mode="dark"],
+:root[data-theme="digital"][data-palette="gruvbox"][data-mode="dark"] {
   --bg: #1d2021;
   --bg-2: #282828;
   --bg-3: #3c3836;
@@ -145,7 +154,8 @@
   --glow-accent: 0 0 12px rgba(254,128,25,.35), 0 0 2px rgba(254,128,25,.5);
   --glow-text: 0 0 8px rgba(254,128,25,.35);
 }
-:root[data-theme="analogue"][data-palette="gruvbox"][data-mode="light"] {
+:root[data-theme="analogue"][data-palette="gruvbox"][data-mode="light"],
+:root[data-theme="digital"][data-palette="gruvbox"][data-mode="light"] {
   --bg: #f9f5d7;
   --bg-2: #fbf1c7;
   --bg-3: #ebdbb2;
@@ -171,7 +181,8 @@
 /* ----------------------------------------------------
    NORD — dark = Polar Night + Frost, light = Snow Storm
    ---------------------------------------------------- */
-:root[data-theme="analogue"][data-palette="nord"][data-mode="dark"] {
+:root[data-theme="analogue"][data-palette="nord"][data-mode="dark"],
+:root[data-theme="digital"][data-palette="nord"][data-mode="dark"] {
   --bg: #2e3440;
   --bg-2: #3b4252;
   --bg-3: #434c5e;
@@ -192,7 +203,8 @@
   --glow-accent: 0 0 12px rgba(136,192,208,.35), 0 0 2px rgba(136,192,208,.5);
   --glow-text: 0 0 8px rgba(136,192,208,.35);
 }
-:root[data-theme="analogue"][data-palette="nord"][data-mode="light"] {
+:root[data-theme="analogue"][data-palette="nord"][data-mode="light"],
+:root[data-theme="digital"][data-palette="nord"][data-mode="light"] {
   --bg: #eceff4;
   --bg-2: #e5e9f0;
   --bg-3: #d8dee9;
@@ -218,7 +230,10 @@
 /* ----------------------------------------------------
    ROSÉ PINE — dark = main, light = Dawn
    ---------------------------------------------------- */
-:root[data-theme="analogue"][data-palette="rosepine"][data-mode="dark"] {
+:root[data-theme="analogue"][data-palette="rosepine"][data-mode="dark"],
+:root[data-theme="analogue"][data-palette="rose-pine"][data-mode="dark"],
+:root[data-theme="digital"][data-palette="rosepine"][data-mode="dark"],
+:root[data-theme="digital"][data-palette="rose-pine"][data-mode="dark"] {
   --bg: #191724;
   --bg-2: #1f1d2e;
   --bg-3: #26233a;
@@ -239,7 +254,10 @@
   --glow-accent: 0 0 12px rgba(196,167,231,.35), 0 0 2px rgba(196,167,231,.5);
   --glow-text: 0 0 8px rgba(196,167,231,.35);
 }
-:root[data-theme="analogue"][data-palette="rosepine"][data-mode="light"] {
+:root[data-theme="analogue"][data-palette="rosepine"][data-mode="light"],
+:root[data-theme="analogue"][data-palette="rose-pine"][data-mode="light"],
+:root[data-theme="digital"][data-palette="rosepine"][data-mode="light"],
+:root[data-theme="digital"][data-palette="rose-pine"][data-mode="light"] {
   --bg: #faf4ed;
   --bg-2: #fffaf3;
   --bg-3: #f2e9e1;
@@ -265,7 +283,8 @@
 /* ----------------------------------------------------
    DRACULA — dark = official, light = Alucard-style derivative
    ---------------------------------------------------- */
-:root[data-theme="analogue"][data-palette="dracula"][data-mode="dark"] {
+:root[data-theme="analogue"][data-palette="dracula"][data-mode="dark"],
+:root[data-theme="digital"][data-palette="dracula"][data-mode="dark"] {
   --bg: #282a36;
   --bg-2: #21222c;
   --bg-3: #343746;
@@ -286,7 +305,8 @@
   --glow-accent: 0 0 12px rgba(189,147,249,.35), 0 0 2px rgba(189,147,249,.5);
   --glow-text: 0 0 8px rgba(189,147,249,.35);
 }
-:root[data-theme="analogue"][data-palette="dracula"][data-mode="light"] {
+:root[data-theme="analogue"][data-palette="dracula"][data-mode="light"],
+:root[data-theme="digital"][data-palette="dracula"][data-mode="light"] {
   --bg: #f8f8f2;
   --bg-2: #efeff0;
   --bg-3: #e6e6e6;

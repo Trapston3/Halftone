@@ -24,3 +24,5 @@ tools/_main_hero.py
 tools/_verify_w*.py
 reference images/
 __pycache__/
+
+ui/test/fixtures_lib/

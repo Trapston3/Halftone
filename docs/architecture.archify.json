@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Halftone v1.1 — Dual-Surface Audio & Modular Layout Architecture",
+    "output": "docs/architecture.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "audio-path",
+        "label": "Single Audio Owner Path",
+        "focus": ["fs", "probe", "media_proto", "audio_graph", "widget_ui"],
+        "note": "Follow the zero-copy audio stream from disk through the Rust media:// protocol to the sole Main Window WebAudio graph and 30 Hz Widget sync."
+      },
+      {
+        "id": "forensics-and-db",
+        "label": "Forensics, Artwork & Library DB",
+        "focus": ["probe", "analyze", "art_thumb", "db", "main_ui"],
+        "note": "See how single-pass probing, BS.1770 LUFS forensics, OKLab artwork extraction, and the persistent JSON database feed Main Window views."
+      },
+      {
+        "id": "modular-layout",
+        "label": "Rotatable Layout Studio",
+        "focus": ["layout_studio", "widget_ui", "main_ui"],
+        "note": "Direct-manipulation Layout Studio drives move, resize, and rotate(deg) with inverse-rotation pointer projection."
+      }
+    ]
+  },
+  "components": [
+    { "id": "fs", "type": "external", "label": "Local Music Files", "sublabel": "FLAC/WAV/MP3/M4A/AIFF/WV", "pos": [40, 290], "size": [140, 64] },
+    { "id": "probe", "type": "backend", "label": "Single-Pass Probe", "sublabel": "probe.rs + symphonia", "pos": [250, 290], "size": [140, 64] },
+    { "id": "analyze", "type": "backend", "label": "Audio Forensics", "sublabel": "LUFS + Spectral Cutoff", "pos": [250, 140], "size": [140, 64], "tag": "EBU R128" },
+    { "id": "art_thumb", "type": "backend", "label": "Artwork & OKLab", "sublabel": "256px Lanczos3 + AA", "pos": [250, 440], "size": [140, 64] },
+    { "id": "db", "type": "database", "label": "Library DB", "sublabel": "db.rs + Smart Rules", "pos": [470, 140], "size": [140, 64] },
+    { "id": "media_proto", "type": "security", "label": "media:// Protocol", "sublabel": "HTTP 206 + Root Guard", "pos": [470, 290], "size": [140, 64], "tag": "Allowlist" },
+    { "id": "audio_graph", "type": "backend", "label": "WebAudio DSP", "sublabel": "10-Band EQ + Panner", "pos": [690, 290], "size": [140, 64] },
+    { "id": "main_ui", "type": "cloud", "label": "Main Window UI", "sublabel": "1200x760 Cover Flow", "pos": [690, 140], "size": [140, 64] },
+    { "id": "layout_studio", "type": "messagebus", "label": "Layout Studio", "sublabel": "Move + Scale + Rotate", "pos": [690, 440], "size": [140, 64] },
+    { "id": "widget_ui", "type": "cloud", "label": "Widget Viewer", "sublabel": "400x260 Pure Controller", "pos": [910, 290], "size": [140, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Tauri 2 Native Process (Rust + WebView2)", "wraps": ["probe", "analyze", "art_thumb", "db", "media_proto", "audio_graph", "main_ui", "layout_studio", "widget_ui"] },
+    { "kind": "security-group", "label": "Main Window (Sole Audio Owner)", "wraps": ["audio_graph", "main_ui"] }
+  ],
+  "connections": [
+    { "id": "fs-to-probe", "from": "fs", "to": "probe", "label": "Read Tags", "variant": "emphasis" },
+    { "id": "probe-to-media", "from": "probe", "to": "media_proto", "label": "Canonical Path" },
+    { "id": "probe-to-analyze", "from": "probe", "to": "analyze", "label": "Decode PCM", "fromSide": "top", "toSide": "bottom", "labelDy": -60 },
+    { "id": "probe-to-art", "from": "probe", "to": "art_thumb", "label": "Cover Bytes", "fromSide": "bottom", "toSide": "top", "labelDy": 58 },
+    { "id": "analyze-to-db", "from": "analyze", "to": "db", "label": "LUFS/Peaks" },
+    { "id": "db-to-main", "from": "db", "to": "main_ui", "label": "IPC Snapshot" },
+    { "id": "media-to-audio", "from": "media_proto", "to": "audio_graph", "label": "Byte Stream", "variant": "security" },
+    { "id": "audio-to-main", "from": "audio_graph", "to": "main_ui", "label": "32-Band FFT", "fromSide": "top", "toSide": "bottom", "labelDy": -60 },
+    { "id": "audio-to-widget", "from": "audio_graph", "to": "widget_ui", "label": "30 Hz Sync", "variant": "emphasis" },
+    { "id": "layout-to-widget", "from": "layout_studio", "to": "widget_ui", "label": "Rotate Math", "variant": "dashed", "fromSide": "right", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Single Audio Owner", "items": ["Main Window (1200x760) owns the sole <audio> and WebAudio DSP graph", "Widget Window (400x260) is a zero-decode pure viewer and controller"] },
+    { "dot": "emerald", "title": "Rust v1.1 Engine", "items": ["Single-pass probe for FLAC, WAV, MP3, M4A, AIFF, WavPack", "BS.1770 LUFS loudness, true peak, and spectral transcode forensics", "256px Lanczos3 thumbnail cache and OKLab WCAG AA palette extraction"] },
+    { "dot": "rose", "title": "Rotatable Layout Studio", "items": ["Direct-manipulation move, resize, and arbitrary-angle rotate(deg)", "Inverse-rotation pointer projection keeps rotated sliders accurate"] }
+  ]
+}

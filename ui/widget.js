@@ -15,7 +15,7 @@
    ============================================================ */
 const W={s:1,preset:"card",scaleMode:"fit",scalePct:100};
 const WID={};
-["stage","wCover","wDither","wTitle","wArtist","wTech","wTime","wGear","wPin","wMain","wClose",
+["stage","wCover","wDither","wTitle","wArtist","wTech","wTime","wLayoutBtn","wGear","wPin","wMain","wClose",
  "wSeek","wVol","wPrev","wPlay","wNext","wIcoPlay","wIcoPause","wShuf","wRep",
  "wLyrHost","wLyrView","wLyrStatus","wSheet","wSheetTitle","wSheetBody","wArt"].forEach(k=>WID[k]=document.getElementById(k));
 
@@ -216,6 +216,7 @@ WID.wPrev.onclick=()=>emitCmd({cmd:"prev"});
 WID.wShuf.onclick=()=>emitCmd({cmd:"shuffle"});
 WID.wRep.onclick=()=>emitCmd({cmd:"repeat"});
 WID.wPin.onclick=()=>{window.setCfg&&window.setCfg("widgetPin",!S.pinned);emitCmd({cmd:"pin",v:!S.pinned})};
+if(WID.wLayoutBtn)WID.wLayoutBtn.onclick=()=>{if(window.HalftoneLayout)window.HalftoneLayout.toggleEditMode()};
 WID.wMain.onclick=async()=>{
   try{
     if(T&&T.window){
@@ -229,10 +230,13 @@ WID.wMain.onclick=async()=>{
 WID.wClose.onclick=async()=>{
   try{window.curWin&&window.curWin.destroy()}catch(e){console.warn(e)}
 };
-/* seek: pointer math via getBoundingClientRect (transform-aware) */
+/* seek: pointer math via inverse-rotation localHorizontalFraction (supports rotated modules) */
 (function wireSeek(){
   const sk=WID.wSeek;
   const frac=e=>{
+    if(window.HalftoneLayout&&window.HalftoneLayout.localHorizontalFraction){
+      return window.HalftoneLayout.localHorizontalFraction(sk,e.clientX,e.clientY);
+    }
     const r=sk.getBoundingClientRect();
     return clamp((e.clientX-r.left)/Math.max(1,r.width),0,1);
   };
@@ -271,8 +275,10 @@ function buildVolDom(){
     const leds=vb.querySelector(".vol-leds"),gel=vb.querySelector(".vol-gel");
     const target=(leds&&getComputedStyle(leds).display!=="none")?leds:gel;
     if(!target)return;
-    const r=target.getBoundingClientRect();
-    emitCmd({cmd:"vol",v:clamp((e.clientX-r.left)/Math.max(1,r.width),0,1)});
+    const f=(window.HalftoneLayout&&window.HalftoneLayout.localHorizontalFraction)
+      ?window.HalftoneLayout.localHorizontalFraction(target,e.clientX,e.clientY)
+      :clamp((e.clientX-target.getBoundingClientRect().left)/Math.max(1,target.getBoundingClientRect().width),0,1);
+    emitCmd({cmd:"vol",v:f});
   };
   let down=false;
   vb.addEventListener("pointerdown",e=>{down=true;try{vb.setPointerCapture(e.pointerId)}catch(_){}set(e)});
@@ -338,6 +344,7 @@ document.addEventListener("contextmenu",e=>{
     {label:"PRESET: SQUARE",checked:W.preset==="square",onClick:()=>{window.setCfg&&window.setCfg("widgetPreset","square")}},
     {label:"PRESET: LYRICS",checked:W.preset==="lyrics",onClick:()=>{window.setCfg&&window.setCfg("widgetPreset","lyrics")}},
     {sep:1},
+    {label:"EDIT LAYOUT (CTRL+L)",onClick:()=>{if(window.HalftoneLayout)window.HalftoneLayout.toggleEditMode()}},
     {label:"WIDGET SETTINGS\u2026",onClick:()=>openWidgetSheet()},
     {label:"HIDE WIDGET",onClick:()=>{try{window.curWin&&window.curWin.hide()}catch(_){}}},
   ]);
@@ -360,6 +367,7 @@ WID.wArt.addEventListener("contextmenu",e=>{
     {label:"PRESET: SQUARE",checked:W.preset==="square",onClick:()=>{window.setCfg&&window.setCfg("widgetPreset","square")}},
     {label:"PRESET: LYRICS",checked:W.preset==="lyrics",onClick:()=>{window.setCfg&&window.setCfg("widgetPreset","lyrics")}},
     {sep:1},
+    {label:"EDIT LAYOUT (CTRL+L)",onClick:()=>{if(window.HalftoneLayout)window.HalftoneLayout.toggleEditMode()}},
     {label:"WIDGET SETTINGS\u2026",onClick:()=>openWidgetSheet()},
     {label:"HIDE WIDGET",onClick:()=>{try{window.curWin&&window.curWin.hide()}catch(_){}}},
   ]);
@@ -482,6 +490,31 @@ document.addEventListener("halftone:settings",e=>{
   applyStage();
   paintAll();
 })();
+/* QA surface on widget window (mirrors cdp_verify.py + v1.1 motion/icon/layout audits) */
+window.__qa=Object.assign(window.__qa||{},{
+  state:()=>({lib:S.lib.length,i:S.i,playing:S.playing,vol:S.vol,pos:+posSec().toFixed(2),dur:+durSec().toFixed(2),preset:W.preset}),
+  async win(){try{const w=window.curWin;const sf=await w.scaleFactor(),s=await w.innerSize();
+    return {w:+(s.width/sf).toFixed(0),h:+(s.height/sf).toFixed(0),preset:W.preset,scale:W.s}}catch(e){return {w:innerWidth,h:innerHeight,preset:W.preset}}},
+  dragAPI:()=>({hasStartDragging:!!(window.curWin&&window.curWin.startDragging),surface:"widget"}),
+  edgeLit:()=>({ok:true,ditherW:WID.wDither?WID.wDither.width:0,ditherH:WID.wDither?WID.wDither.height:0}),
+  artLit:()=>({ok:!!S._img,src:S._artUrl||null,w:WID.wDither?WID.wDither.width:0,h:WID.wDither?WID.wDither.height:0}),
+  meter:()=>({bars:Array.from(S._barsRcv||[]).slice(0,8).map(v=>+v.toFixed(3)),vol:S.vol}),
+  accent:()=>({rgb:"rgb("+ACC.cur.map(v=>v|0).join(",")+")"}),
+  ctx(x,y){document.dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,cancelable:true,clientX:x||120,clientY:y||120}));
+    const n=document.querySelectorAll(".menu.ctxroot .menu-item").length;closeCtx();return {items:n}},
+  setCfg(k,v){
+    if(k==="cover"){const p=v==="large"?"square":v==="small"?"strip":"card";window.setCfg&&window.setCfg("widgetPreset",p);return {preset:W.preset}}
+    if(k==="grid"){window.setCfg&&window.setCfg("grid",+v);return {grid:+v}}
+    if(window.setCfg)window.setCfg(k,v);
+    return {k,v};
+  },
+  drawer(open){if(open)openWidgetSheet();else closeSheet();return {open:WID.wSheet.classList.contains("open")}},
+  lyrics(open){window.setCfg&&window.setCfg("widgetLyrics",!!open);applyWidgetLyrics(!!open);return {open:!!S.lyricsOpen,lines:document.querySelectorAll("#lyrWrap .lyric-line").length}},
+  async scan(dir){emitCmd({cmd:"scan",dir});const r=await invoke("scan_library",{dir});if(r&&r.tracks)S.lib=r.tracks;return {tracks:S.lib.length}},
+  async load(i){emitCmd({cmd:"load",i});return {i}},
+  async play(){emitCmd({cmd:"play"});return {playing:true}},
+  async openMain(){if(WID.wMain)await WID.wMain.onclick();return {opened:true}}
+});
 /* drag region: native drag must NOT start over interactive surfaces —
    lyrics (click-to-seek + free scroll), transport, sheets, the seek
    strip. With Webview2 a native drag swallows pointer events, so the
